@@ -33,7 +33,25 @@ python simulate.py --target "text:NO CAMERAS" --out-dir runs/demo
 python reconstruct.py --session runs/demo
 ```
 
-## Run a live session (Muse)
+## Run a live session — option A: MuseLog app (OSC over Wi-Fi)
+
+Uses your own MuseLog app (`museai`) as the
+acquisition hub — no PC Bluetooth needed.
+
+1. Phone and PC on the **same network**. PC Wi-Fi IP: `10.0.0.187` (check with
+   `ipconfig` if it changed; on iPhone hotspot the PC gets a `172.20.10.x` IP).
+2. Terminal A: `python osc_acquire.py --session runs/live1` (listens on UDP
+   5000; prints a packet counter so you can see arrival).
+3. In MuseLog: connect the Muse → OSC Streaming Settings → Target IP =
+   the PC IP above, Port = 5000, Format = **SnowballArcade** (that's the one
+   that includes raw `/muse/eeg`), enable **Full-rate raw EEG** → Start
+   Streaming. The counter in terminal A must start moving.
+4. Terminal B: `python stimulus.py --target "text:NO" --session runs/live1 --seconds-per-cell 6`
+5. `python reconstruct.py --session runs/live1` (sample rate is inferred from
+   timestamps, so decimated ~64 Hz streams also work — verified by
+   `python osc_gate.py`).
+
+## Run a live session — option B: muselsl (LSL over PC Bluetooth)
 
 1. Stream the Muse to LSL — one of:
    - `pip install muselsl` then `muselsl stream` (Windows: needs the bleak

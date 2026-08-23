@@ -54,27 +54,36 @@ def load_session(session_dir, channels):
 
 def ssvep_score(segment, fs):
     """Relative SSVEP power of one EEG segment."""
-    if len(segment) < config.PSD_NPERSEG:
+    nperseg = int(round(fs))  # 1-second segments -> 1 Hz bins at any rate
+    if len(segment) < nperseg:
         return np.nan
-    nper = min(config.PSD_NPERSEG, len(segment))
-    freqs, psd = welch(segment, fs=fs, nperseg=nper)
+    freqs, psd = welch(segment, fs=fs, nperseg=nperseg)
     df = freqs[1] - freqs[0]
 
     def band_power(lo, hi):
         m = (freqs >= lo) & (freqs <= hi)
         return psd[m].sum() * df
 
+    nyquist = fs / 2
     f0, f1 = config.STIM_FREQ_HZ, config.HARMONIC_HZ
-    sig_p = band_power(f0 - 0.6, f0 + 0.6) + band_power(f1 - 0.6, f1 + 0.6)
+    sig_p = band_power(f0 - 0.6, f0 + 0.6)
+    if f1 < nyquist - 1:
+        sig_p += band_power(f1 - 0.6, f1 + 0.6)
     lo, hi = config.NOISE_BAND
-    total = band_power(lo, hi)
+    total = band_power(lo, min(hi, nyquist - 1))
     denom = total - sig_p  # broadband minus the stimulus bins
     if denom <= 0:
         return np.nan
     return sig_p / denom
 
 
-def reconstruct(eeg_t, sig, cur_t, gx, gy, fs=config.FS):
+def reconstruct(eeg_t, sig, cur_t, gx, gy, fs=None):
+    if fs is None:
+        # Infer the actual rate: MuseLog OSC arrives at ~64 Hz (decimated),
+        # LSL/simulated sessions at 256 Hz.
+        fs = 1.0 / np.median(np.diff(eeg_t))
+        print(f"inferred EEG rate: {fs:.1f} Hz")
+    nperseg = int(round(fs))
     grid_w, grid_h = gx.max() + 1, gy.max() + 1
     acc = np.zeros((grid_h, grid_w))
     cnt = np.zeros((grid_h, grid_w))
@@ -89,10 +98,10 @@ def reconstruct(eeg_t, sig, cur_t, gx, gy, fs=config.FS):
         i0 = np.searchsorted(eeg_t, t0)
         i1 = np.searchsorted(eeg_t, t1)
         # Pad the window so short dwells still give >= one PSD segment.
-        need = config.PSD_NPERSEG - (i1 - i0)
+        need = nperseg - (i1 - i0)
         if need > 0:
             i0 = max(0, i0 - need // 2)
-            i1 = min(len(sig), i0 + config.PSD_NPERSEG)
+            i1 = min(len(sig), i0 + nperseg)
         score = ssvep_score(sig[i0:i1], fs)
         if not np.isnan(score):
             acc[gy[s], gx[s]] += score
