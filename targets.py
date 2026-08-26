@@ -45,8 +45,8 @@ def image_target(path, grid_w=None, grid_h=None):
     return np.asarray(img, dtype=float) / 255.0
 
 
-def load_target(spec):
+def load_target(spec, grid_w=None, grid_h=None):
     """spec: 'text:NO CAMERAS' or a path to an image file."""
     if spec.startswith("text:"):
-        return text_target(spec[5:])
-    return image_target(spec)
+        return text_target(spec[5:], grid_w, grid_h)
+    return image_target(spec, grid_w, grid_h)

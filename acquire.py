@@ -13,6 +13,7 @@ Ctrl+C to stop.
 import argparse
 import csv
 import os
+import time
 
 from pylsl import StreamInlet, resolve_byprop
 
@@ -22,6 +23,12 @@ def main():
     ap.add_argument("--session", default=os.path.join("runs", "live1"))
     ap.add_argument("--duration", type=float, default=0,
                     help="seconds to record; 0 = until Ctrl+C")
+    ap.add_argument("--stop-file", default="",
+                    help="exit cleanly when this file appears")
+    ap.add_argument("--append", action="store_true",
+                    help="append to existing CSV (crash-resume)")
+    ap.add_argument("--max-seconds", type=float, default=14400,
+                    help="absolute runtime cap (orphan protection)")
     args = ap.parse_args()
     os.makedirs(args.session, exist_ok=True)
 
@@ -42,11 +49,19 @@ def main():
     path = os.path.join(args.session, "eeg.csv")
     n = 0
     t0 = None
-    with open(path, "w", newline="") as f:
+    mode = "a" if args.append else "w"
+    had_data = args.append and os.path.exists(path) and os.path.getsize(path) > 0
+    with open(path, mode, newline="", buffering=1) as f:
         w = csv.writer(f)
-        w.writerow(["time"] + names)
+        if not had_data:
+            w.writerow(["time"] + names)
+        t_launch = time.monotonic()
         try:
             while True:
+                if args.stop_file and os.path.exists(args.stop_file):
+                    break
+                if time.monotonic() - t_launch > args.max_seconds:
+                    break
                 chunk, ts = inlet.pull_chunk(timeout=1.0)
                 for row, t in zip(chunk, ts):
                     w.writerow([f"{t:.6f}"] + [f"{v:.4f}" for v in row])

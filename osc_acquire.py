@@ -61,6 +61,12 @@ def main():
     ap.add_argument("--port", type=int, default=5000)
     ap.add_argument("--duration", type=float, default=0,
                     help="seconds to record; 0 = until Ctrl+C")
+    ap.add_argument("--stop-file", default="",
+                    help="exit cleanly when this file appears")
+    ap.add_argument("--append", action="store_true",
+                    help="append to existing CSVs (crash-resume)")
+    ap.add_argument("--max-seconds", type=float, default=14400,
+                    help="absolute runtime cap (orphan protection)")
     args = ap.parse_args()
     os.makedirs(args.session, exist_ok=True)
 
@@ -78,14 +84,31 @@ def main():
     t_start = None
     last_report = time.monotonic()
 
-    with open(eeg_path, "w", newline="") as fe, \
-         open(bp_path, "w", newline="") as fb:
+    mode = "a" if args.append else "w"
+
+    def has_rows(path):
+        return args.append and os.path.exists(path) and os.path.getsize(path) > 0
+
+    eeg_had_data = has_rows(eeg_path)
+    bp_had_data = has_rows(bp_path)
+
+    # buffering=1 (line-buffered): rows must be visible to live tailers
+    # within a sample period, not stuck in an 8 KB stdio buffer.
+    with open(eeg_path, mode, newline="", buffering=1) as fe, \
+         open(bp_path, mode, newline="", buffering=1) as fb:
         we = csv.writer(fe)
-        we.writerow(["time", "TP9", "AF7", "AF8", "TP10"])
+        if not eeg_had_data:
+            we.writerow(["time", "TP9", "AF7", "AF8", "TP10"])
         wb = csv.writer(fb)
-        wb.writerow(["time", "address", "delta", "theta", "alpha", "beta"])
+        if not bp_had_data:
+            wb.writerow(["time", "address", "delta", "theta", "alpha", "beta"])
+        t_launch = time.monotonic()
         try:
             while True:
+                if args.stop_file and os.path.exists(args.stop_file):
+                    break
+                if time.monotonic() - t_launch > args.max_seconds:
+                    break
                 try:
                     data, _ = sock.recvfrom(4096)
                 except socket.timeout:
