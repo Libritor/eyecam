@@ -1,0 +1,145 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EyeCamXR Spectator</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0b0d10; color: #d7dade;
+         font: 14px/1.45 system-ui, sans-serif; }
+  header { padding: 14px 20px; border-bottom: 1px solid #22262c;
+           display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; color: #fff; }
+  #stage { color: #7dc4ff; }
+  #conn { margin-left: auto; color: #8a8f98; }
+  main { display: grid; grid-template-columns: minmax(280px, 1fr) 300px;
+         gap: 20px; padding: 20px; max-width: 1100px; }
+  canvas { width: 100%; image-rendering: pixelated; background: #000;
+           border: 1px solid #22262c; border-radius: 6px; }
+  .side h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
+             color: #8a8f98; margin: 18px 0 6px; }
+  .side h2:first-child { margin-top: 0; }
+  #meta, #calib { white-space: pre-wrap; font-family: ui-monospace, monospace;
+                  font-size: 12px; }
+  #rate { font-size: 26px; color: #fff; font-variant-numeric: tabular-nums; }
+  #log { font-family: ui-monospace, monospace; font-size: 11px;
+         color: #8a8f98; max-height: 180px; overflow-y: auto; }
+  .ok { color: #6fd68b; } .warn { color: #f2b04c; }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>EyeCamXR</h1>
+  <span id="stage">waiting for session…</span>
+  <span id="conn">connecting</span>
+</header>
+<main>
+  <div>
+    <canvas id="grid" width="12" height="8"></canvas>
+  </div>
+  <div class="side">
+    <h2>Session</h2><div id="meta">—</div>
+    <h2>EEG rate</h2><div id="rate">— Hz</div>
+    <h2>Calibration</h2><div id="calib">—</div>
+    <h2>Log</h2><div id="log"></div>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const canvas = $("grid"), ctx = canvas.getContext("2d");
+let gw = 12, gh = 8;
+let scores = null, lo = 0, hi = 1;
+let cursor = null, cursorSeen = 0;
+
+function resizeGrid(w, h) {
+  if (w === gw && h === gh && scores) return;
+  gw = w; gh = h;
+  canvas.width = w; canvas.height = h;
+  scores = new Float64Array(w * h).fill(NaN);
+}
+
+function rescale() {
+  const vals = [...scores].filter(v => !Number.isNaN(v));
+  if (vals.length < 3) { lo = 0; hi = 1; return; }
+  vals.sort((a, b) => a - b);
+  lo = vals[Math.floor(vals.length * 0.02)];
+  hi = vals[Math.min(vals.length - 1, Math.floor(vals.length * 0.98))];
+  if (hi - lo < 1e-12) hi = lo + 1e-12;
+}
+
+function draw() {
+  if (!scores) return;
+  rescale();
+  const img = ctx.createImageData(gw, gh);
+  for (let i = 0; i < gw * gh; i++) {
+    const v = scores[i];
+    const g = Number.isNaN(v) ? 24
+      : Math.round(255 * Math.min(1, Math.max(0, (v - lo) / (hi - lo))));
+    img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = g;
+    img.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  if (cursor && performance.now() - cursorSeen < 1500) {
+    ctx.fillStyle = cursor.fl ? "rgba(255,220,60,0.9)" : "rgba(80,120,255,0.7)";
+    ctx.fillRect(cursor.gx, cursor.gy, 1, 1);
+  }
+}
+setInterval(draw, 100);
+
+function onMsg(m) {
+  switch (m.type) {
+    case "hello":
+      resizeGrid(m.gridW, m.gridH);
+      $("meta").textContent =
+        `mode ${m.mode}  ·  ${m.ch}ch @ ${m.fs} Hz\n` +
+        `grid ${m.gridW}×${m.gridH}  ·  flicker ${m.freq} Hz\n` +
+        `refresh ${m.refresh > 0 ? m.refresh + " Hz" : "?"}`;
+      break;
+    case "stage":
+      $("stage").textContent = m.stage + (m.detail ? " — " + m.detail : "");
+      break;
+    case "cursor":
+      cursor = m; cursorSeen = performance.now();
+      break;
+    case "row":
+      if (scores) for (let x = 0; x < m.scores.length; x++)
+        scores[m.y * gw + x] = m.scores[x];
+      break;
+    case "grid":
+      resizeGrid(m.w, m.h);
+      for (let i = 0; i < m.scores.length; i++) scores[i] = m.scores[i];
+      break;
+    case "eeg":
+      $("rate").textContent = m.rate.toFixed(0) + " Hz";
+      $("rate").className = m.rate > 40 ? "ok" : "warn";
+      break;
+    case "calib":
+      $("calib").textContent =
+        (m.passed ? "PASSED" : "WEAK") + `  best ${m.best}\n` +
+        `weights ${m.weights.map(w => w.toFixed(2)).join(" ")}`;
+      $("calib").className = m.passed ? "ok" : "warn";
+      break;
+    case "log": {
+      const div = document.createElement("div");
+      div.textContent = m.msg;
+      $("log").prepend(div);
+      break;
+    }
+  }
+}
+
+function connect() {
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => { $("conn").textContent = "live"; $("conn").className = "ok"; };
+  ws.onmessage = ev => { try { onMsg(JSON.parse(ev.data)); } catch {} };
+  ws.onclose = () => {
+    $("conn").textContent = "reconnecting…"; $("conn").className = "warn";
+    setTimeout(connect, 2000);
+  };
+}
+connect();
+</script>
+</body>
+</html>
