@@ -1,0 +1,121 @@
+\documentclass[conference]{IEEEtran}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{url}
+
+% ============================================================================
+% EyeCamXR: The Human Eye as a Camera in Extended Reality
+% Skeleton — populate results sections ONLY from measured session artifacts
+% (session.json / calibration.json). Novelty guardrails from the 2026-09
+% literature review are embedded as comments; do not delete them.
+% ============================================================================
+
+\title{EyeCamXR: The Human Eye as a Camera in Shared Extended Reality}
+
+\author{\IEEEauthorblockN{Alexander Vicol and Steve Mann}
+\IEEEauthorblockA{Department of Electrical and Computer Engineering,
+University of Toronto, Toronto, Canada\\
+alexander.vicol@mail.utoronto.ca, mann@eecg.toronto.edu}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+% TODO after live sessions. Structure:
+% (1) We port SSVEP-based reconstruction of viewed imagery (Mann et al.,
+%     HealthCom 2019) into a standalone VR headset (Meta Quest 3S) with
+%     consumer EEG (Muse 2 / Muse S / Muse S Athena over native BLE);
+% (2) frame-exact flicker at 120 Hz with delivered-frequency verification;
+% (3) a per-subject calibration gate that measures SSVEP contrast (and the
+%     auxiliary-Oz vs.\ behind-the-ear TP9/TP10 gain) before scanning;
+% (4) shared-XR spectation: the image reconstructs progressively on
+%     spectators' screens/headsets as the participant's brain responds;
+% (5) results: phantom-validated pipeline (r = X), live sessions (r = Y).
+\end{abstract}
+
+\section{Introduction}
+% Lineage: Mann et al., "The Human Eye as a Camera," IEEE HealthCom 2019 --
+% flickering stimulus at 12/15 Hz, SSVEP relative power (15+30 Hz over
+% 14-50 Hz) at each gaze position = pixel; auxiliary Oz electrode on a Muse.
+% NOVELTY GUARDRAILS (verified 2026-09-11):
+%  - SAFE: first SSVEP imaging inside an HMD; first Quest-family SSVEP study.
+%  - NOT novel: harmonic fusion (Garcia, Zheng & Mann, IEEE NER 2021);
+%    lock-in detection (Garcia et al., SIBGRAPI 2020) -- cite both.
+%  - MUST cite and distinguish: Wang, Huang, Muckli, Faccio, npj Biomedical
+%    Innovations 2026 (imagined-image drawing via frequency-multiplexed
+%    SSVEP, single Oz channel; imagined, not viewed; does not cite Mann).
+%  - Distinguish from learned generative EEG-to-image decoding (e.g.
+%    arXiv:2308.13234, Alljoined1): ours is a per-pixel physical measurement,
+%    not a learned prior.
+
+\section{Background and Related Work}
+% - SSVEP in HMDs: Koo et al. EMBC 2015 (VR-HMD SSVEP viable, ITR +10%);
+%   Frontiers Neurosci 2024 (PICO Neo3, black-frame insertion degrades
+%   spectral purity); Frontiers Neurosci 2026 (Vision Pro, f = 90/n
+%   constraint; MR vs VR SNR 1.43 vs 0.58 dB; accuracy falls with depth).
+% - Frequency mislabeling costs 20+ pp (XR timing compensation, HoloLens/
+%   Moverio study) -> motivates our delivered-frequency measurement.
+% - Behind-the-ear vs occipital SSVEP: Chang et al., Sensors 18(2):615, 2018.
+% - Muse aux input: 4 EEG + 2 amplified aux channels (Muse S spec);
+%   Athena 8-channel presets (empirical channel count reported here).
+
+\section{System}
+\subsection{Architecture}
+% Quest 3S Unity app (all-in-one): native libmuse BLE (model-aware presets:
+% PRESET_20/21 classic, PRESET_1021/1022 Athena; runtime EegChannelCount
+% probe) OR OSC from the MuseLog phone app; on-device DSP is a bin-exact
+% port of the reference pipeline (golden-vector parity <= 1e-9 vs
+% scipy.signal.welch); spectator bridge (UDP JSON -> WebSocket) streams the
+% progressive reconstruction to any browser, including a second headset.
+\subsection{Stimulus}
+% Region-serial guided cursor (whole-image flicker fails: peripheral SSVEP
+% contamination, Mann et al. 2019 Sec. III). 120 Hz refresh: 4 frames on /
+% 4 off = exactly 15 Hz; 12 Hz (10-frame period) and the 30 Hz harmonic are
+% also frame-exact -- the only Quest 3S rate with this property.
+% Delivered flicker frequency is re-measured from logged frame timestamps;
+% sessions gate on |measured - nominal| <= 0.1 Hz and dropped frames < 1%.
+\subsection{Calibration and artifact handling}
+% 6 x (7 s ON / 7 s OFF) blocks; per-channel robust d' on relative SSVEP
+% power; scan refused unless best d' >= 1.0, on/off ratio >= 1.3, rank
+% >= 5/6. Weights = normalized (ratio - 1) over admitted channels.
+% Per-segment median baseline + MAD-floored sigma clipping; cell-channels
+% with > 20% clipped samples dropped (blink/motion).
+
+\section{Validation Without a Subject}
+% Phantom subject: real-time synthetic observer that tails the live stimulus
+% logs and injects SSVEP at the MEASURED flicker rate over real UDP, with
+% asymmetric channel SNR (temporal >> frontal) and minutes-scale electrode
+% drift. Laptop reference: full-stack gate r = 0.849. Unity port: Play-Mode
+% phantom gate r = [TODO]; on-device phantom-at-Quest r = [TODO].
+
+\section{Live Results}
+% TODO: n subjects, TP9/TP10-only vs aux-Oz d' comparison table (this
+% comparison on a Muse is itself unreported in the literature), example
+% reconstructions with r, scan durations per preset.
+
+\section{Shared XR Spectation}
+% Progressive row-by-row build-up on spectators' displays; late-join replay;
+% message schema versioned for a native spectator headset app.
+
+\section{Limitations and Future Work}
+% - LCD low-persistence strobing: flicker is an amplitude envelope on the
+%   display's own strobe; we report measured spectra, photodiode validation
+%   is future work.
+% - Color: sequential per-color-calibrated R/G/B passes (chromatic SSVEP
+%   gain differs per color and interacts with frequency -- Sensors 2018);
+%   frequency-multiplexed RGB (12/15/20 Hz, harmonics non-colliding at
+%   120 Hz) as future single-pass mode.
+% - Audio ("ear as a microphone"): 40 Hz AM-tone ASSR is minutes-scale at
+%   useful SNR; a Muse ASSR validation would itself be novel. Framed as a
+%   slow envelope demonstration, never real-time audio.
+% - Chirplet-transform VEP estimation (ACT) as the next detector.
+
+\section{Ethics and Data Sharing}
+% REB status; recordings exportable as CSV (MuseLog-compatible schema);
+% no audio/video of bystanders; participant consent for shared spectation.
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}
