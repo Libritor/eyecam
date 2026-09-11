@@ -1,0 +1,172 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EyeCamXR Browser Stimulus</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #ccc;
+               font: 16px system-ui, sans-serif; overflow: hidden; }
+  #cv { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  #hud { position: fixed; top: 12px; left: 0; right: 0; text-align: center;
+         pointer-events: none; text-shadow: 0 1px 3px #000; }
+  #hud b { color: #fff; font-size: 20px; }
+  #hud div { margin-top: 4px; font-size: 14px; color: #9aa0a8; }
+  #result { position: fixed; inset: 0; display: none; flex-direction: column;
+            align-items: center; justify-content: center; gap: 14px; }
+  #result img { image-rendering: pixelated; width: min(70vw, 60vh);
+                border: 1px solid #333; }
+  .ok { color: #6fd68b !important; } .warn { color: #f2b04c !important; }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="hud"><b id="title">EyeCamXR</b><div id="sub">connecting…</div></div>
+<div id="result"><img id="rimg"><b id="rtext"></b></div>
+<script>
+"use strict";
+// Buzzkill-style plain canvas page: the PC driver (xr_session.py) commands
+// stages over WebSocket; the page renders the flicker locally (time-locked,
+// exact at any refresh rate) and streams one row per rAF frame back.
+// Open in Quest Browser (or any browser) — ?auto=1 needs no input at all.
+
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+const title = document.getElementById("title"), sub = document.getElementById("sub");
+const resultBox = document.getElementById("result");
+let ws = null, running = null;
+
+function fit() { cv.width = innerWidth * devicePixelRatio; cv.height = innerHeight * devicePixelRatio; }
+addEventListener("resize", fit); fit();
+
+function black() { ctx.fillStyle = "#000"; ctx.fillRect(0, 0, cv.width, cv.height); }
+
+function dot(x, y) {
+  ctx.fillStyle = "#fff";
+  ctx.beginPath(); ctx.arc(x, y, 5 * devicePixelRatio, 0, 7); ctx.fill();
+}
+
+function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+const now = () => performance.now() / 1000;
+const flickerOn = (t, f) => Math.floor(t * 2 * f) % 2 === 0;
+
+// ---- stages (each is an async rAF loop; `running` token cancels) ----
+
+async function runCalib(m) {
+  hideResult(); title.textContent = "CALIBRATION";
+  const tok = running = {};
+  const size = Math.min(cv.width, cv.height) * 0.38;
+  for (let b = 0; b < m.blocks && running === tok; b++) {
+    for (const on of [true, false]) {
+      send({ type: "block", b, on, phase: "start" });
+      sub.textContent = `block ${b + 1}/${m.blocks} ${on ? "ON" : "OFF"}`;
+      const t0 = now();
+      const dur = on ? m.onS : m.offS;
+      while (now() - t0 < dur && running === tok) {
+        await frame();
+        const t = now();
+        const fl = on && flickerOn(t, m.freq);
+        black();
+        if (on) {
+          ctx.fillStyle = fl ? "#ffff00" : "#0000ff";
+          ctx.fillRect((cv.width - size) / 2, (cv.height - size) / 2, size, size);
+        }
+        dot(cv.width / 2, cv.height / 2);
+        send({ type: "frame", stage: "calib", pt: t, gx: -1, gy: -1,
+               lum: on ? 1 : 0, fl: fl ? 1 : 0 });
+      }
+      send({ type: "block", b, on, phase: "end" });
+    }
+  }
+  black();
+  send({ type: "calib_done" });
+}
+
+async function runScan(m) {
+  hideResult(); title.textContent = ""; sub.textContent = "";
+  const tok = running = {};
+  const gw = m.gridW, gh = m.gridH, target = m.target;
+  // board: centered, 84% of the smaller span, aspect from grid
+  const bw = Math.min(cv.width, cv.height * gw / gh) * 0.84;
+  const bh = bw * gh / gw;
+  const x0 = (cv.width - bw) / 2, y0 = (cv.height - bh) / 2;
+  const cwid = bw / gw, chgt = bh / gh;
+  for (let gy = 0; gy < gh && running === tok; gy++) {
+    const xs = [...Array(gw).keys()];
+    if (gy % 2 === 1) xs.reverse();
+    for (const gx of xs) {
+      const lum = target[gy][gx];
+      const t0 = now();
+      while (now() - t0 < m.spc && running === tok) {
+        await frame();
+        const t = now();
+        const fl = lum > 0.05 && flickerOn(t, m.freq);
+        black();
+        if (lum > 0.05) {
+          const shade = Math.round(255 * (0.3 + 0.7 * lum));
+          ctx.fillStyle = fl ? `rgb(${shade},${shade},0)` : `rgb(0,0,${shade})`;
+          ctx.fillRect(x0 + gx * cwid, y0 + gy * chgt, cwid, chgt);
+        }
+        dot(x0 + (gx + 0.5) * cwid, y0 + (gy + 0.5) * chgt);
+        send({ type: "frame", stage: "scan", pt: t, gx, gy,
+               lum, fl: fl ? 1 : 0 });
+      }
+      if (running !== tok) break;
+    }
+    send({ type: "row", y: gy });
+  }
+  black();
+  send({ type: "scan_done" });
+}
+
+function showSignal(m) {
+  hideResult();
+  title.textContent = "SIGNAL CHECK";
+  title.className = m.stable ? "ok" : "warn";
+  sub.innerHTML = `EEG ${m.rate.toFixed(0)} Hz — ` +
+    (m.ready ? "starting…" : `stream /muse/eeg to <b>${m.oscTarget}</b>` +
+    " (Mind Monitor or MuseLog)");
+}
+
+function showCalibResult(m) {
+  title.textContent = m.passed ? "SSVEP DETECTED" : "WEAK SSVEP";
+  title.className = m.passed ? "ok" : "warn";
+  sub.textContent = m.table;
+}
+
+function showResult(m) {
+  running = null; black();
+  title.textContent = "RESULT"; title.className = "";
+  sub.textContent = "";
+  document.getElementById("rimg").src = m.png;
+  const rt = document.getElementById("rtext");
+  rt.textContent = `r = ${m.r.toFixed(3)}   flicker ${m.flickerHz.toFixed(2)} Hz`;
+  rt.className = m.r >= 0.6 ? "ok" : "warn";
+  resultBox.style.display = "flex";
+}
+
+function hideResult() { resultBox.style.display = "none"; }
+const frame = () => new Promise(requestAnimationFrame);
+
+function connect() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onopen = () => { sub.textContent = "connected — waiting for driver"; send({ type: "hello", ua: navigator.userAgent, auto: location.search.includes("auto=1") ? 1 : 0 }); };
+  ws.onclose = () => { running = null; sub.textContent = "driver disconnected — retrying"; setTimeout(connect, 2000); };
+  ws.onmessage = ev => {
+    let m; try { m = JSON.parse(ev.data); } catch { return; }
+    switch (m.cmd) {
+      case "signal": showSignal(m); break;
+      case "start_calib": runCalib(m); break;
+      case "calib_result": showCalibResult(m); break;
+      case "start_scan": runScan(m); break;
+      case "result": showResult(m); break;
+      case "msg": sub.textContent = m.text; break;
+    }
+  };
+}
+black(); connect();
+// keep the screen awake where supported (Quest Browser honors this)
+if (navigator.wakeLock) navigator.wakeLock.request("screen").catch(() => {});
+</script>
+</body>
+</html>
