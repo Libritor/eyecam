@@ -124,17 +124,21 @@ async def ws_handler(ws):
         CLIENTS.discard(ws)
 
 
-async def http_page(path, request_headers):
-    """Serve spectator.html on plain GET (websockets' process_request hook)."""
-    target = getattr(path, "path", path)  # websockets>=12 passes a Request
-    if isinstance(target, str) and not target.startswith("/ws"):
-        page = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            "spectator.html")
-        with open(page, "rb") as f:
-            body = f.read()
-        return (200, [("Content-Type", "text/html; charset=utf-8"),
-                      ("Content-Length", str(len(body)))], body)
-    return None
+def http_page(connection, request):
+    """Serve spectator.html on plain GET (websockets>=13 process_request)."""
+    from websockets.datastructures import Headers
+    from websockets.http11 import Response
+    if request.path.startswith("/ws"):
+        return None  # proceed with the WebSocket handshake
+    page = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "spectator.html")
+    with open(page, "rb") as f:
+        body = f.read()
+    return Response(200, "OK", Headers([
+        ("Content-Type", "text/html; charset=utf-8"),
+        ("Content-Length", str(len(body))),
+        ("Connection", "close"),
+    ]), body)
 
 
 def local_ips():
