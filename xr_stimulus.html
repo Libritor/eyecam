@@ -44,30 +44,68 @@ addEventListener("resize", fit); fit();
 function black() { ctx.fillStyle = "#000"; ctx.fillRect(0, 0, cv.width, cv.height); }
 
 function dot(x, y) {
+  // fixation target: white core with a dark ring so it reads on the yellow,
+  // blue and black phases alike — THIS is what the subject's eyes follow
+  const r = 8 * devicePixelRatio;
+  ctx.fillStyle = "#000";
+  ctx.beginPath(); ctx.arc(x, y, r * 1.7, 0, 7); ctx.fill();
   ctx.fillStyle = "#fff";
-  ctx.beginPath(); ctx.arc(x, y, 5 * devicePixelRatio, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
 }
 
 function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
 const now = () => performance.now() / 1000;
-const flickerOn = (t, f) => Math.floor(t * 2 * f) % 2 === 0;
+
+// ---- frame-exact flicker ----
+// Toggling on wall-clock time quantizes to whatever rAF rate the browser
+// runs (Quest Browser 2D pages: 72 Hz), producing jittered 4/5-frame periods
+// (measured 14.43 Hz for a 15 Hz request). Instead: measure the refresh rate,
+// pick the frame-exact frequency nearest the nominal one (>= 13 Hz, above
+// alpha), and toggle by FRAME COUNT. The driver scores at the delivered
+// frequency, which we report.
+let refreshHz = 60, halfFrames = 2, frameCount = 0, actualHz = 15;
+async function measureRefresh() {
+  const t0 = performance.now();
+  for (let i = 0; i < 120; i++) await frame();
+  const raw = 120 / ((performance.now() - t0) / 1000);
+  // snap to a standard panel rate (rAF measurement scatters by ~1-2%)
+  const known = [60, 72, 75, 80, 90, 96, 100, 120, 144];
+  const near = known.reduce((a, b) => Math.abs(b - raw) < Math.abs(a - raw) ? b : a);
+  refreshHz = Math.abs(near - raw) / near < 0.04 ? near : Math.round(raw);
+}
+async function planFlicker(nominal) {
+  await measureRefresh();
+  let best = null;
+  for (let k = 1; k <= 6; k++) {
+    const f = refreshHz / (2 * k);
+    if (f < 13) break;
+    if (!best || Math.abs(f - nominal) < Math.abs(best.f - nominal)) best = { f, k };
+  }
+  if (!best) best = { f: refreshHz / 2, k: 1 };
+  halfFrames = best.k; actualHz = best.f;
+  send({ type: "freq", hz: actualHz, refresh: refreshHz, halfFrames });
+  return actualHz;
+}
+const flickerOn = () => Math.floor(frameCount / halfFrames) % 2 === 0;
 
 // ---- stages (each is an async rAF loop; `running` token cancels) ----
 
 async function runCalib(m) {
   hideResult(); title.textContent = "CALIBRATION";
   const tok = running = {};
+  sub.textContent = "measuring display refresh…";
+  const hz = await planFlicker(m.freq);
   const size = Math.min(cv.width, cv.height) * 0.38;
   for (let b = 0; b < m.blocks && running === tok; b++) {
     for (const on of [true, false]) {
       send({ type: "block", b, on, phase: "start" });
-      sub.textContent = `block ${b + 1}/${m.blocks} ${on ? "ON" : "OFF"}`;
+      sub.textContent = `block ${b + 1}/${m.blocks} ${on ? "ON" : "OFF"}  (${hz.toFixed(1)} Hz @ ${refreshHz} fps)`;
       const t0 = now();
       const dur = on ? m.onS : m.offS;
       while (now() - t0 < dur && running === tok) {
-        await frame();
+        await frame(); frameCount++;
         const t = now();
-        const fl = on && flickerOn(t, m.freq);
+        const fl = on && flickerOn();
         black();
         if (on) {
           ctx.fillStyle = fl ? "#ffff00" : "#0000ff";
@@ -87,6 +125,7 @@ async function runCalib(m) {
 async function runScan(m) {
   hideResult(); title.textContent = ""; sub.textContent = "";
   const tok = running = {};
+  await planFlicker(m.freq);
   const gw = m.gridW, gh = m.gridH, target = m.target;
   // board: centered, 84% of the smaller span, aspect from grid
   const bw = Math.min(cv.width, cv.height * gw / gh) * 0.84;
@@ -100,9 +139,9 @@ async function runScan(m) {
       const lum = target[gy][gx];
       const t0 = now();
       while (now() - t0 < m.spc && running === tok) {
-        await frame();
+        await frame(); frameCount++;
         const t = now();
-        const fl = lum > 0.05 && flickerOn(t, m.freq);
+        const fl = lum > 0.05 && flickerOn();
         black();
         if (lum > 0.05) {
           const shade = Math.round(255 * (0.3 + 0.7 * lum));

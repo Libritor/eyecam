@@ -63,9 +63,11 @@ def main():
             ("calibration passed", res.get("calibPassed") is True, ""),
             ("r >= 0.6", (res.get("r") or 0) >= 0.6,
              f"r={res.get('r'):.3f}" if res.get("r") else "no r"),
-            ("flicker within 0.5 Hz of 15",
-             abs((res.get("measuredFlickerHz") or 0) - 15.0) <= 0.5,
-             f"{res.get('measuredFlickerHz'):.2f} Hz"),
+            ("delivered flicker matches the frame-exact plan (±0.3 Hz)",
+             abs((res.get("measuredFlickerHz") or 0)
+                 - (res.get("stimFreqActual") or 15.0)) <= 0.3,
+             f"measured {res.get('measuredFlickerHz'):.2f} Hz vs planned "
+             f"{res.get('stimFreqActual') or 15.0:.2f} Hz"),
         ]
         ok = all(c[1] for c in checks)
         for name, passed, detail in checks:

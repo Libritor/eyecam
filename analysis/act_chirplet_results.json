@@ -1,0 +1,11 @@
+{
+ "xr_live6": {
+  "error": "TypeError(\"'ActSSVEP' object is not callable\")"
+ },
+ "webgate": {
+  "error": "TypeError(\"'ActSSVEP' object is not callable\")"
+ },
+ "xr_live2": {
+  "error": "TypeError(\"'ActSSVEP' object is not callable\")"
+ }
+}

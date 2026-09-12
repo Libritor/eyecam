@@ -1,0 +1,120 @@
+
+=== xr_live6: fs=257.30 Hz, 123760 samples in session window [5957.3, 6439.5] (file has 338274), 12 calib blocks, grid 8x12, target (8, 12)
+control arm: EEG rolled by 41253 samples (160.3 s of 481.0 s)
+
+calibration d-prime                                   REAL                  CONTROL (shifted)
+detector / channel         d-prime   ratio    rank       n    d-prime   ratio    rank       n
+baseline PSD TP9             -0.27    0.89       0   6/6         -1.84    0.63       0   6/6   
+baseline PSD AF7             -1.58    0.71       0   6/6         -0.13    0.96       0   6/6   
+baseline PSD AF8              1.14    1.42       3   6/6          0.52    1.13       0   6/6   
+baseline PSD TP10            -0.12    0.93       0   6/6         -0.87    0.72       0   6/6   
+cca_ch TP9                    1.42    1.36       2   6/6         -0.44    0.81       0   6/6   
+cca_ch AF7                   -0.72    0.83       0   6/6          0.03    1.01       0   6/6   
+cca_ch AF8                   -0.10    0.98       0   6/6          0.03    1.01       1   6/6   
+cca_ch TP10                  -0.65    0.80       1   6/6         -0.54    0.84       0   6/6   
+CCA 4ch                      -0.73    0.90       0   6/6         -1.33    0.74       0   6/6   
+FBCCA 4ch                    -1.72    0.76       0   6/6         -1.00    0.75       0   6/6   
+stored calibration.json d': TP9 -0.32, AF7 -1.19, AF8 1.06, TP10 -0.16  (passed=False)
+cca_ch weights (real): TP9 1.00, AF7 0.00, AF8 0.00, TP10 0.00; best=TP9
+
+reconstruction r vs target      REAL   CONTROL   real-ctrl
+baseline                       0.189    -0.291       0.480
+cca                            0.124     0.058       0.066
+fbcca                          0.022    -0.040       0.061
+cca_ch                         0.022    -0.029       0.051
+cca_best                       0.022    -0.084       0.106
+stored reconstruction_grid.npy r = 0.189
+
+null distribution over 5 extra circular shifts (fractions 0.143, 0.286, 0.429, 0.571, 0.714):
+detector                   d-prime min    mean     max     r min    mean     max
+baseline (best PSD ch)           -0.58    0.41    1.04    -0.269  -0.063   0.166
+cca_ch (best ch)                  0.68    0.98    1.53    -0.079   0.030   0.205
+CCA 4ch                          -0.63   -0.06    0.76    -0.113  -0.075   0.017
+FBCCA 4ch                        -1.63   -0.05    0.67    -0.212  -0.104   0.013
+
+=== webgate: fs=256.00 Hz, 23245 samples in session window [5053.8, 5148.1] (file has 23245), 6 calib blocks, grid 6x8, target (6, 8)
+control arm: EEG rolled by 7748 samples (30.3 s of 90.8 s)
+
+calibration d-prime                                   REAL                  CONTROL (shifted)
+detector / channel         d-prime   ratio    rank       n    d-prime   ratio    rank       n
+baseline PSD TP9             18.54   13.70       3   3/3         -0.69    0.71       1   3/3   
+baseline PSD AF7              6.07    3.07       3   3/3          0.79    1.39       2   3/3   
+baseline PSD AF8              1.71    1.58       3   3/3          0.65    1.23       2   3/3   
+baseline PSD TP10            18.01   10.04       3   3/3         -0.09    0.92       1   3/3   
+cca_ch TP9                   17.75    8.90       3   3/3          0.06    1.05       1   3/3   
+cca_ch AF7                   15.13    4.10       3   3/3          0.53    1.42       2   3/3   
+cca_ch AF8                    3.69    3.08       3   3/3          0.63    1.64       2   3/3   
+cca_ch TP10                  17.43    7.77       3   3/3         -0.02    0.99       1   3/3   
+CCA 4ch                      16.34    5.47       3   3/3         -0.20    0.90       1   3/3   
+FBCCA 4ch                    18.60   14.32       3   3/3          0.51    1.82       1   3/3   
+stored calibration.json d': TP9 18.54, AF7 6.07, AF8 1.71, TP10 18.01  (passed=True)
+cca_ch weights (real): TP9 0.40, AF7 0.16, AF8 0.10, TP10 0.34; best=TP9
+
+reconstruction r vs target      REAL   CONTROL   real-ctrl
+baseline                       0.757    -0.115       0.872
+cca                            0.675    -0.092       0.767
+fbcca                          0.679    -0.144       0.823
+cca_ch                         0.787    -0.231       1.019
+cca_best                       0.747    -0.288       1.035
+stored reconstruction_grid.npy r = 0.757
+
+null distribution over 5 extra circular shifts (fractions 0.143, 0.286, 0.429, 0.571, 0.714):
+detector                   d-prime min    mean     max     r min    mean     max
+baseline (best PSD ch)           -0.41    3.74   15.53    -0.108   0.035   0.205
+cca_ch (best ch)                 -0.79    3.82   15.01    -0.059   0.116   0.252
+CCA 4ch                          -0.72    2.97   14.12    -0.006   0.105   0.253
+FBCCA 4ch                        -1.43    2.48   11.93    -0.074   0.072   0.287
+
+=== xr_live2: fs=256.66 Hz, 115554 samples in session window [4552.0, 5033.8] (file has 225970), 12 calib blocks, grid 8x12, target (8, 12)
+control arm: EEG rolled by 38518 samples (150.1 s of 450.2 s)
+
+calibration d-prime                                   REAL                  CONTROL (shifted)
+detector / channel         d-prime   ratio    rank       n    d-prime   ratio    rank       n
+baseline PSD TP9             -0.49    0.54       0   6/6         -0.99    0.75       0   6/6   
+baseline PSD AF7             -0.51    0.83       0   6/6          0.25    1.11       0   6/6   
+baseline PSD AF8             -1.05    0.75       0   6/6         -0.38    0.91       1   6/6   
+baseline PSD TP10            -0.24    0.73       1   6/6         -0.51    0.90       0   6/6   
+cca_ch TP9                   -0.47    0.86       0   6/6         -0.50    0.81       1   6/6   
+cca_ch AF7                   -1.23    0.78       1   6/5         -0.65    0.95       0   6/6   
+cca_ch AF8                    1.31    1.33       4   6/5         -0.77    0.72       0   6/6   
+cca_ch TP10                  -0.33    0.90       1   6/6          1.34    1.56       2   6/6   
+CCA 4ch                       0.83    1.10       3   6/6          0.95    1.22       1   6/6   
+FBCCA 4ch                     0.41    1.11       1   6/6          0.71    1.28       1   6/6   
+stored calibration.json d': TP9 -0.49, AF7 -0.51, AF8 -1.01, TP10 -0.24  (passed=False)
+cca_ch weights (real): TP9 0.00, AF7 0.00, AF8 1.00, TP10 0.00; best=AF8
+
+reconstruction r vs target      REAL   CONTROL   real-ctrl
+baseline                      -0.388    -0.007      -0.380
+cca                            0.221     0.322      -0.100
+fbcca                          0.298     0.486      -0.188
+cca_ch                         0.017     0.283      -0.266
+cca_best                       0.017     0.283      -0.266
+stored reconstruction_grid.npy r = -0.388
+
+null distribution over 5 extra circular shifts (fractions 0.143, 0.286, 0.429, 0.571, 0.714):
+detector                   d-prime min    mean     max     r min    mean     max
+baseline (best PSD ch)            0.01    0.57    1.34    -0.295   0.006   0.304
+cca_ch (best ch)                 -0.38    0.87    2.14     0.219   0.317   0.396
+CCA 4ch                          -0.81    0.06    1.32     0.110   0.263   0.381
+FBCCA 4ch                        -1.51    0.54    3.44     0.264   0.350   0.440
+
+
+=== SUMMARY (real / control) ===
+session   detector                best d-prime               recon r
+xr_live6  baseline          1.14 / 0.52            0.189 / -0.291   
+xr_live6  cca              -0.73 / -1.33           0.124 / 0.058    
+xr_live6  fbcca            -1.72 / -1.00           0.022 / -0.040   
+xr_live6  cca_ch            1.42 / 0.03            0.022 / -0.029   
+xr_live6  cca_best          1.42 / 0.03            0.022 / -0.084   
+webgate   baseline         18.54 / 0.79            0.757 / -0.115   
+webgate   cca              16.34 / -0.20           0.675 / -0.092   
+webgate   fbcca            18.60 / 0.51            0.679 / -0.144   
+webgate   cca_ch           17.75 / 0.63            0.787 / -0.231   
+webgate   cca_best         17.75 / 0.63            0.747 / -0.288   
+xr_live2  baseline         -0.24 / 0.25           -0.388 / -0.007   
+xr_live2  cca               0.83 / 0.95            0.221 / 0.322    
+xr_live2  fbcca             0.41 / 0.71            0.298 / 0.486    
+xr_live2  cca_ch            1.31 / 1.34            0.017 / 0.283    
+xr_live2  cca_best          1.31 / 1.34            0.017 / 0.283    
+
+wrote analysis\cca_results.json

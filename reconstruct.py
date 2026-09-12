@@ -142,7 +142,8 @@ def cell_score(seg, fs, sigma_floor, stim_freq=None):
     return ssvep_score(clipped, fs, stim_freq)
 
 
-def reconstruct(eeg_t, data, cur_t, gx, gy, fs=None, weights=None):
+def reconstruct(eeg_t, data, cur_t, gx, gy, fs=None, weights=None,
+                stim_freq=None):
     """data: (n_samples, n_channels). weights: per-channel array or None."""
     if data.ndim == 1:
         data = data[:, None]
@@ -181,7 +182,7 @@ def reconstruct(eeg_t, data, cur_t, gx, gy, fs=None, weights=None):
         for c in range(n_ch):
             if weights[c] <= 0:
                 continue
-            sc = cell_score(data[i0:i1, c], fs, ch_sigma[c])
+            sc = cell_score(data[i0:i1, c], fs, ch_sigma[c], stim_freq)
             if not np.isnan(sc):
                 num += weights[c] * sc
                 den += weights[c]
@@ -222,7 +223,7 @@ def weights_from_calibration(calib_path, names):
     return w
 
 
-def run(session_dir, channels="", calibration="", out=""):
+def run(session_dir, channels="", calibration="", out="", stim_freq=None):
     out = out or os.path.join(session_dir, "reconstruction.png")
     eeg_t, data, names, cur_t, gx, gy = load_session(session_dir, channels)
     weights = None
@@ -230,7 +231,8 @@ def run(session_dir, channels="", calibration="", out=""):
         weights = weights_from_calibration(calibration, names)
         print("channel weights:",
               {n: round(float(w), 3) for n, w in zip(names, weights)})
-    grid = reconstruct(eeg_t, data, cur_t, gx, gy, weights=weights)
+    grid = reconstruct(eeg_t, data, cur_t, gx, gy, weights=weights,
+                       stim_freq=stim_freq)
     np.save(os.path.join(session_dir, "reconstruction_grid.npy"), grid)
     save_image(grid, out)
     print(f"reconstruction -> {out}")

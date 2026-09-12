@@ -92,6 +92,7 @@ class Driver:
                          (host, int(port)))
         self.seq = 0
         self.sid = os.path.basename(self.session)
+        self.stim_freq = args.freq  # replaced by the page's delivered value
 
     # ---- plumbing ----
 
@@ -106,6 +107,10 @@ class Driver:
             pass
 
     async def send(self, **msg):
+        if msg.get("cmd") in ("start_calib", "start_scan", "start_assr",
+                              "signal", "calib_result", "result",
+                              "assr_result"):
+            self.last_cmd = msg  # re-issued to a page that reconnects
         if self.page is not None:
             try:
                 await self.page.send(json.dumps(msg))
@@ -142,6 +147,12 @@ class Driver:
             else:
                 self.blocks.append(("on" if m["on"] else "off",
                                     self._block_t0, t))
+        elif typ == "freq":
+            # the page reports the frame-exact frequency it actually delivers
+            self.stim_freq = float(m["hz"])
+            print(f"page flicker: {self.stim_freq:.2f} Hz "
+                  f"(refresh {m.get('refresh')} fps, "
+                  f"{m.get('halfFrames')} frames on/off)")
         else:
             self.queue.put_nowait(m)
 
@@ -160,6 +171,18 @@ class Driver:
 
         recorder = Recorder("osc", self.session, a.osc_port)
         recorder.start()
+        await asyncio.sleep(1.5)
+        if not recorder.alive():
+            err = recorder.stderr_tail()
+            if "10048" in err:  # port held by an orphaned recorder
+                print("udp port busy — retrying once in 3 s")
+                await asyncio.sleep(3)
+                recorder.start()
+                await asyncio.sleep(1.5)
+            if not recorder.alive():
+                raise RuntimeError(
+                    f"EEG recorder failed on udp:{a.osc_port}: "
+                    + recorder.stderr_tail()[-200:])
         tail = EEGTail(os.path.join(self.session, "eeg.csv"))
         osc_target = f"{local_ip()}:{a.osc_port}"
         result = dict(mode="browser", gridW=a.grid_w, gridH=a.grid_h,
@@ -201,6 +224,9 @@ class Driver:
                 if not (stable and ears_ok):
                     stable_since = None
                 ready = stable_since and nowm - stable_since >= 3
+                if not recorder.alive():
+                    raise RuntimeError("EEG recorder died: "
+                                       + recorder.stderr_tail()[-200:])
                 await self.send(cmd="signal", rate=rate, stable=stable,
                                 earsOk=ears_ok, ready=bool(ready),
                                 oscTarget=osc_target)
@@ -228,7 +254,9 @@ class Driver:
                                 timeout=a.calib_blocks * 16 + 60)
             self.close_log()
             await asyncio.sleep(0.7)
-            calib = run_session.score_calibration(self.session, self.blocks)
+            calib = run_session.score_calibration(
+                self.session, self.blocks, stim_freq=self.stim_freq)
+            result["stimFreqActual"] = self.stim_freq
             table = "   ".join(
                 f"{n} d'={calib['channels'][n]['dprime']:.1f}"
                 f" w={calib['weights'][n]:.2f}"
@@ -259,7 +287,8 @@ class Driver:
             print("reconstructing...")
             grid, r = reconstruct.run(
                 self.session,
-                calibration=os.path.join(self.session, "calibration.json"))
+                calibration=os.path.join(self.session, "calibration.json"),
+                stim_freq=self.stim_freq)
             flicker_hz = self.measured_flicker()
             result.update(r=r, measuredFlickerHz=flicker_hz)
             png = grid_to_data_url(reconstruct_norm(grid))
@@ -410,9 +439,29 @@ async def main():
     async def ws_handler(ws):
         if not getattr(ws, "request", None) or \
                 ws.request.path.startswith("/ws"):
+            # One subject page at a time. A second tab (or a spectator who
+            # opened the stimulus URL) must never take over a running stage:
+            # Quest Browser pauses background tabs, which stalls the flicker.
+            if driver.page is not None:
+                print("extra stimulus page connected — ignored "
+                      "(close duplicate tabs)")
+                try:
+                    await ws.send(json.dumps(dict(
+                        cmd="msg", text="another tab is running the session "
+                        "— close this one")))
+                    async for _ in ws:
+                        pass
+                finally:
+                    return
             driver.page = ws
             print("stimulus page connected")
             try:
+                # a reconnecting page resumes the current stage from its start
+                last = getattr(driver, "last_cmd", None)
+                if last is not None:
+                    if last.get("cmd") in ("start_calib", "start_assr"):
+                        driver.blocks = []  # stage restarts on the new page
+                    await ws.send(json.dumps(last))
                 async for raw in ws:
                     try:
                         driver.handle(json.loads(raw))
@@ -421,6 +470,7 @@ async def main():
             finally:
                 if driver.page is ws:
                     driver.page = None
+                    print("stimulus page disconnected")
 
     async with websockets.serve(ws_handler, "0.0.0.0", args.http_port,
                                 process_request=http_page,
