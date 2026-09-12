@@ -49,6 +49,103 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 CH_NAMES = ["TP9", "AF7", "AF8", "TP10"]
 
 
+def csv_header(path):
+    """Column names of a CSV (minus 'time'), or None if not written yet."""
+    try:
+        with open(path) as f:
+            line = f.readline().strip()
+        return line.split(",")[1:] if line.startswith("time,") else None
+    except OSError:
+        return None
+
+
+class MultiRecorder:
+    """Several OSC recorders (one per headband/port), merged into ONE eeg.csv
+    on the PC arrival clock: device 0 is the time base; every other device is
+    resampled onto it by nearest arrival timestamp (both streams are ~256 Hz
+    on the same PC clock, so this is a <2 ms alignment). Columns: device-0
+    names, then B1_<name>, B2_<name>, ... — the calibration weights then pick
+    the best channels across headbands automatically."""
+
+    def __init__(self, session, ports):
+        from tailer import CsvTail
+        self.session = session
+        self.ports = ports
+        self.recs = []
+        self.tails = []
+        for i, port in enumerate(ports):
+            sub = os.path.join(session, f"dev{i}")
+            os.makedirs(sub, exist_ok=True)
+            self.recs.append(Recorder("osc", sub, port))
+            self.tails.append(CsvTail(os.path.join(sub, "eeg.csv")))
+        self.names = [None] * len(ports)
+        self.buf = [[] for _ in ports]  # per device: list of (t, vals)
+        self.out = None
+        self.merged = 0
+
+    def start(self):
+        for r in self.recs:
+            r.start()
+
+    def alive(self):
+        return all(r.alive() for r in self.recs)
+
+    def stop(self):
+        for r in self.recs:
+            r.stop()
+        if self.out:
+            self.out.close()
+
+    def stderr_tail(self):
+        return " | ".join(f"udp:{p}: {r.stderr_tail()[-120:]}"
+                          for p, r in zip(self.ports, self.recs))
+
+    def poll_merge(self):
+        import bisect
+        for i, tail in enumerate(self.tails):
+            if self.names[i] is None:
+                self.names[i] = csv_header(
+                    os.path.join(self.session, f"dev{i}", "eeg.csv"))
+            for r in tail.poll():
+                try:
+                    self.buf[i].append((float(r[0]), [float(v) for v in r[1:]]))
+                except (ValueError, IndexError):
+                    pass
+        if any(n is None for n in self.names) or any(not b for b in self.buf):
+            return
+        if self.out is None:
+            cols = list(self.names[0])
+            for i in range(1, len(self.names)):
+                cols += [f"B{i}_{n}" for n in self.names[i]]
+            self.out = open(os.path.join(self.session, "eeg.csv"), "w",
+                            buffering=1)
+            self.out.write("time," + ",".join(cols) + "\n")
+            print(f"merged EEG columns: {cols}")
+        # merge device-0 rows older than 0.35 s (lets the others catch up)
+        cutoff = local_clock() - 0.35
+        others = [(np.array([t for t, _ in b]), b) for b in self.buf[1:]]
+        n_done = 0
+        for t0, vals in self.buf[0]:
+            if t0 > cutoff:
+                break
+            row = list(vals)
+            for times, b in others:
+                j = bisect.bisect_left(times, t0)
+                cands = [k for k in (j - 1, j) if 0 <= k < len(times)]
+                k = min(cands, key=lambda k: abs(times[k] - t0)) if cands else None
+                if k is not None and abs(times[k] - t0) < 0.06:
+                    row += b[k][1]
+                else:  # no sample from that device near t0 (dropout)
+                    row += [0.0] * len(b[0][1])
+            self.out.write(f"{t0:.6f}," + ",".join(f"{v:.4f}" for v in row) + "\n")
+            n_done += 1
+        del self.buf[0][:n_done]
+        self.merged += n_done
+        keep = local_clock() - 5.0  # trim other-device buffers
+        for i in range(1, len(self.buf)):
+            self.buf[i] = [(t, v) for t, v in self.buf[i] if t >= keep]
+
+
 def channel_quality(tail):
     """Per-channel contact verdict from the last 2 s: 1=good, 0=bad.
     Catches the observed live failure mode (floating ear electrode: huge
@@ -58,9 +155,10 @@ def channel_quality(tail):
     win = [r for r in tail.rows if r[0] >= cutoff]
     if len(win) < 32:
         return [0, 0, 0, 0]
-    arr = np.array([r[1][:4] for r in win])
+    width = min(len(r[1]) for r in win)
+    arr = np.array([r[1][:width] for r in win])
     out = []
-    for c in range(min(4, arr.shape[1])):
+    for c in range(arr.shape[1]):
         x = arr[:, c]
         std = float(np.std(x))
         med = float(np.median(x))
@@ -169,7 +267,12 @@ class Driver:
         target = targets.load_target(a.target, a.grid_w, a.grid_h)
         np.save(os.path.join(self.session, "target.npy"), target)
 
-        recorder = Recorder("osc", self.session, a.osc_port)
+        merge_task = None
+        ports = [int(p) for p in str(a.osc_port).split(",") if p.strip()]
+        if len(ports) == 1:
+            recorder = Recorder("osc", self.session, ports[0])
+        else:
+            recorder = MultiRecorder(self.session, ports)
         recorder.start()
         await asyncio.sleep(1.5)
         if not recorder.alive():
@@ -183,14 +286,33 @@ class Driver:
                 raise RuntimeError(
                     f"EEG recorder failed on udp:{a.osc_port}: "
                     + recorder.stderr_tail()[-200:])
-        tail = EEGTail(os.path.join(self.session, "eeg.csv"))
-        osc_target = f"{local_ip()}:{a.osc_port}"
+        merged_path = os.path.join(self.session, "eeg.csv")
+        tail = EEGTail(merged_path)
+        osc_target = ", ".join(f"{local_ip()}:{p}" for p in ports)
+        merge_task = None
+        if len(ports) > 1:
+            async def merge_loop():
+                while True:
+                    recorder.poll_merge()
+                    await asyncio.sleep(0.25)
+            merge_task = asyncio.create_task(merge_loop())
+
+        def names():
+            return csv_header(merged_path) or CH_NAMES
+
+        def ears_ok(q):
+            n = names()
+            return any(q[i] for i in range(min(len(q), len(n)))
+                       if "TP9" in n[i] or "TP10" in n[i])
         result = dict(mode="browser", gridW=a.grid_w, gridH=a.grid_h,
                       secondsPerCell=a.spc, calibBlocks=a.calib_blocks)
         hb_task = None
         try:
             print("waiting for a browser to open the stimulus page...")
+            wait_deadline = time.monotonic() + a.signal_timeout
             while self.page is None:
+                if time.monotonic() > wait_deadline:
+                    raise TimeoutError("no stimulus page connected")
                 await asyncio.sleep(0.2)
             self.spectate(type="hello", mode="browser", ch=4, fs=256.0,
                           gridW=a.grid_w, gridH=a.grid_h, freq=a.freq,
@@ -202,7 +324,7 @@ class Driver:
                 while True:
                     tail.poll()
                     await self.send(cmd="eeg", rate=tail.rate(),
-                                    q=channel_quality(tail), names=CH_NAMES)
+                                    q=channel_quality(tail), names=names())
                     self.spectate(type="eeg", rate=tail.rate(), rms=[])
                     await asyncio.sleep(1.0)
             hb_task = asyncio.create_task(heartbeat())
@@ -216,19 +338,19 @@ class Driver:
                 tail.poll()
                 rate = tail.rate()
                 q = channel_quality(tail)
-                ears_ok = bool(q[0] or q[3])
+                ears = ears_ok(q)
                 stable = rate > 40
                 nowm = time.monotonic()
-                if stable and ears_ok and stable_since is None:
+                if stable and ears and stable_since is None:
                     stable_since = nowm
-                if not (stable and ears_ok):
+                if not (stable and ears):
                     stable_since = None
                 ready = stable_since and nowm - stable_since >= 3
                 if not recorder.alive():
                     raise RuntimeError("EEG recorder died: "
                                        + recorder.stderr_tail()[-200:])
                 await self.send(cmd="signal", rate=rate, stable=stable,
-                                earsOk=ears_ok, ready=bool(ready),
+                                earsOk=ears, ready=bool(ready),
                                 oscTarget=osc_target)
                 if ready:
                     break
@@ -311,6 +433,9 @@ class Driver:
         finally:
             if hb_task:
                 hb_task.cancel()
+            if merge_task:
+                merge_task.cancel()
+                recorder.poll_merge()  # flush what is already buffered
             with open(os.path.join(self.session, "xr_session.json"),
                       "w") as f:
                 json.dump(result, f, indent=1)
@@ -412,7 +537,9 @@ async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--session", default=os.path.join("runs", "xr1"))
     ap.add_argument("--http-port", type=int, default=8082)
-    ap.add_argument("--osc-port", type=int, default=5000)
+    ap.add_argument("--osc-port", default="5000",
+                    help="UDP port, or comma list for several headbands "
+                         "(e.g. 5000,5001 -> merged 8-channel eeg.csv)")
     ap.add_argument("--preset", choices=list(config.PRESETS), default="")
     ap.add_argument("--grid-w", type=int, default=12)
     ap.add_argument("--grid-h", type=int, default=8)
