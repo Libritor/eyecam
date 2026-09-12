@@ -77,8 +77,9 @@ def infer_fs(eeg_t):
     return fs
 
 
-def ssvep_score(segment, fs):
-    """Relative SSVEP power of one EEG segment."""
+def ssvep_score(segment, fs, stim_freq=None):
+    """Relative steady-state power of one EEG segment at stim_freq
+    (default 15 Hz visual SSVEP; 40 Hz for the auditory ASSR path)."""
     nperseg = int(round(fs))  # 1-second segments -> 1 Hz bins at any rate
     if len(segment) < nperseg:
         return np.nan
@@ -90,13 +91,20 @@ def ssvep_score(segment, fs):
         return psd[m].sum() * df
 
     nyquist = fs / 2
-    f0, f1 = config.STIM_FREQ_HZ, config.HARMONIC_HZ
-    sig_p = band_power(f0 - 0.6, f0 + 0.6)
-    if f1 < nyquist - 1:
-        sig_p += band_power(f1 - 0.6, f1 + 0.6)
+    f0 = config.STIM_FREQ_HZ if stim_freq is None else stim_freq
+    f1 = 2.0 * f0
     lo, hi = config.NOISE_BAND
-    total = band_power(lo, min(hi, nyquist - 1))
-    denom = total - sig_p  # broadband minus the stimulus bins
+    hi_eff = min(hi, nyquist - 1)
+    fund = band_power(f0 - 0.6, f0 + 0.6)
+    sig_p = fund
+    sig_in_band = fund if lo <= f0 <= hi_eff else 0.0
+    if f1 < nyquist - 1:
+        harm = band_power(f1 - 0.6, f1 + 0.6)
+        sig_p += harm
+        if lo <= f1 <= hi_eff:
+            sig_in_band += harm
+    total = band_power(lo, hi_eff)
+    denom = total - sig_in_band  # broadband minus in-band stimulus bins
     if denom <= 0:
         return np.nan
     return sig_p / denom
@@ -112,7 +120,7 @@ def hf_sigma(x):
     return robust_sigma(np.diff(x)) / np.sqrt(2)
 
 
-def cell_score(seg, fs, sigma_floor):
+def cell_score(seg, fs, sigma_floor, stim_freq=None):
     """Artifact-aware SSVEP score for one channel's segment.
 
     Deviations are referenced to the segment's own median and scaled by the
@@ -131,7 +139,7 @@ def cell_score(seg, fs, sigma_floor):
         return np.nan  # blink/motion-dominated: drop this cell-channel
     clipped = baseline + np.clip(dev, -config.ARTIFACT_Z * sigma,
                                  config.ARTIFACT_Z * sigma)
-    return ssvep_score(clipped, fs)
+    return ssvep_score(clipped, fs, stim_freq)
 
 
 def reconstruct(eeg_t, data, cur_t, gx, gy, fs=None, weights=None):

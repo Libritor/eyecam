@@ -23,6 +23,9 @@
 <canvas id="cv"></canvas>
 <div id="hud"><b id="title">EyeCamXR</b><div id="sub">connecting…</div></div>
 <div id="result"><img id="rimg"><b id="rtext"></b></div>
+<div id="muse" style="position:fixed;bottom:10px;left:0;right:0;text-align:center;
+     font:13px ui-monospace,monospace;color:#8a8f98;text-shadow:0 1px 3px #000;
+     pointer-events:none">MUSE: waiting for data…</div>
 <script>
 "use strict";
 // Buzzkill-style plain canvas page: the PC driver (xr_session.py) commands
@@ -121,10 +124,31 @@ async function runScan(m) {
 function showSignal(m) {
   hideResult();
   title.textContent = "SIGNAL CHECK";
-  title.className = m.stable ? "ok" : "warn";
-  sub.innerHTML = `EEG ${m.rate.toFixed(0)} Hz — ` +
-    (m.ready ? "starting…" : `stream /muse/eeg to <b>${m.oscTarget}</b>` +
-    " (Mind Monitor or MuseLog)");
+  title.className = (m.stable && m.earsOk) ? "ok" : "warn";
+  if (m.ready) { sub.textContent = "starting…"; return; }
+  if (!m.stable) {
+    sub.innerHTML = `EEG ${m.rate.toFixed(0)} Hz — stream /muse/eeg to ` +
+      `<b>${m.oscTarget}</b> (Mind Monitor or MuseLog)`;
+  } else if (!m.earsOk) {
+    sub.innerHTML = `data flowing, but the <b>behind-ear electrodes ` +
+      `(TP9/TP10) are not making contact</b> — press the band firmly ` +
+      `behind both ears; a little skin moisture helps`;
+  } else {
+    sub.textContent = "signal good — stabilizing…";
+  }
+}
+
+function showMuse(m) {
+  const badge = document.getElementById("muse");
+  if (!m.rate || m.rate < 40) {
+    badge.innerHTML = `<span style="color:#ff6666">MUSE: NO DATA</span>` +
+      ` — check phone streaming`;
+    return;
+  }
+  const cells = m.names.map((n, i) =>
+    `${n} <span style="color:${m.q[i] ? "#6fd68b" : "#ff6666"}">` +
+    `${m.q[i] ? "✓" : "✕"}</span>`).join("  ");
+  badge.innerHTML = `MUSE ${m.rate.toFixed(0)} Hz   ${cells}`;
 }
 
 function showCalibResult(m) {
@@ -146,6 +170,62 @@ function showResult(m) {
 
 function hideResult() { resultBox.style.display = "none"; }
 const frame = () => new Promise(requestAnimationFrame);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// ---- "ear as a microphone": 40 Hz AM tone in ON/OFF blocks (ASSR) ----
+let audioCtx = null;
+async function ensureAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === "suspended") {
+    try { await audioCtx.resume(); } catch {}
+    if (audioCtx.state === "suspended") {
+      sub.textContent = "TAP anywhere once to enable sound";
+      await new Promise(res => addEventListener("pointerdown",
+        async () => { await audioCtx.resume(); res(); }, { once: true }));
+    }
+  }
+}
+
+async function runAssr(m) {
+  hideResult(); title.textContent = "EAR AS A MICROPHONE"; title.className = "";
+  await ensureAudio();
+  const tok = running = {};
+  // 500 Hz carrier, 100% amplitude-modulated at m.modFreq (40 Hz):
+  // gate.gain = 0.5 + 0.5*sin(2*pi*40*t), silenced between blocks.
+  const carrier = audioCtx.createOscillator(); carrier.frequency.value = 500;
+  const mod = audioCtx.createOscillator(); mod.frequency.value = m.modFreq;
+  const modDepth = audioCtx.createGain(); modDepth.gain.value = 0.5;
+  const gate = audioCtx.createGain(); gate.gain.value = 0.5;
+  const onOff = audioCtx.createGain(); onOff.gain.value = 0;
+  const master = audioCtx.createGain(); master.gain.value = 0.5;
+  mod.connect(modDepth); modDepth.connect(gate.gain);
+  carrier.connect(gate); gate.connect(onOff); onOff.connect(master);
+  master.connect(audioCtx.destination);
+  carrier.start(); mod.start();
+  black(); dot(cv.width / 2, cv.height / 2);
+  for (let b = 0; b < m.blocks && running === tok; b++) {
+    for (const on of [true, false]) {
+      send({ type: "block", b, on, phase: "start" });
+      sub.textContent = `listen — block ${b + 1}/${m.blocks} ` +
+        (on ? "TONE" : "silence");
+      onOff.gain.setValueAtTime(on ? 1 : 0, audioCtx.currentTime);
+      const t0 = now();
+      while (now() - t0 < (on ? m.onS : m.offS) && running === tok)
+        await sleep(50);
+      send({ type: "block", b, on, phase: "end" });
+    }
+  }
+  carrier.stop(); mod.stop();
+  send({ type: "assr_done" });
+}
+
+function showAssrResult(m) {
+  running = null; black();
+  title.textContent = m.passed ? "ASSR DETECTED — your ear heard it"
+                               : "NO RELIABLE ASSR";
+  title.className = m.passed ? "ok" : "warn";
+  sub.textContent = m.table;
+}
 
 function connect() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -156,9 +236,12 @@ function connect() {
     let m; try { m = JSON.parse(ev.data); } catch { return; }
     switch (m.cmd) {
       case "signal": showSignal(m); break;
+      case "eeg": showMuse(m); break;
       case "start_calib": runCalib(m); break;
       case "calib_result": showCalibResult(m); break;
       case "start_scan": runScan(m); break;
+      case "start_assr": runAssr(m); break;
+      case "assr_result": showAssrResult(m); break;
       case "result": showResult(m); break;
       case "msg": sub.textContent = m.text; break;
     }

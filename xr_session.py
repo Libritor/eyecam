@@ -46,6 +46,33 @@ except ImportError:
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
+CH_NAMES = ["TP9", "AF7", "AF8", "TP10"]
+
+
+def channel_quality(tail):
+    """Per-channel contact verdict from the last 2 s: 1=good, 0=bad.
+    Catches the observed live failure mode (floating ear electrode: huge
+    std, samples at the ADC rails) while accepting both raw-Muse microvolt
+    scales and the phantom's unit-scale synthetic data."""
+    cutoff = local_clock() - 2.0
+    win = [r for r in tail.rows if r[0] >= cutoff]
+    if len(win) < 32:
+        return [0, 0, 0, 0]
+    arr = np.array([r[1][:4] for r in win])
+    out = []
+    for c in range(min(4, arr.shape[1])):
+        x = arr[:, c]
+        std = float(np.std(x))
+        med = float(np.median(x))
+        if float(np.max(np.abs(x))) > 100:  # raw Muse scale (~0..1682 uV)
+            rail = float(np.mean((x < 5) | (x > 1670)))
+        else:
+            rail = float(np.mean(np.abs(x - med) > 500))
+        out.append(1 if (0.5 < std < 350 and rail < 0.10) else 0)
+    while len(out) < 4:
+        out.append(0)
+    return out
+
 
 class Driver:
     def __init__(self, args):
@@ -137,6 +164,7 @@ class Driver:
         osc_target = f"{local_ip()}:{a.osc_port}"
         result = dict(mode="browser", gridW=a.grid_w, gridH=a.grid_h,
                       secondsPerCell=a.spc, calibBlocks=a.calib_blocks)
+        hb_task = None
         try:
             print("waiting for a browser to open the stimulus page...")
             while self.page is None:
@@ -145,31 +173,49 @@ class Driver:
                           gridW=a.grid_w, gridH=a.grid_h, freq=a.freq,
                           refresh=-1)
 
-            # signal check
+            # persistent Muse status badge: rate + per-electrode contact,
+            # pushed to the page once a second through EVERY stage
+            async def heartbeat():
+                while True:
+                    tail.poll()
+                    await self.send(cmd="eeg", rate=tail.rate(),
+                                    q=channel_quality(tail), names=CH_NAMES)
+                    self.spectate(type="eeg", rate=tail.rate(), rms=[])
+                    await asyncio.sleep(1.0)
+            hb_task = asyncio.create_task(heartbeat())
+
+            # signal check: rate stable AND at least one EAR electrode good
+            # (TP9/TP10 carry the SSVEP; a session without them is doomed)
             self.spectate(type="stage", stage="signal_check", detail="")
             stable_since = None
             deadline = time.monotonic() + a.signal_timeout
             while True:
                 tail.poll()
                 rate = tail.rate()
+                q = channel_quality(tail)
+                ears_ok = bool(q[0] or q[3])
                 stable = rate > 40
                 nowm = time.monotonic()
-                if stable and stable_since is None:
+                if stable and ears_ok and stable_since is None:
                     stable_since = nowm
-                if not stable:
+                if not (stable and ears_ok):
                     stable_since = None
                 ready = stable_since and nowm - stable_since >= 3
                 await self.send(cmd="signal", rate=rate, stable=stable,
-                                ready=bool(ready), oscTarget=osc_target)
-                self.spectate(type="eeg", rate=rate, rms=[])
+                                earsOk=ears_ok, ready=bool(ready),
+                                oscTarget=osc_target)
                 if ready:
                     break
                 if nowm > deadline:
                     raise TimeoutError(
-                        f"no stable EEG stream on udp:{a.osc_port} "
-                        f"(send /muse/eeg to {osc_target})")
+                        f"no usable EEG on udp:{a.osc_port} "
+                        f"(rate {rate:.0f} Hz, ears_ok={ears_ok}; "
+                        f"send /muse/eeg to {osc_target})")
                 await asyncio.sleep(0.25)
-            print(f"signal ok ({rate:.0f} Hz); calibration...")
+            print(f"signal ok ({rate:.0f} Hz, ears good)")
+
+            if a.mode == "assr":
+                return await self.run_assr(result)
 
             # calibration (page-driven)
             self.spectate(type="stage", stage="calibrate", detail="")
@@ -234,10 +280,43 @@ class Driver:
             await self.send(cmd="msg", text=f"session failed: {e}")
             return 1
         finally:
+            if hb_task:
+                hb_task.cancel()
             with open(os.path.join(self.session, "xr_session.json"),
                       "w") as f:
                 json.dump(result, f, indent=1)
             recorder.stop()
+
+    async def run_assr(self, result):
+        """'Ear as a microphone' v1: 40 Hz amplitude-modulated tone in ON/OFF
+        blocks; the auditory steady-state response (ASSR) at the modulation
+        frequency is scored with the same machinery as visual calibration.
+        Honest scope: this detects whether EEG tracks the sound envelope on
+        a minutes timescale — one audio pixel, not real-time audio."""
+        a = self.args
+        self.spectate(type="stage", stage="assr", detail="")
+        self.blocks = []
+        await self.send(cmd="start_assr", blocks=a.calib_blocks,
+                        onS=config.CALIB_ON_S, offS=config.CALIB_OFF_S,
+                        modFreq=40.0)
+        await self.wait_for("assr_done", timeout=a.calib_blocks * 16 + 120)
+        await asyncio.sleep(0.7)
+        assr = run_session.score_calibration(self.session, self.blocks,
+                                             stim_freq=40.0)
+        os.replace(os.path.join(self.session, "calibration.json"),
+                   os.path.join(self.session, "assr.json"))
+        table = "   ".join(
+            f"{n} d'={assr['channels'][n]['dprime']:.1f}"
+            for n in assr["names"])
+        print(f"ASSR passed={assr['passed']} {table}")
+        result.update(ok=True, assrPassed=assr["passed"],
+                      assrBest=assr["best"], assrTable=table)
+        await self.send(cmd="assr_result", passed=assr["passed"],
+                        table=table)
+        self.spectate(type="calib", detail="ASSR " + table,
+                      passed=assr["passed"], best=assr["best"], weights=[])
+        await asyncio.sleep(a.linger)
+        return 0
 
     def measured_flicker(self):
         """Median rising-edge period from the page's own clock (jitter-free)."""
@@ -311,6 +390,8 @@ async def main():
     ap.add_argument("--spc", type=float, default=4.0)
     ap.add_argument("--calib-blocks", type=int, default=config.CALIB_BLOCKS)
     ap.add_argument("--target", default="text:NO")
+    ap.add_argument("--mode", choices=["visual", "assr"], default="visual",
+                    help="assr = 'ear as a microphone' 40 Hz tone blocks")
     ap.add_argument("--freq", type=float, default=config.STIM_FREQ_HZ)
     ap.add_argument("--spectator", default="127.0.0.1:8090",
                     help="'' disables the spectator mirror")

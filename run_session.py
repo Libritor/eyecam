@@ -276,7 +276,7 @@ def stage_calibrate(screen, session, log):
     return score_calibration(session, blocks)
 
 
-def score_calibration(session, blocks):
+def score_calibration(session, blocks, stim_freq=None):
     header, rows = reconstruct.read_csv(os.path.join(session, "eeg.csv"))
     names = header[1:]
     t = np.array([float(r[0]) for r in rows])
@@ -296,7 +296,7 @@ def score_calibration(session, blocks):
         for kind, t0, t1 in blocks:
             i0 = np.searchsorted(t, t0 + config.CALIB_DISCARD_S)
             i1 = np.searchsorted(t, t1)
-            sc = reconstruct.cell_score(data[i0:i1, c], fs, sigma)
+            sc = reconstruct.cell_score(data[i0:i1, c], fs, sigma, stim_freq)
             if not np.isnan(sc):
                 scores[kind].append(float(sc))
         on, off = np.array(scores["on"]), np.array(scores["off"])
