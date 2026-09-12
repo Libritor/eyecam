@@ -97,8 +97,28 @@ def main():
     with open(eeg_path, mode, newline="", buffering=1) as fe, \
          open(bp_path, mode, newline="", buffering=1) as fb:
         we = csv.writer(fe)
-        if not eeg_had_data:
-            we.writerow(["time", "TP9", "AF7", "AF8", "TP10"])
+        # Header is sized by the FIRST EEG packet: Mind Monitor sends 4 or 6
+        # floats (…, AUX_L, AUX_R), an aux-Oz preset on libmuse 5, Athena up
+        # to 8. Truncating to 4 would silently discard the Oz channel.
+        n_cols = [0]
+
+        def eeg_names(n):
+            base = ["TP9", "AF7", "AF8", "TP10"]
+            extra = {5: ["AUX"], 6: ["AUXL", "AUXR"],
+                     8: ["AUX1", "AUX2", "AUX3", "AUX4"]}
+            return base + extra.get(n, [f"AUX{i + 1}" for i in range(n - 4)])
+
+        def write_eeg(t, vals):
+            n = min(len(vals), 8)
+            if n_cols[0] == 0:
+                n_cols[0] = n
+                if not eeg_had_data:
+                    we.writerow(["time"] + eeg_names(n))
+                    print(f"  EEG channels: {eeg_names(n)}")
+            row = [f"{float(v):.4f}" for v in vals[:n_cols[0]]]
+            row += ["0.0000"] * (n_cols[0] - len(row))
+            we.writerow([f"{t:.6f}"] + row)
+
         wb = csv.writer(fb)
         if not bp_had_data:
             wb.writerow(["time", "address", "delta", "theta", "alpha", "beta"])
@@ -116,14 +136,17 @@ def main():
                         print("  ... no packets yet (check app IP/port, "
                               "same Wi-Fi, Start Streaming pressed)")
                         last_report = time.monotonic()
+                    # --duration must also expire while the stream is silent
+                    if args.duration and t_start and \
+                            local_clock() - t_start >= args.duration:
+                        break
                     continue
                 t = local_clock()
                 t_start = t_start or t
                 for msg in iter_messages(data):
                     addr, p = msg.address, list(msg.params)
                     if addr in ("/muse/eeg", "/eeg") and len(p) >= 4:
-                        we.writerow([f"{t:.6f}"] + [f"{float(v):.4f}"
-                                                    for v in p[:4]])
+                        write_eeg(t, p)
                         n_eeg += 1
                     elif addr.startswith("/person") and addr.endswith("/eeg"):
                         wb.writerow([f"{t:.6f}", addr] +
