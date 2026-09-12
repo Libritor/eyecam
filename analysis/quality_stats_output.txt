@@ -1,0 +1,381 @@
+
+==============================================================================
+RUN xr_live6: fs=256.83 Hz, file n=341325 (1330.1 s), session-window n=126798 (493.9 s); calib 20..104 s (6 ON/6 OFF), scan 107..492 s, post-scan tail in file 838 s
+
+[A] impedance proxies over calib+scan window (per channel)
+  r60_floor = P(60Hz)/median P(45-55,65-75); r60_bb = P(60Hz)/mean P(14-50)
+     ch      std    rsig   hfsig  rail% r60_floor   r60_bb   bb14-50       P15
+    TP9    159.4   225.6  214.06   0.00   41776.9 46720.82     0.486     0.760
+    AF7     23.3    32.4   31.18   0.00    8202.0  5112.40     0.091     0.132
+    AF8     18.7    24.4   22.92   0.00    4226.6  1895.29     0.150     0.173
+   TP10     83.5   118.5  112.92   0.00   16607.5 11480.50     0.537     0.885
+
+[B] time-resolved contact quality, 10 s windows, per stage (median over windows in stage; 'post' = whole file tail after the scan)
+    60Hz/floor       pre     calib   scan1/3   scan2/3   scan3/3      post
+           TP9 19830.184 104947.972 144565.302 244373.620 216301.179 145480.577
+           AF7  2994.977 16348.873 11808.894 13213.778 17610.208  1208.852
+           AF8   922.359  6210.738  4790.336  9862.263 11556.541 80757.753
+          TP10  4077.070 33610.804 38766.658 65641.852 50503.364  6039.942
+   HF sigma uV       pre     calib   scan1/3   scan2/3   scan3/3      post
+           TP9   171.887   181.397   247.646   237.162   209.140   707.866
+           AF7    26.723    28.300    34.656    33.635    29.784   580.749
+           AF8    18.557    17.722    27.279    27.001    24.496   708.052
+          TP10    91.580   101.462   128.045   123.498   106.704   697.567
+     rail frac       pre     calib   scan1/3   scan2/3   scan3/3      post
+           TP9     0.000     0.000     0.000     0.000     0.000     0.412
+           AF7     0.000     0.000     0.000     0.000     0.000     0.123
+           AF8     0.000     0.000     0.000     0.000     0.000     0.400
+          TP10     0.000     0.000     0.000     0.000     0.000     0.330
+        std uV       pre     calib   scan1/3   scan2/3   scan3/3      post
+           TP9   125.307   130.390   177.139   170.470   149.677   577.639
+           AF7    26.154    20.587    25.434    24.196    21.707   481.005
+           AF8    38.484    13.275    20.541    19.675    17.942   575.088
+          TP10    72.000    72.877    91.977    88.653    76.751   554.129
+  trend within calib+scan (Spearman rho vs time; slope per minute):
+      TP9 r60_floor: rho=+0.27 (p=0.067) slope=+11835.760/min first=4150.83 last=96426.67
+      AF7 r60_floor: rho=+0.06 (p=0.681) slope=+213.926/min first=1210.77 last=5475.31
+      AF8 r60_floor: rho=+0.54 (p=0.000) slope=+1246.462/min first=308.11 last=5827.51
+     TP10 r60_floor: rho=+0.21 (p=0.153) slope=+2613.697/min first=1045.82 last=23412.07
+      TP9     hfsig: rho=+0.33 (p=0.024) slope=+4.996/min first=149.85 last=240.32
+      AF7     hfsig: rho=+0.23 (p=0.118) slope=+0.341/min first=23.85 last=33.96
+      AF8     hfsig: rho=+0.46 (p=0.001) slope=+1.173/min first=14.20 last=29.60
+     TP10     hfsig: rho=+0.24 (p=0.100) slope=+1.204/min first=85.83 last=122.66
+  first rail sample at +514 s (scan ends +492 s); rail rows within calib+scan: 0.000% ; whole file 24.80%
+
+[C] measured flicker frequency (toggle count / 2 / duration)
+  block  0 ON :  14.13 Hz  (page frame rate  85.0 fps)
+  block  2 ON :  14.99 Hz  (page frame rate  72.9 fps)
+  block  4 ON :  14.98 Hz  (page frame rate  72.2 fps)
+  block  6 ON :  14.97 Hz  (page frame rate  72.2 fps)
+  block  8 ON :  14.97 Hz  (page frame rate  72.1 fps)
+  block 10 ON :  14.97 Hz  (page frame rate  72.1 fps)
+  ON blocks: mean 14.83 Hz, min 14.13, max 14.99
+  scan: 53 flickering cell visits, flicker Hz median 15.00 [min 14.91, max 15.35], 0% of cells off by >0.4 Hz
+
+[D] calibration contrast: decoder score per block, d' (run_session formula),
+    exact permutation p over block labels, bootstrap 95% CI, Mann-Whitney U
+  --- real arm ---
+     ch  dprime  ratio rank  p_perm1  p_perm2 nperm boot95lo boot95hi P(d<=0)   MWU_p  json_d
+    TP9   -0.32   0.86    0    0.653    0.701   924    -3.86     2.85    0.66   0.706   -0.32
+    AF7   -1.19   0.73    0    0.852    0.299   924    -6.68     1.52    0.85   0.880   -1.19
+    AF8    1.06   1.43    3    0.210    0.420   924    -1.30     7.29    0.13   0.120    1.06
+   TP10   -0.16   0.91    0    0.623    0.760   924    -5.88     4.84    0.62   0.591   -0.16
+  best-of-4-channels d'=1.06: family-wise permutation p=0.389 (null 95th pct of max d' = 2.34)
+  --- control arm ---
+     ch  dprime  ratio rank  p_perm1  p_perm2 nperm boot95lo boot95hi P(d<=0)   MWU_p  json_d
+    TP9    1.33   1.61    3    0.045    0.091   924    -0.42    11.71    0.05   0.066     nan
+    AF7   -1.70   0.83    1    0.966    0.071   924    -5.73     0.69    0.90   0.910     nan
+    AF8   -0.32   0.93    1    0.670    0.667   924    -4.96     2.79    0.62   0.706     nan
+   TP10    0.29   1.09    2    0.284    0.567   924    -1.61     6.16    0.22   0.242     nan
+  best-of-4-channels d'=1.33: family-wise permutation p=0.160 (null 95th pct of max d' = 1.86)
+  f-tracked (ON blocks scored at measured flicker Hz): d' real / control
+      TP9: d'= -0.26 (p=0.656)  control d'=  1.49
+      AF7: d'= -1.39 (p=0.874)  control d'= -0.60
+      AF8: d'=  0.73 (p=0.209)  control d'=  0.28
+     TP10: d'= -0.16 (p=0.636)  control d'=  0.39
+
+[E] per-block 15 Hz: decoder score | absolute P15 (uV^2/Hz, 0.5 Hz bins) | peakSNR15
+  decoder score (P15+P30)/(P14-50 - inband):
+     ch on0   of1   on2   of3   on4   of5   on6   of7   on8   of9   on10  of11 
+    TP9 0.064 0.063 0.078 0.088 0.126 0.088 0.054 0.050 0.074 0.260 0.158 0.176
+    AF7 0.047 0.045 0.059 0.075 0.090 0.072 0.063 0.102 0.055 0.093 0.094 0.115
+    AF8 0.087 0.067 0.063 0.057 0.137 0.091 0.105 0.089 0.106 0.068 0.062 0.049
+   TP10 0.066 0.049 0.083 0.095 0.088 0.042 0.101 0.094 0.070 0.381 0.263 0.156
+  peak SNR at 15 Hz = P(14.5-15.5)/mean P(flanks 11.5-13.5 & 16.5-18.5):
+     ch on0   of1   on2   of3   on4   of5   on6   of7   on8   of9   on10  of11 
+    TP9  1.13  0.93  1.77  2.48  1.00  0.64  0.27  0.37  0.58  3.77  1.42  1.37   med ON 1.07 OFF 1.15 perm p=0.535
+    AF7  1.20  0.49  0.80  1.00  1.03  1.59  0.66  1.02  0.49  1.65  1.25  1.07   med ON 0.91 OFF 1.05 perm p=0.735
+    AF8  0.80  0.50  0.86  0.77  1.51  1.37  1.96  1.36  0.80  0.84  0.62  0.42   med ON 0.83 OFF 0.80 perm p=0.403
+   TP10  1.18  1.21  0.80  1.53  1.23  0.20  0.79  1.06  0.77  3.52  2.16  1.15   med ON 0.99 OFF 1.18 perm p=0.813
+  2 s sliding peakSNR15 trace for AF8 across calibration (| marks block boundaries, ON blocks in [ ]):
+  [1.0 2.3 0.4 0.6 0.5]| 5.3 0.3 0.3 1.2 0.1 0.2 |[0.4 0.4 0.3 1.8 4.4 2.0]| 1.1 1.8 0.7 0.4 2.1 0.8 |[0.5 3.2 1.6 1.8 1.3 0.9]| 2.1 1.1 2.9 4.4 0.2 3.3 |[0.6 1.0 0.9 4.0 0.5 2.2]| 0.1 1.0 0.7 1.4 2.3 |[1.5 1.7 2.7 0.7 0.5 0.2]| 1.4 2.3 0.2 2.2 0.3 1.3 |[0.5 0.7 1.7 0.1 0.1 0.5]| 0.4 0.1 0.6 1.2 0.1 0.5 |
+
+[F] mean PSD (uV^2/Hz, 0.5 Hz bins, decoder clipping) ON vs OFF around 15 & 30 Hz
+     ch  arm   12.0   13.0   13.5   14.0   14.5   15.0   15.5   16.0   16.5   17.0   18.0   29.0   29.5   30.0   30.5   31.0   snr15 lmax15  snr30
+    TP9   on  1.480  1.007  0.698  0.871  1.172  1.447  1.123  0.633  0.884  0.877  0.890  0.744  0.653  0.487  0.519  0.522    1.17  False   0.87
+    TP9  off  0.679  0.714  1.076  0.998  0.685  0.891  0.927  0.686  0.539  0.602  0.944  0.746  0.968  1.281  2.010  1.007    1.22  False   1.72
+    TP9 ON/OFF at 15 Hz = 1.62, ON/OFF at flanks = 1.18  -> stimulus-specific ratio 1.37
+    AF7   on  0.160  0.136  0.180  0.155  0.138  0.173  0.244  0.149  0.119  0.188  0.280  0.126  0.122  0.084  0.092  0.097    1.03  False   0.62
+    AF7  off  0.109  0.321  0.258  0.165  0.102  0.124  0.153  0.107  0.111  0.136  0.139  0.102  0.112  0.139  0.096  0.177    0.76  False   1.10
+    AF7 ON/OFF at 15 Hz = 1.40, ON/OFF at flanks = 0.76  -> stimulus-specific ratio 1.86
+    AF8   on  0.252  0.255  0.335  0.427  0.330  0.207  0.326  0.321  0.255  0.297  0.277  0.241  0.224  0.225  0.159  0.224    0.96  False   1.05
+    AF8  off  0.227  0.288  0.251  0.152  0.154  0.129  0.181  0.179  0.181  0.175  0.270  0.195  0.201  0.192  0.186  0.178    0.65  False   1.01
+    AF8 ON/OFF at 15 Hz = 1.60, ON/OFF at flanks = 1.27  -> stimulus-specific ratio 1.25
+   TP10   on  1.585  1.284  1.308  1.434  1.012  0.968  1.434  1.011  0.949  0.586  0.708  1.107  0.813  0.826  0.398  0.948    1.14  False   0.71
+   TP10  off  0.928  1.317  1.578  1.072  1.169  1.555  1.073  0.844  0.887  0.768  0.625  1.189  1.614  1.151  0.802  0.491    1.37  False   0.84
+   TP10 ON/OFF at 15 Hz = 0.62, ON/OFF at flanks = 0.91  -> stimulus-specific ratio 0.69
+  control (shifted) AF8: snr15 ON 0.97 OFF 1.37
+
+[G] reconstruction r vs target (baseline calibration weights) real vs control
+  weights {'TP9': np.float64(0.0), 'AF7': np.float64(0.0), 'AF8': np.float64(1.0), 'TP10': np.float64(0.0)}
+  r_real = 0.192   r_control = -0.176
+  single-channel r (real / control):  TP9 +0.278/-0.131  AF7 -0.049/+0.182  AF8 +0.192/-0.176  TP10 +0.179/-0.192
+  target bright fraction (>0.5) = 0.281, p(1-p) = 0.202; median cell dwell 4.01 s
+  split-half (first/second half of every dwell): rho_hh = +0.067 (control +0.196); Spearman-Brown full-dwell reliability = 0.126; half-grid r vs target = -0.039, +0.192
+  CAVEAT: control split-half reliability >= real -> within-dwell agreement is noise autocorrelation (non-stationary artifact), not repeatable stimulus response; route 1 is not interpretable here
+  route 1: not usable (rho_hh <= 0, r_obs <= 0, or control >= real)
+  route 2 (two-class model, ceiling 0.8) from real d' of AF8: block d'=1.06 at 6.0 s -> cell d' at 4.0 s dwell = 0.86 -> predicted r = 0.289 (observed 0.192); cell d' needed for r>=0.6 = 2.52 -> gain 2.9x in d' (8.5x in SNR power)
+  route 2 (two-class model, ceiling 0.8) from excess d' (real - control) of AF8: block d'=1.37 at 6.0 s -> cell d' at 4.0 s dwell = 1.12 -> predicted r = 0.361 (observed 0.192); cell d' needed for r>=0.6 = 2.52 -> gain 2.2x in d' (5.0x in SNR power)
+
+==============================================================================
+RUN xr_live2: fs=256.62 Hz, file n=225970 (913.6 s), session-window n=130292 (539.1 s); calib 65..149 s (6 ON/6 OFF), scan 153..537 s, post-scan tail in file 377 s
+
+[A] impedance proxies over calib+scan window (per channel)
+  r60_floor = P(60Hz)/median P(45-55,65-75); r60_bb = P(60Hz)/mean P(14-50)
+     ch      std    rsig   hfsig  rail% r60_floor   r60_bb   bb14-50       P15
+    TP9    570.1   907.0  693.02  36.79   11228.4 11587.79    21.915    27.792
+    AF7    115.0    28.7   24.77   1.01     186.2   108.01    15.413    38.491
+    AF8    101.0    11.9    9.00   0.83     188.2    93.43    15.064    60.878
+   TP10    387.0   418.3  360.43   8.10   10114.3  7859.59    14.374    47.663
+
+[B] time-resolved contact quality, 10 s windows, per stage (median over windows in stage; 'post' = whole file tail after the scan)
+    60Hz/floor       pre     calib   scan1/3   scan2/3   scan3/3      post
+           TP9 97519.424 104455.314 42372.000 115209.841 109412.002 68743.696
+           AF7  3333.859  1635.739  2026.974  4543.154 10831.190   742.817
+           AF8   571.487   188.851   400.079   378.018   721.420   194.837
+          TP10 83680.691 93161.551 29026.097 130858.362 124442.268  4902.406
+   HF sigma uV       pre     calib   scan1/3   scan2/3   scan3/3      post
+           TP9   712.506   709.444   712.413   710.093   711.021   662.447
+           AF7    22.269    26.769    11.413    58.826    41.939    14.660
+           AF8     9.279    11.598     4.639    17.258    12.619     7.098
+          TP10   520.160   658.458   325.262   532.315   420.739   544.655
+     rail frac       pre     calib   scan1/3   scan2/3   scan3/3      post
+           TP9     0.401     0.398     0.371     0.401     0.399     0.325
+           AF7     0.000     0.000     0.000     0.000     0.000     0.000
+           AF8     0.000     0.000     0.000     0.000     0.000     0.000
+          TP10     0.000     0.216     0.000     0.000     0.000     0.011
+        std uV       pre     calib   scan1/3   scan2/3   scan3/3      post
+           TP9   572.883   577.533   564.508   573.606   573.112   556.016
+           AF7    16.961    39.284     9.848    48.129    31.331    19.202
+           AF8     8.528    22.389     6.343    18.158    13.010    15.700
+          TP10   375.855   514.186   336.715   389.178   307.693   405.840
+  trend within calib+scan (Spearman rho vs time; slope per minute):
+      TP9 r60_floor: rho=+0.16 (p=0.288) slope=-14505.926/min first=104153.59 last=114708.07
+      AF7 r60_floor: rho=+0.68 (p=0.000) slope=+1293.798/min first=525.30 last=15339.65
+      AF8 r60_floor: rho=+0.44 (p=0.003) slope=+54.357/min first=105.62 last=745.12
+     TP10 r60_floor: rho=-0.07 (p=0.671) slope=-12965.406/min first=122976.89 last=5719.37
+      TP9     hfsig: rho=-0.01 (p=0.939) slope=-1.673/min first=707.96 last=680.08
+      AF7     hfsig: rho=+0.29 (p=0.058) slope=+3.171/min first=20.78 last=33.40
+      AF8     hfsig: rho=+0.13 (p=0.411) slope=+0.113/min first=9.00 last=7.42
+     TP10     hfsig: rho=-0.39 (p=0.010) slope=-34.219/min first=480.54 last=54.05
+  first rail sample at +0 s (scan ends +537 s); rail rows within calib+scan: 39.591% ; whole file 31.78%
+
+[C] measured flicker frequency (toggle count / 2 / duration)
+  block  0 ON :  14.98 Hz  (page frame rate  72.2 fps)
+  block  2 ON :  15.01 Hz  (page frame rate  72.2 fps)
+  block  4 ON :  14.97 Hz  (page frame rate  72.2 fps)
+  block  6 ON :  11.59 Hz  (page frame rate  55.9 fps)
+  block  8 ON :  15.00 Hz  (page frame rate  90.1 fps)
+  block 10 ON :  14.93 Hz  (page frame rate  72.9 fps)
+  ON blocks: mean 14.41 Hz, min 11.59, max 15.01
+  scan: 53 flickering cell visits, flicker Hz median 15.02 [min 14.91, max 15.09], 0% of cells off by >0.4 Hz
+
+[D] calibration contrast: decoder score per block, d' (run_session formula),
+    exact permutation p over block labels, bootstrap 95% CI, Mann-Whitney U
+  --- real arm ---
+     ch  dprime  ratio rank  p_perm1  p_perm2 nperm boot95lo boot95hi P(d<=0)   MWU_p  json_d
+    TP9   -0.49   0.54    0    0.653    0.697   924    -6.63     3.80    0.79   0.845   -0.49
+    AF7   -0.51   0.83    0    0.780    0.444   924    -4.50     4.30    0.76   0.880   -0.51
+    AF8   -1.05   0.75    0    0.802    0.398   924    -5.47     0.93    0.91   0.953   -1.01
+   TP10   -0.24   0.73    1    0.573    0.859   924   -14.51     2.40    0.59   0.531   -0.24
+  best-of-4-channels d'=-0.24: family-wise permutation p=0.899 (null 95th pct of max d' = 4.74)
+  --- control arm ---
+     ch  dprime  ratio rank  p_perm1  p_perm2 nperm boot95lo boot95hi P(d<=0)   MWU_p  json_d
+    TP9   -1.53   0.64    0    1.000    0.013   924   -13.98     1.46    0.76   0.934     nan
+    AF7   -1.01   0.76    0    0.850    0.303   924    -7.25     0.95    0.88   0.953     nan
+    AF8   -0.49   0.88    0    0.786    0.435   924    -5.38     1.49    0.85   0.845     nan
+   TP10   -0.64   0.78    0    0.788    0.429   924    -8.72     1.89    0.73   0.803     nan
+  best-of-4-channels d'=-0.49: family-wise permutation p=0.933 (null 95th pct of max d' = 1.90)
+  f-tracked (ON blocks scored at measured flicker Hz): d' real / control
+      TP9: d'= -0.37 (p=0.604)  control d'=  0.07
+      AF7: d'= -0.52 (p=0.847)  control d'= -0.83
+      AF8: d'= -1.05 (p=0.830)  control d'= -0.09
+     TP10: d'= -0.26 (p=0.591)  control d'= -0.65
+
+[E] per-block 15 Hz: decoder score | absolute P15 (uV^2/Hz, 0.5 Hz bins) | peakSNR15
+  decoder score (P15+P30)/(P14-50 - inband):
+     ch on0   of1   on2   of3   on4   of5   on6   of7   on8   of9   on10  of11 
+    TP9 0.009 0.009 0.011 0.012 0.012 0.086 0.002 0.002 0.002 0.002 0.002 0.030
+    AF7 0.062 0.072 0.062 0.043 0.073 0.252 0.071 0.097 0.034 0.049 0.063 0.079
+    AF8 0.054 0.057 0.056 0.054 0.072 0.142 0.073 0.089 0.046 0.068 0.055 0.079
+   TP10 0.062 0.070 0.144 0.037 0.047 0.062 0.003 0.003 0.001 0.002 0.002 0.033
+  peak SNR at 15 Hz = P(14.5-15.5)/mean P(flanks 11.5-13.5 & 16.5-18.5):
+     ch on0   of1   on2   of3   on4   of5   on6   of7   on8   of9   on10  of11 
+    TP9  0.95  0.15  0.51  0.42  0.18  1.10  0.71  0.12  0.85  0.25  1.00  0.33   med ON 0.78 OFF 0.29 perm p=0.055
+    AF7  0.40  0.71  0.79  0.69  0.78  1.25  1.18  1.04  1.08  1.91  1.12  0.66   med ON 0.94 OFF 0.88 perm p=0.315
+    AF8  0.66  1.10  1.12  0.66  1.43  0.48  1.63  2.52  1.71  1.09  1.45  1.85   med ON 1.44 OFF 1.09 perm p=0.245
+   TP10  1.46  1.38  1.54  0.41  0.67  0.56  0.16  0.04  0.05  0.06  0.12  0.32   med ON 0.41 OFF 0.37 perm p=0.416
+  2 s sliding peakSNR15 trace for TP10 across calibration (| marks block boundaries, ON blocks in [ ]):
+  [0.4 6.0 0.4 0.9 2.1 0.8]| 0.7 2.3 0.3 0.4 1.8 0.9 |[0.8 1.6 1.4 1.6 1.6]| 1.0 0.4 1.4 0.1 0.3 0.7 |[0.5 0.2 1.8 1.0 0.3 0.4]| 1.5 0.2 0.5 3.3 0.3 0.3 |[0.4 0.2 0.1 0.3 0.0]| 0.1 0.1 0.0 0.0 0.0 0.0 |[0.0 0.1 0.1 0.1 0.0 0.2]| 0.1 0.1 0.0 0.0 0.0 |[0.0 0.0 0.1 0.2 0.0]| 1.1 0.2 0.3 0.2 0.3 0.6 |
+
+[F] mean PSD (uV^2/Hz, 0.5 Hz bins, decoder clipping) ON vs OFF around 15 & 30 Hz
+     ch  arm   12.0   13.0   13.5   14.0   14.5   15.0   15.5   16.0   16.5   17.0   18.0   29.0   29.5   30.0   30.5   31.0   snr15 lmax15  snr30
+    TP9   on  1.998  1.425  0.627  1.511  2.215  1.540  1.314  6.879 17.034  4.884  0.705  1.761  0.670  0.595  1.430  4.318    0.48  False   0.06
+    TP9  off 62.686 31.550 59.040 45.128 39.298 49.136 36.947 59.946 75.425 15.933 24.624 24.620 24.655 15.482 20.584 22.263    0.99  False   0.68
+    TP9 ON/OFF at 15 Hz = 0.03, ON/OFF at flanks = 0.13  -> stimulus-specific ratio 0.24
+    AF7   on  0.687  0.642  0.404  0.403  0.562  0.462  0.565  0.609  0.393  0.250  0.568  1.029  0.820  0.638  0.582  0.657    0.99  False   1.07
+    AF7  off  7.411  5.312  3.504  4.173  5.650  4.609  4.203  3.205  2.994  3.419  1.240  0.767  0.733  0.610  0.368  0.392    1.07  False   0.91
+    AF7 ON/OFF at 15 Hz = 0.10, ON/OFF at flanks = 0.11  -> stimulus-specific ratio 0.90
+    AF8   on  0.574  0.444  0.332  0.448  0.737  0.699  0.569  0.568  0.436  0.490  0.528  0.687  0.404  0.488  0.522  0.531    1.48  False   0.83
+    AF8  off  4.820  1.758  1.444  1.935  2.016  1.294  0.747  0.781  1.162  1.094  0.788  0.876  1.034  0.777  0.650  0.542    0.75  False   1.60
+    AF8 ON/OFF at 15 Hz = 0.54, ON/OFF at flanks = 0.31  -> stimulus-specific ratio 1.73
+   TP10   on  9.650  3.894  7.530  7.025  7.455  9.138  8.190 10.256 10.181  3.611  2.896  1.448  0.896  1.197  1.570  1.004    1.26  False   0.18
+   TP10  off 18.751 31.736 26.031 35.336 19.236 13.093 27.026 28.961 31.711 44.829 13.020  4.792  5.073  6.957  3.663  4.984    0.55  False   0.56
+   TP10 ON/OFF at 15 Hz = 0.70, ON/OFF at flanks = 0.19  -> stimulus-specific ratio 3.72
+  control (shifted) TP10: snr15 ON 0.93 OFF 1.41
+
+[G] reconstruction r vs target (baseline calibration weights) real vs control
+  weights {'TP9': np.float64(0.25), 'AF7': np.float64(0.25), 'AF8': np.float64(0.25), 'TP10': np.float64(0.25)}
+  r_real = -0.388   r_control = -0.100
+  single-channel r (real / control):  TP9 -0.225/-0.040  AF7 -0.181/-0.100  AF8 -0.256/+0.007  TP10 -0.282/-0.153
+  target bright fraction (>0.5) = 0.281, p(1-p) = 0.202; median cell dwell 4.00 s
+  split-half (first/second half of every dwell): rho_hh = +0.342 (control +0.631); Spearman-Brown full-dwell reliability = 0.510; half-grid r vs target = -0.251, -0.195
+  CAVEAT: control split-half reliability >= real -> within-dwell agreement is noise autocorrelation (non-stationary artifact), not repeatable stimulus response; route 1 is not interpretable here
+  route 1: not usable (rho_hh <= 0, r_obs <= 0, or control >= real)
+  route 2 (two-class model, ceiling 0.8) from real d' of TP10: block d'=-0.24 at 5.9 s -> cell d' at 4.0 s dwell = 0.00 -> predicted r = 0.000 (observed -0.388); cell d' needed for r>=0.6 = 2.52 -> gain infx in d' (infx in SNR power)
+  route 2 (two-class model, ceiling 0.8) from excess d' (real - control) of TP10: block d'=0.41 at 5.9 s -> cell d' at 4.0 s dwell = 0.33 -> predicted r = 0.119 (observed -0.388); cell d' needed for r>=0.6 = 2.52 -> gain 7.5x in d' (57.0x in SNR power)
+
+==============================================================================
+RUN webgate: fs=256.00 Hz, file n=24001 (93.8 s), session-window n=23752 (92.8 s); calib 5..47 s (3 ON/3 OFF), scan 52..91 s, post-scan tail in file 3 s
+
+[A] impedance proxies over calib+scan window (per channel)
+  r60_floor = P(60Hz)/median P(45-55,65-75); r60_bb = P(60Hz)/mean P(14-50)
+     ch      std    rsig   hfsig  rail% r60_floor   r60_bb   bb14-50       P15
+    TP9      4.5     5.2    0.49   0.00       1.0     0.30     0.005     0.080
+    AF7      3.2     3.2    0.48   0.00       1.1     0.79     0.003     0.009
+    AF8      4.5     3.9    0.48   0.00       1.1     0.71     0.003     0.009
+   TP10      3.9     3.7    0.49   0.00       1.0     0.34     0.006     0.082
+
+[B] time-resolved contact quality, 10 s windows, per stage (median over windows in stage; 'post' = whole file tail after the scan)
+    60Hz/floor       pre     calib   scan1/3   scan2/3   scan3/3      post
+           TP9     1.263     0.979     1.161     0.928     0.632       nan
+           AF7     0.601     1.365     0.560     2.010     1.032       nan
+           AF8     0.618     1.182     1.096     1.276     1.264       nan
+          TP10     1.030     0.981     0.967     0.902     0.725       nan
+   HF sigma uV       pre     calib   scan1/3   scan2/3   scan3/3      post
+           TP9     0.495     0.495     0.506     0.490     0.473       nan
+           AF7     0.490     0.472     0.496     0.474     0.481       nan
+           AF8     0.480     0.487     0.454     0.475     0.464       nan
+          TP10     0.494     0.502     0.494     0.483     0.482       nan
+     rail frac       pre     calib   scan1/3   scan2/3   scan3/3      post
+           TP9     0.000     0.000     0.000     0.000     0.000       nan
+           AF7     0.000     0.000     0.000     0.000     0.000       nan
+           AF8     0.000     0.000     0.000     0.000     0.000       nan
+          TP10     0.000     0.000     0.000     0.000     0.000       nan
+        std uV       pre     calib   scan1/3   scan2/3   scan3/3      post
+           TP9     1.409     2.100     2.449     1.734     1.898       nan
+           AF7     1.401     2.574     1.734     2.044     1.423       nan
+           AF8     1.570     2.214     1.748     2.354     1.378       nan
+          TP10     2.072     2.302     2.420     2.261     2.062       nan
+  trend within calib+scan (Spearman rho vs time; slope per minute):
+      TP9 r60_floor: rho=-0.43 (p=0.244) slope=-0.214/min first=0.98 last=0.52
+      AF7 r60_floor: rho=+0.07 (p=0.865) slope=-0.063/min first=0.86 last=0.53
+      AF8 r60_floor: rho=-0.10 (p=0.798) slope=-0.144/min first=2.23 last=1.95
+     TP10 r60_floor: rho=-0.28 (p=0.460) slope=-0.395/min first=1.78 last=0.33
+      TP9     hfsig: rho=-0.53 (p=0.139) slope=-0.018/min first=0.49 last=0.46
+      AF7     hfsig: rho=+0.17 (p=0.668) slope=+0.005/min first=0.46 last=0.49
+      AF8     hfsig: rho=-0.70 (p=0.036) slope=-0.019/min first=0.49 last=0.46
+     TP10     hfsig: rho=-0.40 (p=0.286) slope=-0.014/min first=0.48 last=0.47
+  no rail samples anywhere in the file
+
+[C] measured flicker frequency (toggle count / 2 / duration)
+  block  0 ON :  15.00 Hz  (page frame rate  60.2 fps)
+  block  2 ON :  14.93 Hz  (page frame rate  60.1 fps)
+  block  4 ON :  14.97 Hz  (page frame rate  60.1 fps)
+  ON blocks: mean 14.96 Hz, min 14.93, max 15.00
+
+[D] calibration contrast: decoder score per block, d' (run_session formula),
+    exact permutation p over block labels, bootstrap 95% CI, Mann-Whitney U
+  --- real arm ---
+     ch  dprime  ratio rank  p_perm1  p_perm2 nperm boot95lo boot95hi P(d<=0)   MWU_p  json_d
+    TP9   18.82  16.89    3    0.100    0.300    20    18.67    18.84    0.00   0.050   18.42
+    AF7   13.46   3.06    3    0.050    0.150    20    11.45    15.31    0.00   0.050   13.37
+    AF8    3.54   2.16    3    0.050    0.100    20     3.54    15.75    0.00   0.050    3.74
+   TP10   18.84  17.22    3    0.100    0.600    20    18.70    19.04    0.00   0.050   18.47
+  best-of-4-channels d'=18.84: family-wise permutation p=0.100 (null 95th pct of max d' = 18.84)
+  --- control arm ---
+     ch  dprime  ratio rank  p_perm1  p_perm2 nperm boot95lo boot95hi P(d<=0)   MWU_p  json_d
+    TP9   -0.16   0.88    1    0.700    0.700    20   -58.07    18.88    0.55   0.500     nan
+    AF7    1.43   1.18    2    0.200    0.400    20    -2.50     9.62    0.18   0.200     nan
+    AF8    0.86   1.30    2    0.350    0.700    20    -6.19     8.84    0.19   0.200     nan
+   TP10   -0.27   0.77    1    0.700    0.700    20   -78.58    18.39    0.55   0.500     nan
+  best-of-4-channels d'=1.43: family-wise permutation p=0.400 (null 95th pct of max d' = 4.75)
+  f-tracked (ON blocks scored at measured flicker Hz): d' real / control
+      TP9: d'= 18.82 (p=0.100)  control d'= -0.16
+      AF7: d'= 13.46 (p=0.050)  control d'=  1.43
+      AF8: d'=  3.54 (p=0.050)  control d'=  0.86
+     TP10: d'= 18.84 (p=0.100)  control d'= -0.27
+
+[E] per-block 15 Hz: decoder score | absolute P15 (uV^2/Hz, 0.5 Hz bins) | peakSNR15
+  decoder score (P15+P30)/(P14-50 - inband):
+     ch on0   of1   on2   of3   on4   of5  
+    TP9 1.689 0.098 1.690 0.101 1.528 0.100
+    AF7 0.250 0.060 0.194 0.082 0.255 0.083
+    AF8 0.176 0.092 0.198 0.075 0.351 0.111
+   TP10 1.655 0.107 1.690 0.082 1.695 0.098
+  peak SNR at 15 Hz = P(14.5-15.5)/mean P(flanks 11.5-13.5 & 16.5-18.5):
+     ch on0   of1   on2   of3   on4   of5  
+    TP9 56.40  0.67 62.83  1.25 49.15  1.83   med ON 56.40 OFF 1.25 perm p=0.100
+    AF7  4.61  0.33  3.40  1.31  3.79  0.82   med ON 3.79 OFF 0.82 perm p=0.050
+    AF8  3.64  1.25  3.94  1.36  4.17  0.88   med ON 3.94 OFF 1.25 perm p=0.050
+   TP10 74.10  1.69 43.91  1.31 63.46  1.65   med ON 63.46 OFF 1.65 perm p=0.050
+  2 s sliding peakSNR15 trace for TP10 across calibration (| marks block boundaries, ON blocks in [ ]):
+  [107.3 193.0 97.0 33.9 80.8 87.9]| 3.7 7.4 2.2 0.7 0.2 0.4 |[44.4 102.7 110.4 29.7 23.7 66.8]| 1.7 0.9 0.9 0.2 0.4 9.8 |[37.7 180.0 40.2 113.9 55.7 47.2]| 0.9 1.7 1.3 1.6 0.6 3.2 |
+
+[F] mean PSD (uV^2/Hz, 0.5 Hz bins, decoder clipping) ON vs OFF around 15 & 30 Hz
+     ch  arm   12.0   13.0   13.5   14.0   14.5   15.0   15.5   16.0   16.5   17.0   18.0   29.0   29.5   30.0   30.5   31.0   snr15 lmax15  snr30
+    TP9   on  0.006  0.006  0.004  0.005  0.100  0.422  0.120  0.005  0.005  0.004  0.004  0.002  0.017  0.072  0.020  0.002   55.82   True  24.53
+    TP9  off  0.006  0.005  0.004  0.004  0.005  0.005  0.006  0.005  0.005  0.005  0.004  0.002  0.002  0.003  0.002  0.003    1.19  False   1.24
+    TP9 ON/OFF at 15 Hz = 86.04, ON/OFF at flanks = 0.99  -> stimulus-specific ratio 87.18
+    AF7   on  0.006  0.006  0.005  0.005  0.013  0.029  0.010  0.004  0.007  0.008  0.003  0.002  0.003  0.007  0.003  0.003    3.90   True   2.12
+    AF7  off  0.007  0.006  0.004  0.003  0.004  0.004  0.003  0.004  0.004  0.004  0.004  0.002  0.002  0.002  0.002  0.003    0.77  False   0.75
+    AF7 ON/OFF at 15 Hz = 7.52, ON/OFF at flanks = 1.48  -> stimulus-specific ratio 5.09
+    AF8   on  0.009  0.007  0.007  0.005  0.016  0.034  0.013  0.005  0.005  0.003  0.004  0.003  0.003  0.004  0.002  0.002    3.95   True   1.46
+    AF8  off  0.006  0.005  0.007  0.006  0.004  0.005  0.005  0.005  0.005  0.003  0.003  0.003  0.003  0.002  0.002  0.002    1.13  False   1.05
+    AF8 ON/OFF at 15 Hz = 6.35, ON/OFF at flanks = 1.07  -> stimulus-specific ratio 5.91
+   TP10   on  0.007  0.008  0.007  0.007  0.119  0.468  0.124  0.003  0.003  0.003  0.003  0.002  0.022  0.071  0.020  0.003   58.30   True  23.37
+   TP10  off  0.008  0.003  0.003  0.003  0.006  0.008  0.006  0.004  0.003  0.003  0.003  0.002  0.002  0.002  0.002  0.002    1.57   True   0.78
+   TP10 ON/OFF at 15 Hz = 62.19, ON/OFF at flanks = 1.64  -> stimulus-specific ratio 38.00
+  control (shifted) TP10: snr15 ON 19.02 OFF 12.95
+
+[G] reconstruction r vs target (baseline calibration weights) real vs control
+  weights {'TP9': np.float64(0.433), 'AF7': np.float64(0.075), 'AF8': np.float64(0.042), 'TP10': np.float64(0.45)}
+  r_real = 0.782   r_control = -0.051
+  single-channel r (real / control):  TP9 +0.766/-0.059  AF7 +0.034/-0.095  AF8 +0.320/+0.167  TP10 +0.776/-0.044
+  target bright fraction (>0.5) = 0.229, p(1-p) = 0.177; median cell dwell 0.82 s
+  split-half: dwell 0.82 s < 2 s -> halves shorter than one 1 s PSD segment; split-half not computable for this run
+  route 2 (two-class model, ceiling 0.8) from real d' of TP10: block d'=18.84 at 6.0 s -> cell d' at 0.8 s dwell = 6.94 -> predicted r = 0.757 (observed 0.782); cell d' needed for r>=0.6 = 2.70 -> gain 0.4x in d' (0.2x in SNR power)
+  route 2 (two-class model, ceiling 0.8) from excess d' (real - control) of TP10: block d'=19.10 at 6.0 s -> cell d' at 0.8 s dwell = 7.04 -> predicted r = 0.758 (observed 0.782); cell d' needed for r>=0.6 = 2.70 -> gain 0.4x in d' (0.1x in SNR power)
+
+==============================================================================
+[H] proposed live-badge thresholds (evaluated on calib+scan window of each run)
+  HARD rail fraction (0 or 1450) per channel: threshold < 0.01
+     xr_live6: TP9=0  AF7=0  AF8=0  TP10=0   -> 4/4 channels pass
+     xr_live2: TP9=0.368!  AF7=0.0101!  AF8=0.00834  TP10=0.081!   -> 1/4 channels pass
+      webgate: TP9=0  AF7=0  AF8=0  TP10=0   -> 4/4 channels pass
+  HARD HF sigma (uV) per channel: threshold < 100.0
+     xr_live6: TP9=214!  AF7=31.2  AF8=22.9  TP10=113!   -> 2/4 channels pass
+     xr_live2: TP9=693!  AF7=24.8  AF8=9  TP10=360!   -> 2/4 channels pass
+      webgate: TP9=0.492  AF7=0.48  AF8=0.476  TP10=0.494   -> 4/4 channels pass
+  SOFT HF sigma (uV) per channel: threshold < 40.0
+     xr_live6: TP9=214!  AF7=31.2  AF8=22.9  TP10=113!   -> 2/4 channels pass
+     xr_live2: TP9=693!  AF7=24.8  AF8=9  TP10=360!   -> 2/4 channels pass
+      webgate: TP9=0.492  AF7=0.48  AF8=0.476  TP10=0.494   -> 4/4 channels pass
+  SOFT 60 Hz line/floor ratio per channel: threshold < 10000.0
+     xr_live6: TP9=4.18e+04!  AF7=8.2e+03  AF8=4.23e+03  TP10=1.66e+04!   -> 2/4 channels pass
+     xr_live2: TP9=1.12e+04!  AF7=186  AF8=188  TP10=1.01e+04!   -> 2/4 channels pass
+      webgate: TP9=0.962  AF7=1.14  AF8=1.1  TP10=1.01   -> 4/4 channels pass
+  SOFT std (uV) per channel: threshold < 60.0
+     xr_live6: TP9=159!  AF7=23.3  AF8=18.7  TP10=83.5!   -> 2/4 channels pass
+     xr_live2: TP9=570!  AF7=115!  AF8=101!  TP10=387!   -> 0/4 channels pass
+      webgate: TP9=4.55  AF7=3.24  AF8=4.54  TP10=3.9   -> 4/4 channels pass
+  stimulus rule: measured flicker within 15 +- 0.3 Hz in every ON block
+     xr_live6: ON-block Hz [14.13, 14.99, 14.98, 14.97, 14.97, 14.97] -> FAIL [14.13]
+     xr_live2: ON-block Hz [14.98, 15.01, 14.97, 11.59, 15.0, 14.93] -> FAIL [11.59]
+      webgate: ON-block Hz [15.0, 14.93, 14.97] -> PASS
+  calibration rule: best-of-4 family-wise permutation p < 0.05 AND real d' > control d' + 1
+     xr_live6: best d' real 1.06 (fw p=0.389) vs control best 1.33 (fw p=0.160)
+     xr_live2: best d' real -0.24 (fw p=0.899) vs control best -0.49 (fw p=0.933)
+      webgate: best d' real 18.84 (fw p=0.100) vs control best 1.43 (fw p=0.400)
+
+results json -> analysis\quality_stats_results.json

@@ -1,0 +1,180 @@
+====================================================================================================
+RUN xr_live6: live human (dry electrodes, ears high-Z)
+====================================================================================================
+EEG clock: fs_hat=256.6503 Hz (reference infer_fs=256.833); segments=2 gaps>0.5s=1 seg_len_s=[164.7, 1165.2]
+  per-segment rate estimates (lower-envelope slope vs sample count/span): [{'len_s': np.float64(164.7), 'fs_lower_envelope': np.float64(256.691), 'fs_count': np.float64(256.668)}, {'len_s': np.float64(1165.2), 'fs_lower_envelope': np.float64(256.65), 'fs_count': np.float64(256.856)}]
+  arrival-stamp jitter vs index clock (ms): p50=76.8 p90=113.6 p99=144.7 max=1384; frac |jitter|>1/4 period(16.7ms)=0.985
+Page clock: t_pc = 5958.773 + 0.9999610*page_t; WS jitter ms p50=0.9 p95=5.6 max=1082
+Reference: logged flicker_on vs analytic floor((page_t-delta)*30)%2 agreement=1.0000 at delta=+0.0 ms (ZOH of logged column used inside flicker rows)
+  rail fraction during calib: TP9=0.000  AF7=0.000  AF8=0.000  TP10=0.000
+  rail fraction during scan: TP9=0.000  AF7=0.000  AF8=0.000  TP10=0.000
+  calibration blocks: 6 ON / 6 OFF; EEG rows=341325; control shift=113775 samples
+
+BASELINE (reference Welch relative power, reconstruct.py/run_session.py re-run in-process)
+  calib d'  real   : TP9=  -0.32  AF7=  -1.19  AF8=  +1.06  TP10=  -0.16   passed=False
+  calib d'  control: TP9=  -0.65  AF7=  +2.60  AF8=  -0.46  TP10=  +0.03
+  recon r (calibration.json weights {"TP9": 0.0, "AF7": 0.0, "AF8": 1.0, "TP10": 0.0}): real=0.194  control=-0.270
+
+LOCK-IN (headline: sq15 reference, LP tau=tau1s, snr score)  [22s + 26s]
+                real: lag scan best=+50 ms  objective max/min=1.098 (max 1.033, min 0.941)
+  control(shift N/3): lag scan best=+70 ms  objective max/min=1.192 (max 0.720, min 0.604)
+                real calib d': TP9=  -0.40  AF7=  -1.01  AF8=  -0.14  TP10=  -0.86  | ratio: TP9= 0.88  AF7= 0.88  AF8= 0.97  TP10= 0.85 | rank: TP9=2/6 AF7=0/6 AF8=1/6 TP10=0/6  best=AF8 passed=False
+  control(shift N/3) calib d': TP9=  +1.93  AF7=  +0.77  AF8=  +0.09  TP10=  -1.84  | ratio: TP9= 1.36  AF7= 1.16  AF8= 1.03  TP10= 0.91 | rank: TP9=5/6 AF7=4/6 AF8=2/6 TP10=0/6  best=TP9 passed=True
+                real phase-locking across blocks (sq15, full-window phasor), best ch AF8: PLV_on=0.53 PLV_off=0.42; clipped-frac per ch: TP9=0.00 AF7=0.00 AF8=0.00 TP10=0.00
+  control(shift N/3) phase-locking across blocks (sq15, full-window phasor), best ch TP9: PLV_on=0.28 PLV_off=0.04; clipped-frac per ch: TP9=0.00 AF7=0.00 AF8=0.00 TP10=0.00
+                real recon r: calib-weights=0.120 (w={"TP9": 0.25, "AF7": 0.25, "AF8": 0.25, "TP10": 0.25} UNIFORM-FALLBACK)  uniform=0.120  per-ch: TP9=0.037 AF7=0.037 AF8=0.098 TP10=0.112
+  control(shift N/3) recon r: calib-weights=0.420 (w={"TP9": 0.7, "AF7": 0.3, "AF8": 0.0, "TP10": 0.0})  uniform=0.154  per-ch: TP9=0.466 AF7=0.070 AF8=-0.030 TP10=-0.087
+
+  VARIANT TABLE (real | control): best-channel d' (channel), passed, recon r with that variant's calib weights
+  variant                    d_real    ch  pass  r_real |    d_ctl    ch   r_ctl
+  sq15/full/raw               +0.47   TP9 False  -0.120 |    +0.70   AF7   0.451
+  sq15/full/snr               +0.56   TP9 False  -0.066 |    +1.87   TP9   0.330
+  sq15/tau0.25s/raw           +0.68   AF8 False  -0.188 |    +0.12  TP10   0.307
+  sq15/tau0.25s/snr           -0.02   AF8 False  -0.111 |    -0.03   TP9  -0.200
+  sq15/tau1s/raw              +0.52   AF8 False  -0.077 |    +1.32   AF7   0.451
+  sq15/tau1s/snr              -0.14   AF8 False   0.120 |    +1.93   TP9   0.420
+  sq15+30/full/raw            +0.81   AF8 False  -0.055 |    +1.11   AF7   0.465
+  sq15+30/full/snr            +0.80   TP9 False   0.125 |    +1.12   TP9   0.134
+  sq15+30/tau0.25s/raw        +0.81   AF8 False  -0.088 |    -0.04   AF7   0.367
+  sq15+30/tau0.25s/snr        -0.11  TP10 False  -0.021 |    +0.02   AF7  -0.388
+  sq15+30/tau1s/raw           +1.33   AF8 False  -0.083 |    +1.25   AF7   0.461
+  sq15+30/tau1s/snr           +0.86   AF8 False   0.126 |    +1.43   AF7   0.076
+
+  CLOCK CHECK via 60 Hz mains line on TP9 over the calibration span (Lomb-Scargle 58-62 Hz):
+    index_clock            peak at 60.010 Hz  peak/floor=33000  fraction of 59.5-60.5 Hz power within +-0.03 Hz of peak=0.43
+    index_clock_fs_infer   peak at 60.030 Hz  peak/floor=139709  fraction of 59.5-60.5 Hz power within +-0.03 Hz of peak=0.94
+    arrival_stamps         peak at 60.045 Hz  peak/floor=12  fraction of 59.5-60.5 Hz power within +-0.03 Hz of peak=0.12
+
+  NULL DISTRIBUTION over 20 circular shifts (8-92 % of the recording) [63s]
+  statistic                             real null mean null sd null max frac null >= real
+  baseline best-channel d'             1.056     0.482   0.603    2.095              0.10
+  baseline recon r (calib weights)     0.194     0.001   0.170    0.261              0.15
+  lock-in sq15/tau1s/snr best d'      -0.138     1.044   0.901    3.462              1.00
+  lock-in sq15/tau1s/snr r (calib w)   0.120     0.123   0.167    0.454              0.35
+  lock-in sq15/full/raw best d'        0.470     0.701   0.399    1.402              0.70
+  lock-in sq15/full/raw r (calib w)   -0.120     0.077   0.146    0.287              0.90
+  lock-in sq15/tau1s/snr r (uniform)   0.120     0.081   0.152    0.529              0.35
+
+  SENSITIVITY: synthetic stimulus-locked SSVEP (sin 15 Hz + 0.4 sin 30 Hz, latency 80 ms, 0.3 s entrainment, amplitude x logged luminance) added to ALL channels of the real xr_live6 EEG on the index clock
+   A uV | baseline Welch dprime per ch                  pass      r | lock-in sq15/tau1s/snr dprime per ch          pass      r | lock-in sq15/full/raw dprime per ch           pass      r
+    0.0 | TP9= -0.32  AF7= -1.19  AF8= +1.06  TP10= -0.16 False  0.194 | TP9= -0.40  AF7= -1.01  AF8= -0.14  TP10= -0.86 False  0.120 | TP9= +0.47  AF7= -1.02  AF8= +0.30  TP10= +0.07 False -0.120
+    0.2 | TP9= -0.25  AF7= +0.22  AF8= +1.12  TP10= -0.04 False  0.228 | TP9= -0.21  AF7= +0.07  AF8= +0.70  TP10= -0.26 False  0.120 | TP9= +1.21  AF7= +3.83  AF8= +1.28  TP10= +0.90  True -0.020
+    0.5 | TP9= +0.19  AF7= +2.93  AF8= +1.40  TP10= +0.21 False  0.449 | TP9= +0.28  AF7= +1.22  AF8= +2.18  TP10= +0.41  True  0.556 | TP9= +2.62  AF7= +9.03  AF8= +2.86  TP10= +1.83  True  0.235
+    1.0 | TP9= +0.90  AF7= +5.29  AF8= +2.19  TP10= +0.87  True  0.718 | TP9= +1.58  AF7= +3.85  AF8= +2.21  TP10= +1.00  True  0.782 | TP9= +6.59  AF7=+16.71  AF8= +6.45  TP10= +3.91  True  0.653
+    2.0 | TP9= +1.13  AF7= +4.40  AF8= +5.77  TP10= +1.44  True  0.801 | TP9= +2.34  AF7= +5.62  AF8= +2.88  TP10= +1.74  True  0.831 | TP9=+12.92  AF7=+18.27  AF8=+14.12  TP10= +8.71  True  0.827
+    4.0 | TP9= +1.61  AF7= +5.81  AF8= +8.71  TP10= +2.38  True  0.826 | TP9= +2.41  AF7= +6.59  AF8= +3.31  TP10= +2.50  True  0.842 | TP9=+18.38  AF7=+19.12  AF8=+19.08  TP10=+17.74  True  0.856
+    8.0 | TP9= +3.15  AF7=+11.17  AF8=+19.49  TP10= +4.03  True  0.843 | TP9= +2.88  AF7= +6.48  AF8= +3.56  TP10= +2.88  True  0.848 | TP9=+19.18  AF7=+19.56  AF8=+19.54  TP10=+18.83  True  0.860
+====================================================================================================
+RUN xr_live2: NEGATIVE control (floating ear electrodes)
+====================================================================================================
+EEG clock: fs_hat=256.6026 Hz (reference infer_fs=256.623); segments=3 gaps>0.5s=2 seg_len_s=[308.4, 451.2, 121.0]
+  per-segment rate estimates (lower-envelope slope vs sample count/span): [{'len_s': np.float64(308.4), 'fs_lower_envelope': np.float64(256.549), 'fs_count': np.float64(256.582)}, {'len_s': np.float64(451.2), 'fs_lower_envelope': np.float64(256.603), 'fs_count': np.float64(256.668)}, {'len_s': np.float64(121.0), 'fs_lower_envelope': np.float64(256.638), 'fs_count': np.float64(256.56)}]
+  arrival-stamp jitter vs index clock (ms): p50=77.3 p90=117.1 p99=145.1 max=234; frac |jitter|>1/4 period(16.7ms)=0.977
+Page clock: t_pc = 4553.411 + 0.9999593*page_t; WS jitter ms p50=1.2 p95=10.2 max=2908
+Reference: logged flicker_on vs analytic floor((page_t-delta)*30)%2 agreement=1.0000 at delta=+0.0 ms (ZOH of logged column used inside flicker rows)
+  rail fraction during calib: TP9=0.239  AF7=0.003  AF8=0.002  TP10=0.119
+  rail fraction during scan: TP9=0.229  AF7=0.010  AF8=0.007  TP10=0.035
+  calibration blocks: 6 ON / 6 OFF; EEG rows=225970; control shift=75323 samples
+
+BASELINE (reference Welch relative power, reconstruct.py/run_session.py re-run in-process)
+  calib d'  real   : TP9=  -0.49  AF7=  -0.51  AF8=  -1.05  TP10=  -0.24   passed=False
+  calib d'  control: TP9=  +0.86  AF7=  -1.08  AF8=  -0.49  TP10=  +0.46
+  recon r (calibration.json weights {"TP9": 0.25, "AF7": 0.25, "AF8": 0.25, "TP10": 0.25}): real=-0.386  control=-0.320
+
+LOCK-IN (headline: sq15 reference, LP tau=tau1s, snr score)  [25s + 24s]
+                real: lag scan best=-56 ms  objective max/min=1.166 (max 1.281, min 1.099)
+  control(shift N/3): lag scan best=-8 ms  objective max/min=1.115 (max 0.977, min 0.876)
+                real calib d': TP9=  +0.74  AF7=  +1.41  AF8=  +0.19  TP10=  +1.55  | ratio: TP9= 1.28  AF7= 1.22  AF8= 1.03  TP10= 1.61 | rank: TP9=1/6 AF7=2/6 AF8=0/6 TP10=4/6  best=TP10 passed=False
+  control(shift N/3) calib d': TP9=  +1.86  AF7=  -0.82  AF8=  +0.88  TP10=  -0.19  | ratio: TP9= 1.27  AF7= 0.87  AF8= 1.09  TP10= 0.96 | rank: TP9=2/6 AF7=0/6 AF8=1/6 TP10=0/6  best=TP9 passed=False
+                real phase-locking across blocks (sq15, full-window phasor), best ch TP10: PLV_on=0.70 PLV_off=0.55; clipped-frac per ch: TP9=0.00 AF7=0.02 AF8=0.02 TP10=0.00
+  control(shift N/3) phase-locking across blocks (sq15, full-window phasor), best ch TP9: PLV_on=0.57 PLV_off=0.17; clipped-frac per ch: TP9=0.00 AF7=0.02 AF8=0.05 TP10=0.00
+                real recon r: calib-weights=-0.157 (w={"TP9": 0.25, "AF7": 0.2, "AF8": 0.0, "TP10": 0.55})  uniform=-0.120  per-ch: TP9=-0.028 AF7=-0.108 AF8=0.009 TP10=-0.137
+  control(shift N/3) recon r: calib-weights=-0.189 (w={"TP9": 0.74, "AF7": 0.0, "AF8": 0.26, "TP10": 0.0})  uniform=-0.145  per-ch: TP9=-0.177 AF7=0.008 AF8=-0.118 TP10=-0.129
+
+  VARIANT TABLE (real | control): best-channel d' (channel), passed, recon r with that variant's calib weights
+  variant                    d_real    ch  pass  r_real |    d_ctl    ch   r_ctl
+  sq15/full/raw               +2.07   AF8 False   0.058 |    -0.02   TP9  -0.223
+  sq15/full/snr               +0.91   TP9 False   0.111 |    -0.33   AF7  -0.113
+  sq15/tau0.25s/raw           +0.40   AF8 False  -0.083 |    +2.59   TP9  -0.245
+  sq15/tau0.25s/snr           +1.03   AF7 False   0.116 |    +0.75   AF8  -0.088
+  sq15/tau1s/raw              +1.07   AF8 False   0.012 |    +1.73   TP9  -0.251
+  sq15/tau1s/snr              +1.55  TP10 False  -0.157 |    +1.86   TP9  -0.189
+  sq15+30/full/raw            +3.10   AF8 False   0.044 |    +0.12   TP9  -0.215
+  sq15+30/full/snr            +1.62  TP10 False   0.124 |    +0.27   AF7  -0.243
+  sq15+30/tau0.25s/raw        +0.12   AF8 False  -0.069 |    +1.63   TP9  -0.246
+  sq15+30/tau0.25s/snr        +0.25  TP10 False  -0.290 |    +0.39  TP10  -0.096
+  sq15+30/tau1s/raw           +0.01   AF8 False  -0.090 |    +0.86   TP9  -0.256
+  sq15+30/tau1s/snr           +1.01  TP10 False  -0.208 |    +1.39   AF8  -0.240
+
+  CLOCK CHECK via 60 Hz mains line on TP9 over the calibration span (Lomb-Scargle 58-62 Hz):
+    index_clock            peak at 60.025 Hz  peak/floor=24767  fraction of 59.5-60.5 Hz power within +-0.03 Hz of peak=0.57
+    index_clock_fs_infer   peak at 60.040 Hz  peak/floor=59102  fraction of 59.5-60.5 Hz power within +-0.03 Hz of peak=0.95
+    arrival_stamps         peak at 59.670 Hz  peak/floor=16  fraction of 59.5-60.5 Hz power within +-0.03 Hz of peak=0.19
+
+  NULL DISTRIBUTION over 20 circular shifts (8-92 % of the recording) [76s]
+  statistic                             real null mean null sd null max frac null >= real
+  baseline best-channel d'            -0.239     0.760   0.709    2.231              0.95
+  baseline recon r (calib weights)    -0.386     0.051   0.223    0.499              1.00
+  lock-in sq15/tau1s/snr best d'       1.554     0.917   0.842    3.028              0.15
+  lock-in sq15/tau1s/snr r (calib w)  -0.157     0.008   0.130    0.194              0.85
+  lock-in sq15/full/raw best d'        2.072     0.738   0.737    2.923              0.05
+  lock-in sq15/full/raw r (calib w)    0.058    -0.005   0.126    0.191              0.35
+  lock-in sq15/tau1s/snr r (uniform)  -0.120     0.001   0.129    0.264              0.80
+====================================================================================================
+RUN webgate: POSITIVE control (phantom subject over real UDP)
+====================================================================================================
+EEG clock: fs_hat=255.9993 Hz (reference infer_fs=256.000); segments=1 gaps>0.5s=0 seg_len_s=[93.8]
+  per-segment rate estimates (lower-envelope slope vs sample count/span): [{'len_s': np.float64(93.8), 'fs_lower_envelope': np.float64(255.999), 'fs_count': np.float64(256.0)}]
+  arrival-stamp jitter vs index clock (ms): p50=7.7 p90=11.8 p99=12.2 max=29; frac |jitter|>1/4 period(16.7ms)=0.001
+Page clock: t_pc = 7472.929 + 1.0000000*page_t; WS jitter ms p50=0.2 p95=1.4 max=4
+Reference: logged flicker_on vs analytic floor((page_t-delta)*30)%2 agreement=0.9634 at delta=+21.5 ms (ZOH of logged column used inside flicker rows)
+  rail fraction during calib: TP9=0.000  AF7=0.000  AF8=0.000  TP10=0.000
+  rail fraction during scan: TP9=0.000  AF7=0.000  AF8=0.000  TP10=0.000
+  calibration blocks: 3 ON / 3 OFF; EEG rows=24001; control shift=8000 samples
+
+BASELINE (reference Welch relative power, reconstruct.py/run_session.py re-run in-process)
+  calib d'  real   : TP9= +18.82  AF7= +13.46  AF8=  +3.54  TP10= +18.84   passed=True
+  calib d'  control: TP9=  +0.09  AF7=  +1.65  AF8=  +0.25  TP10=  -0.15
+  recon r (calibration.json weights {"TP9": 0.43, "AF7": 0.07, "AF8": 0.04, "TP10": 0.45}): real=0.782  control=-0.011
+
+LOCK-IN (headline: sq15 reference, LP tau=tau1s, snr score)  [12s + 12s]
+                real: lag scan best=-78 ms  objective max/min=1.080 (max 5.852, min 5.417)
+  control(shift N/3): lag scan best=+36 ms  objective max/min=1.083 (max 2.499, min 2.308)
+                real calib d': TP9= +17.64  AF7=  +4.11  AF8= +12.03  TP10= +13.91  | ratio: TP9= 8.49  AF7= 2.28  AF8= 2.51  TP10= 7.27 | rank: TP9=3/3 AF7=3/3 AF8=3/3 TP10=3/3  best=TP9 passed=True
+  control(shift N/3) calib d': TP9=  +0.37  AF7=  +0.02  AF8=  +0.36  TP10=  +0.18  | ratio: TP9= 1.31  AF7= 1.00  AF8= 1.09  TP10= 1.23 | rank: TP9=1/3 AF7=1/3 AF8=1/3 TP10=1/3  best=TP9 passed=False
+                real phase-locking across blocks (sq15, full-window phasor), best ch TP9: PLV_on=0.21 PLV_off=0.42; clipped-frac per ch: TP9=0.00 AF7=0.00 AF8=0.00 TP10=0.00
+  control(shift N/3) phase-locking across blocks (sq15, full-window phasor), best ch TP9: PLV_on=0.30 PLV_off=0.29; clipped-frac per ch: TP9=0.00 AF7=0.00 AF8=0.00 TP10=0.00
+                real recon r: calib-weights=0.744 (w={"TP9": 0.45, "AF7": 0.08, "AF8": 0.09, "TP10": 0.38})  uniform=0.710  per-ch: TP9=0.675 AF7=0.370 AF8=0.226 TP10=0.769
+  control(shift N/3) recon r: calib-weights=-0.083 (w={"TP9": 0.25, "AF7": 0.25, "AF8": 0.25, "TP10": 0.25} UNIFORM-FALLBACK)  uniform=-0.083  per-ch: TP9=-0.063 AF7=-0.261 AF8=0.081 TP10=-0.075
+
+  VARIANT TABLE (real | control): best-channel d' (channel), passed, recon r with that variant's calib weights
+  variant                    d_real    ch  pass  r_real |    d_ctl    ch   r_ctl
+  sq15/full/raw              +18.96  TP10  True   0.776 |    +0.91   AF7   0.034
+  sq15/full/snr              +12.33  TP10  True   0.750 |    +0.47  TP10  -0.083
+  sq15/tau0.25s/raw          +15.39  TP10  True   0.753 |    +0.89   AF7  -0.101
+  sq15/tau0.25s/snr           +8.73   TP9  True   0.698 |    +0.68   AF7  -0.007
+  sq15/tau1s/raw             +16.77   TP9  True   0.771 |    +0.30   TP9  -0.034
+  sq15/tau1s/snr             +17.64   TP9  True   0.744 |    +0.37   TP9  -0.083
+  sq15+30/full/raw           +18.12  TP10  True   0.800 |    +1.48   AF7  -0.026
+  sq15+30/full/snr           +18.21  TP10  True   0.780 |    +0.44   TP9  -0.025
+  sq15+30/tau0.25s/raw       +14.65  TP10  True   0.760 |    +1.51   AF7  -0.065
+  sq15+30/tau0.25s/snr        +8.68  TP10  True   0.663 |    +0.65   AF7   0.045
+  sq15+30/tau1s/raw          +17.32  TP10  True   0.790 |    +0.57   AF7  -0.026
+  sq15+30/tau1s/snr          +16.87  TP10  True   0.770 |    +1.37   AF7  -0.232
+
+  CLOCK CHECK via 60 Hz mains line on TP9 over the calibration span (Lomb-Scargle 58-62 Hz):
+    index_clock            peak at 59.570 Hz  peak/floor=8  fraction of 59.5-60.5 Hz power within +-0.03 Hz of peak=0.16
+    index_clock_fs_infer   peak at 59.570 Hz  peak/floor=8  fraction of 59.5-60.5 Hz power within +-0.03 Hz of peak=0.16
+    arrival_stamps         peak at 60.010 Hz  peak/floor=5  fraction of 59.5-60.5 Hz power within +-0.03 Hz of peak=0.09
+
+  NULL DISTRIBUTION over 20 circular shifts (8-92 % of the recording) [19s]
+  statistic                             real null mean null sd null max frac null >= real
+  baseline best-channel d'            18.838     2.345   4.737   14.727              0.00
+  baseline recon r (calib weights)     0.782    -0.016   0.188    0.345              0.00
+  lock-in sq15/tau1s/snr best d'      17.643     1.845   3.993   12.698              0.00
+  lock-in sq15/tau1s/snr r (calib w)   0.744    -0.052   0.196    0.337              0.00
+  lock-in sq15/full/raw best d'       18.958     1.146   4.423   13.152              0.00
+  lock-in sq15/full/raw r (calib w)    0.776    -0.024   0.202    0.304              0.00
+  lock-in sq15/tau1s/snr r (uniform)   0.710    -0.028   0.205    0.350              0.00
+
+results -> analysis\lock_in_results.json

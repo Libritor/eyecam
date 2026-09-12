@@ -57,6 +57,7 @@ import time
 
 import numpy as np
 from scipy.ndimage import convolve1d
+from scipy.signal.windows import tukey
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ACT_DIR = r"C:\Users\alexa\adaptive-chirplet-transform"
@@ -89,10 +90,19 @@ METHODS = ("welch", "act", "act1")
 FC_SEED_OFFSETS_HZ = (-0.2, 0.0, 0.2)   # seeds; refine radius = 2*step = 0.4 Hz
 FC_STEP_HZ = 0.2
 C_RADIUS_HZ_S = 0.5                     # chirp-rate refine radius (Hz/s)
-LOGDT_STEP = 0.35                       # refine radius 0.7 -> Dt within x2
-SKEW_STEP = 0.5                         # refine radius +-1
+LOGDT_STEP = 0.25                       # refine radius 0.5 -> Dt within x1.65
+SKEW_STEP = 0.25                        # refine radius +-0.5
 DT_SEEDS = (128, 256, 512)              # samples; for L=256 -> (64, 128)
 N_TC = 8
+# Atoms must stay inside the window: a Gaussian truncated at the window edge
+# is normalised over its in-window sliver and becomes broadband (first run:
+# an atom at tc=0, Dt=64, skew=-1 explained 53% of the 14-50 Hz energy of an
+# OFF block where Welch saw nothing). Two measures: tc is bounded to
+# [margin, L-1-margin] with margin = min(2 * Dt_min, L/4), and the segment
+# is Tukey-tapered (TAPER_ALPHA) so a partially truncated atom finds no
+# hard data edge to match (second run: atoms still parked at the margin
+# with skew at its bound, OFF-block score 0.19 vs Welch 0.055).
+TAPER_ALPHA = 0.25
 
 
 # ----------------------------------------------------------------- helpers
@@ -197,6 +207,20 @@ def canonical_length(n):
     return max(ls) if ls else None
 
 
+class ConstrainedACT(ACTv14Skew):
+    """ACTv14Skew whose refine keeps the atom centre away from the window edges."""
+
+    def __init__(self, *args, tc_margin=0, **kwargs):
+        self.tc_margin = float(tc_margin)
+        super().__init__(*args, **kwargs)
+
+    def _bounds(self, seed):
+        b = super()._bounds(seed)
+        b[0] = (max(b[0][0], self.tc_margin),
+                min(b[0][1], self.length - 1 - self.tc_margin))
+        return b
+
+
 class ActSSVEP:
     """Frequency-constrained ACTv14Skew decomposition -> SSVEP power ratio."""
 
@@ -208,6 +232,8 @@ class ActSSVEP:
         self.n_transforms = 0
         self.wall = 0.0
         self.fc_hz_log = []      # fitted fc (Hz) of first atom, for sanity
+        self.dt_log = []         # fitted Dt (samples) of first atom
+        self.edge_log = []       # first atom's tc sits on its bound
 
     def engine(self, L):
         if L in self._engines:
@@ -216,8 +242,15 @@ class ActSSVEP:
         cyc = L / fs                                   # cycles-per-L per Hz
         fc_step = FC_STEP_HZ * cyc
         c_step = (C_RADIUS_HZ_S / 2.0) * L / (2.0 * fs * fs)   # radius=2*step
-        tc_step = L / N_TC
-        eng = ACTv14Skew(
+        tc_step = L / (2 * N_TC)                               # radius L/8
+        dts = [d for d in DT_SEEDS if d <= L // 2]
+        if not dts:
+            dts = [L // 4, L // 2]
+        if L <= 256:
+            dts = [64, 128]
+        dt_min = min(dts) * np.exp(-2.0 * LOGDT_STEP)
+        margin = float(min(2.0 * dt_min, L / 4.0))
+        eng = ConstrainedACT(
             length=L,
             tc_info=(0.0, 1.0, tc_step),
             fc_info=(F0 * cyc, F0 * cyc + 1e-9, fc_step),
@@ -225,18 +258,14 @@ class ActSSVEP:
             skew_info=(0.0, 0.01, SKEW_STEP),
             c_info=(0.0, 1e-9, c_step),
             backfit=False, newton=True, analytic_grad=True,
+            tc_margin=margin,
         )
         # Replace the (single-atom) arange dictionary with the constrained
         # multi-band dictionary. The refine bounds (+-2 grid steps) come
         # from the *_info steps above.
-        tcs = (np.arange(N_TC) + 0.5) * tc_step
+        tcs = np.linspace(margin, L - 1 - margin, N_TC)
         bands = [F0] + ([2.0 * F0] if self.harmonic else [])
         fcs = [(f + d) * cyc for f in bands for d in FC_SEED_OFFSETS_HZ]
-        dts = [d for d in DT_SEEDS if d <= L // 2]
-        if not dts:
-            dts = [L // 4, L // 2]
-        if L <= 256:
-            dts = [64, 128]
         params = np.array([(tc, fc, np.log(dt), 0.0, 0.0)
                            for tc in tcs for fc in fcs for dt in dts],
                           dtype=np.float64)
@@ -279,9 +308,16 @@ class ActSSVEP:
         s = (n - L) // 2
         x = np.asarray(seg_clean[s:s + L], dtype=np.float64)
         x = x - np.median(x)
+        if TAPER_ALPHA > 0:
+            x = x * tukey(L, TAPER_ALPHA)
         e_fit, cert = self.fit(x)
         if cert.atoms:
-            self.fc_hz_log.append(cert.atoms[0]["fc"] * self.fs / L)
+            a0 = cert.atoms[0]
+            self.fc_hz_log.append(a0["fc"] * self.fs / L)
+            self.dt_log.append(float(np.exp(a0["logDt"])))
+            m = self.engine(L).tc_margin
+            self.edge_log.append(float(a0["tc"] <= m + 0.5
+                                       or a0["tc"] >= L - 1 - m - 0.5))
         e_band = self.band_energy(x)
         denom = e_band - e_fit
         if denom <= 0:
@@ -443,7 +479,8 @@ def run_session(name, do_recon=True):
         print(f"act fitted first-atom fc (Hz) on real calib: median "
               f"{np.median(a.fc_hz_log):.2f}, min {min(a.fc_hz_log):.2f}, "
               f"max {max(a.fc_hz_log):.2f}; {a.n_transforms} transforms "
-              f"{a.wall:.1f}s")
+              f"{a.wall:.1f}s; first-atom Dt median {np.median(a.dt_log):.0f} "
+              f"samples, tc-at-bound fraction {np.mean(a.edge_log):.2f}")
 
     if not do_recon or target is None:
         return res
@@ -487,11 +524,18 @@ def run_session(name, do_recon=True):
 
 
 def main():
+    global RUNS
     ap = argparse.ArgumentParser()
     ap.add_argument("--sessions", default="xr_live6,webgate,xr_live2")
+    ap.add_argument("--runs-dir", default=RUNS,
+                    help="directory holding the session folders "
+                         "(default runs/; pass a frozen copy if a session "
+                         "runner is still writing to runs/)")
     ap.add_argument("--no-recon", action="store_true")
     ap.add_argument("--skip-self-test", action="store_true")
     args = ap.parse_args()
+    RUNS = args.runs_dir
+    print(f"runs dir: {RUNS}")
 
     print(f"ACT import: {'ok' if ACT_OK else 'FAILED ' + ACT_IMPORT_ERROR}")
     if not ACT_OK:

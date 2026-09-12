@@ -34,6 +34,7 @@ Output: printed tables + analysis/baseline_preproc_results.json
 """
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -277,10 +278,20 @@ def load_run(run):
     stored_grid = np.load(os.path.join(sess, "reconstruction_grid.npy"))
     fs_scan = reconstruct.infer_fs(eeg_t)
     fs_cal = reconstruct.infer_fs(eeg_t[:n_cal])
+    prov = {}
+    for fn in ("eeg.csv", "cursor_log.csv", "calib_log.csv",
+               "calibration.json", "target.npy", "reconstruction_grid.npy"):
+        p = os.path.join(sess, fn)
+        st = os.stat(p)
+        with open(p, "rb") as f:
+            sha = hashlib.sha1(f.read()).hexdigest()[:12]
+        prov[fn] = dict(bytes=st.st_size, sha1=sha,
+                        mtime=time.strftime("%Y-%m-%d %H:%M:%S",
+                                            time.localtime(st.st_mtime)))
     return dict(run=run, sess=sess, eeg_t=eeg_t, data=data, names=names,
                 cur_t=cur_t, gx=gx, gy=gy, calib=calib, blocks=blocks,
                 target=target, stored_grid=stored_grid, fs=fs_scan,
-                fs_cal=fs_cal, n_cal=n_cal, rank_min=rank_min)
+                fs_cal=fs_cal, n_cal=n_cal, rank_min=rank_min, prov=prov)
 
 
 def verify_against_library(S):
@@ -410,13 +421,22 @@ def run_one(run):
           f"{S['calib']['fs']}); grid {S['gx'].max() + 1}x{S['gy'].max() + 1}, "
           f"{len(S['blocks'])} calib blocks, rank_min={S['rank_min']}, "
           f"load {time.time() - t0:.1f}s")
+    for fn, p in S["prov"].items():
+        print(f"  input {fn:<24} {p['bytes']:>10} B  sha1 {p['sha1']}  "
+              f"mtime {p['mtime']}")
+    n_shift = (len(S["eeg_t"]) * PRIMARY_SHIFT[0]) // PRIMARY_SHIFT[1]
+    print(f"  primary control shift 1/3 = {n_shift} rows = "
+          f"{n_shift / S['fs']:.1f} s (calib block period "
+          f"{config.CALIB_ON_S + config.CALIB_OFF_S:.0f} s; null shifts are "
+          f"multiples of {len(S['eeg_t']) / 12 / S['fs']:.1f} s)")
     stored = S["calib"]["channels"]
     print("  stored calibration.json d': "
           + " ".join(f"{nm}={stored[nm]['dprime']:.2f}" for nm in names)
           + f"  passed={S['calib']['passed']}  weights="
           + fmt_w(S["calib"]["weights"], names))
-    print(f"  stored reconstruction_grid.npy vs target: "
-          f"r={corr(S['target'], S['stored_grid']):.3f}")
+    r_stored = corr(S["target"], S["stored_grid"])
+    print(f"  stored reconstruction_grid.npy vs target: r={r_stored:.3f}"
+          "  (file on disk; may have been rewritten by later re-runs)")
     verify_against_library(S)
 
     results = {}
@@ -459,7 +479,9 @@ def main():
     all_results = {}
     for run in runs:
         S, res = run_one(run)
-        all_results[run] = dict(fs=S["fs"], names=S["names"], variants=res)
+        all_results[run] = dict(fs=S["fs"], fs_cal=S["fs_cal"],
+                                names=S["names"], inputs=S["prov"],
+                                variants=res)
 
     # ---- cross-run summary -------------------------------------------------
     print(f"\n{'=' * 100}\nSUMMARY  r = corr(reconstruction, target); "
@@ -484,7 +506,11 @@ def main():
                      f"{nl['n_passed']:<2}      ")
         print(line)
     print("  (P = calibration gate passed on the real arm; the digit after "
-          "P/- = how many of the 11 null shifts passed the gate)")
+          "P/- = how many of the 11 null shifts passed the gate.\n"
+          "   Caveat: a circular shift close to a multiple of the 14-s "
+          "ON/OFF period re-aligns calibration blocks, so on a short recording "
+          "(webgate, ~90 s) some null shifts are partly aligned and the null "
+          "d' max is inflated; the 1/3 shift itself is fully misaligned.)")
 
     if "xr_live6" in all_results:
         base = all_results["xr_live6"]["variants"]["baseline"]
