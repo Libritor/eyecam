@@ -370,19 +370,24 @@ class Driver:
             self.blocks = []
             self.open_log("calib_log.csv")
             await self.send(cmd="start_calib", blocks=a.calib_blocks,
-                            onS=config.CALIB_ON_S, offS=config.CALIB_OFF_S,
-                            freq=a.freq)
-            await self.wait_for("calib_done",
-                                timeout=a.calib_blocks * 16 + 60)
+                            onS=a.calib_on, offS=a.calib_off, freq=a.freq)
+            await self.wait_for(
+                "calib_done",
+                timeout=a.calib_blocks * (a.calib_on + a.calib_off + 2) + 60)
             self.close_log()
             await asyncio.sleep(0.7)
             calib = run_session.score_calibration(
                 self.session, self.blocks, stim_freq=self.stim_freq)
             result["stimFreqActual"] = self.stim_freq
+            perm = calib.get("permutation", {})
+            pch = perm.get("p_channel") or [float("nan")] * len(calib["names"])
             table = "   ".join(
                 f"{n} d'={calib['channels'][n]['dprime']:.1f}"
-                f" w={calib['weights'][n]:.2f}"
-                for n in calib["names"])
+                f" p={pch[i]:.3f} w={calib['weights'][n]:.2f}"
+                for i, n in enumerate(calib["names"]))
+            table += (f"   |  gate: {calib.get('gate')}"
+                      f"  p_fw={perm.get('p_fw', float('nan')):.4f}"
+                      f" (n_null={perm.get('n_null', 0)})")
             print(f"calibration passed={calib['passed']} {table}")
             result.update(calibPassed=calib["passed"], best=calib["best"],
                           weights=calib["weights"])
@@ -392,6 +397,15 @@ class Driver:
                           best=calib["best"],
                           weights=list(calib["weights"].values()))
             await asyncio.sleep(2.5)
+            if a.mode == "calib":
+                # G1-only session: the question is whether an SSVEP exists.
+                result.update(ok=True, gate=calib.get("gate"),
+                              p_fw=calib.get("permutation", {}).get("p_fw"))
+                recorder.stop()
+                print(f"G1 SESSION DONE passed={calib['passed']} "
+                      f"-> {self.session}")
+                await asyncio.sleep(a.linger)
+                return 0
             if not calib["passed"] and a.require_pass:
                 raise RuntimeError("calibration gate failed (no SSVEP)")
 
@@ -421,6 +435,7 @@ class Driver:
             self.spectate(type="stage", stage="done",
                           detail=f"r={r:.3f}" if r else "")
             result["ok"] = True
+            recorder.stop()  # stop at scan end, not after the linger
             print(f"SESSION DONE r={r} flicker={flicker_hz:.2f} Hz "
                   f"-> {self.session}")
             await asyncio.sleep(a.linger)
@@ -546,8 +561,12 @@ async def main():
     ap.add_argument("--spc", type=float, default=4.0)
     ap.add_argument("--calib-blocks", type=int, default=config.CALIB_BLOCKS)
     ap.add_argument("--target", default="text:NO")
-    ap.add_argument("--mode", choices=["visual", "assr"], default="visual",
-                    help="assr = 'ear as a microphone' 40 Hz tone blocks")
+    ap.add_argument("--mode", choices=["visual", "assr", "calib"],
+                    default="visual",
+                    help="calib = G1 only (calibration, no scan); "
+                         "assr = 'ear as a microphone' 40 Hz tone blocks")
+    ap.add_argument("--calib-on", type=float, default=config.CALIB_ON_S)
+    ap.add_argument("--calib-off", type=float, default=config.CALIB_OFF_S)
     ap.add_argument("--freq", type=float, default=config.STIM_FREQ_HZ)
     ap.add_argument("--spectator", default="127.0.0.1:8090",
                     help="'' disables the spectator mirror")

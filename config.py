@@ -44,4 +44,5 @@ CALIB_DPRIME_MIN = 1.0     # best channel must reach this to proceed
 CALIB_RATIO_MIN = 1.3      # ... and this on/off score ratio
 CALIB_RANK_MIN = 5         # ... and >= this many ON blocks above max OFF block
 CALIB_WEIGHT_DPRIME_MIN = 0.5  # channels below this get zero weight
+CALIB_P_MAX = 0.01         # exact family-wise permutation p for 'passed'
 GATE_R_MIN = 0.6           # full-stack phantom gate threshold
