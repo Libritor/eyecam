@@ -241,3 +241,22 @@ Implementation: copy scratchpad `claim_gates.py` → `claim_gates.py`; call `cla
 **S8 — Scale.** n ≥ 10 subjects, per-subject reporting, counterbalanced §4.2 protocol, REB consent covering neural + biometric secondary use, on-device verification preferred so raw EEG never leaves the HMD. The current n = 1 (r = 0.19) is a pilot, not a result, and should be described as such in every venue.
 
 Key file paths: `reconstruct.py` (ssvep_score L80, cell_score L123, reconstruct L145, run L226), `run_session.py` (score_calibration L279–340), `xr_session.py` (start_calib L250, reconstruct.run L288, run_assr L319–348, `--mode assr` L422), `xr_stimulus.html` (runAssr L228, modDepth L236), `config.py` (CALIB_* L39–46, GATE_R_MIN L47, NOISE_BAND L21), analysis scripts `analysis\{baseline_preproc,cca,act_chirplet,lock_in,clock_check,quality_stats,audit_baseline_preproc,audit_null_sweep}.py`, gate prototype `claim_gates.py`.
+
+---
+## Status update 2026-09-14 (after the first full VR run)
+
+**What is now established (n=1, Alexander, Oz aux cup + Muse 2, Mind Monitor OSC):**
+- Oz aux electrode validated: eyes-closed alpha peak 10.5 Hz, x8.4 power on AUX (`--mode alpha`, runs/alpha1).
+- SSVEP exists but only at 7.5-12 Hz for this subject: laptop full-field sweep (runs/sweep2) AUX line SNR 9.0 @10.4 Hz (p=0.017), 5.9 @11.4 Hz (p=0.004); 15 Hz weak, 20 Hz absent. Two earlier valid nulls at 15/20 Hz are explained by this response curve (sensitivity floor ~1-2 uV).
+- In the Quest browser (72 fps, 12 Hz = 3 frames): full-panel 12 Hz calibration p=0.014 with the last 4 ON blocks at 4-10x line SNR on AUX (runs/vr_full1); full-field blue @12 Hz p=0.005 and green @9 Hz p=0.009 (colour calibration), red @7.2 Hz nothing.
+- NOT established: the per-cell scan. Grey "NO" 12x8 @3.5 s/cell is at chance for Welch, line and CCA scoring (r 0.17-0.26 vs null max 0.18-0.40). The colour flag's blue plane r=0.72 exceeds 6/6 shifted nulls (max 0.52) but R/G planes are chance: suggestive only.
+- Audio: 40 Hz-tagged music via Quest speakers, p=0.69 (no ASSR). Needs louder/closer sound (earbuds) and longer blocks.
+
+**Why the scan fails while calibration passes:** the calibration flicker is the full panel; a scan cell is ~1/100 of it and gets 3.5 s. The SSVEP scales with stimulated area; the line detector needs ~2 uV in the cell window. Options, in order of expected payoff:
+1. Bigger cells, longer dwell: 6x4 grid at 8 s (3.2 min) at 12 Hz — the colour run's 6x4 @5 s already showed a plane above null.
+2. Keep the flicker LARGE and move the *image* instead: flicker the whole panel but mask it by the target (Mann's "pixel-by-pixel" the other way round: bright cells flicker in place, all at once, while the subject fixates each cell in turn) — the peripheral flicker drives the SSVEP, foveation modulates it. Must be tested against the phantom and the shifted null (it changes the physics: expect a dominant common-mode response).
+3. Frequency-multiplex several cells per dwell (2-3 tags in the 8-12 Hz band) to cut scan time.
+4. Per-cell adaptive dwell: keep flickering until the line SNR crosses a threshold or a time cap.
+
+**Tooling that now exists:** `--mode full|calib|sweep|alpha|assr`, line-detector gate + weights, `--recon-method line`, colour scan (`reconstruct.reconstruct_color`, `targets.color_target`), music tag, phantom with colour+audio drives, `analysis/decoders_compare.py`, `analysis/g1_{diag,fine,line}.py`, `--page-token`, gamepad/keyboard arm gate, timestamp-locked flicker, median-vsync refresh measurement.
+

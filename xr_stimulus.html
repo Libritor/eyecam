@@ -65,20 +65,28 @@ const now = () => performance.now() / 1000;
 // frequency, which we report.
 let refreshHz = 60, halfFrames = 2, frameCount = 0, actualHz = 15;
 async function measureRefresh() {
-  const t0 = performance.now();
-  for (let i = 0; i < 120; i++) await frame();
-  const raw = 120 / ((performance.now() - t0) / 1000);
+  // warm up (the first frames after a load/tab switch are irregular), then
+  // take the MEDIAN vsync interval over 200 frames: robust to dropped frames,
+  // unlike a mean (which read 208 fps on a 240 Hz panel and mis-planned)
+  for (let i = 0; i < 30; i++) await frame();
+  const ts = [];
+  for (let i = 0; i < 200; i++) ts.push(await frame());
+  const d = ts.slice(1).map((v, i) => v - ts[i]).sort((x, y) => x - y);
+  const raw = 1000 / d[Math.floor(d.length / 2)];
   // snap to a standard panel rate (rAF measurement scatters by ~1-2%)
-  const known = [60, 72, 75, 80, 90, 96, 100, 120, 144];
+  const known = [60, 72, 75, 80, 90, 96, 100, 120, 144, 165, 240, 360];
   const near = known.reduce((a, b) => Math.abs(b - raw) < Math.abs(a - raw) ? b : a);
   refreshHz = Math.abs(near - raw) / near < 0.04 ? near : Math.round(raw);
 }
-async function planFlicker(nominal) {
-  await measureRefresh();
+let refreshMeasured = false;
+async function planFlicker(nominal, exclude = []) {
+  if (!refreshMeasured) { await measureRefresh(); refreshMeasured = true; }
   let best = null;
-  for (let k = 1; k <= 6; k++) {
+  const floor = Math.min(13, nominal * 0.8);  // 13 Hz = above alpha (Mann); lower only if asked
+  for (let k = 1; k <= 32; k++) {
     const f = refreshHz / (2 * k);
-    if (f < 13) break;
+    if (f < floor) break;
+    if (exclude.some(x => Math.abs(x - f) < 0.05)) continue;  // tags must not collide
     if (!best || Math.abs(f - nominal) < Math.abs(best.f - nominal)) best = { f, k };
   }
   if (!best) best = { f: refreshHz / 2, k: 1 };
@@ -86,7 +94,19 @@ async function planFlicker(nominal) {
   send({ type: "freq", hz: actualHz, refresh: refreshHz, halfFrames });
   return actualHz;
 }
-const flickerOn = () => Math.floor(frameCount / halfFrames) % 2 === 0;
+// phase from the rAF timestamp (vsync-aligned) with a half period of exactly
+// halfFrames display frames: frame-exact when no frame drops, and after a
+// dropped frame the NEXT frame lands on the correct phase (no cumulative drift,
+// which frame COUNTING suffers: each drop shifts the phase by one frame).
+let flickerT0 = 0;
+function phaseOn(ts, k) {                            // k = half period in frames
+  const half = k / refreshHz;                        // seconds
+  return Math.floor((ts / 1000 - flickerT0 + 0.5 / refreshHz) / half) % 2 === 0;
+}
+const flickerOnAt = ts => phaseOn(ts, halfFrames);
+const flickerOn = () => flickerOnAt(lastTs);
+let lastTs = 0;
+const frameTs = async () => { lastTs = await frame(); return lastTs; };
 
 // ---- stages (each is an async rAF loop; `running` token cancels) ----
 
@@ -95,22 +115,25 @@ async function runCalib(m) {
   const tok = running = {};
   sub.textContent = "measuring display refresh…";
   const hz = await planFlicker(m.freq);
-  const size = Math.min(cv.width, cv.height) * 0.38;
+  const frac = m.size || 0.38, full = frac >= 1;
+  const size = Math.min(cv.width, cv.height) * Math.min(frac, 1);
+  const [cOn, cOff] = m.colors || ["#ffff00", "#0000ff"];
   for (let b = 0; b < m.blocks && running === tok; b++) {
     for (const on of [true, false]) {
       send({ type: "block", b, on, phase: "start" });
       sub.textContent = `block ${b + 1}/${m.blocks} ${on ? "ON" : "OFF"}  (${hz.toFixed(1)} Hz @ ${refreshHz} fps)`;
       const t0 = now();
       const dur = on ? m.onS : m.offS;
+      flickerT0 = (await frameTs()) / 1000;
       while (now() - t0 < dur && running === tok) {
-        await frame(); frameCount++;
+        await frameTs(); frameCount++;
         const t = now();
         const fl = on && flickerOn();
-        black();
         if (on) {
-          ctx.fillStyle = fl ? "#ffff00" : "#0000ff";
-          ctx.fillRect((cv.width - size) / 2, (cv.height - size) / 2, size, size);
-        }
+          ctx.fillStyle = fl ? cOn : cOff;
+          if (full) ctx.fillRect(0, 0, cv.width, cv.height);
+          else { black(); ctx.fillRect((cv.width - size) / 2, (cv.height - size) / 2, size, size); }
+        } else black();
         dot(cv.width / 2, cv.height / 2);
         send({ type: "frame", stage: "calib", pt: t, gx: -1, gy: -1,
                lum: on ? 1 : 0, fl: fl ? 1 : 0 });
@@ -122,7 +145,155 @@ async function runCalib(m) {
   send({ type: "calib_done" });
 }
 
+// ---- colour scan: each cell's R, G, B flicker at three frequencies ----
+// (frequency-tagged colour: the line at f_R in the EEG is "how red", etc.)
+async function runColorScan(m) {
+  hideResult(); title.textContent = ""; sub.textContent = "";
+  const tok = running = {};
+  const plans = [];
+  for (const f of m.freqs) { await planFlicker(f, plans.map(p => p.hz)); plans.push({ hz: actualHz, k: halfFrames }); }
+  send({ type: "color_plan", hzs: plans.map(p => p.hz), refresh: refreshHz });
+  const gw = m.gridW, gh = m.gridH, target = m.target;   // target[y][x] = [r,g,b]
+  const bw = Math.min(cv.width, cv.height * gw / gh) * 0.84;
+  const bh = bw * gh / gw;
+  const x0 = (cv.width - bw) / 2, y0 = (cv.height - bh) / 2;
+  const cwid = bw / gw, chgt = bh / gh;
+  for (let gy = 0; gy < gh && running === tok; gy++) {
+    const xs = [...Array(gw).keys()];
+    if (gy % 2 === 1) xs.reverse();
+    for (const gx of xs) {
+      const [r, g, b] = target[gy][gx];
+      const t0 = now();
+      flickerT0 = (await frameTs()) / 1000;
+      while (now() - t0 < m.spc && running === tok) {
+        const ts = await frameTs(); frameCount++;
+        const t = now();
+        const sR = r > 0.05 && phaseOn(ts, plans[0].k);
+        const sG = g > 0.05 && phaseOn(ts, plans[1].k);
+        const sB = b > 0.05 && phaseOn(ts, plans[2].k);
+        black();
+        if (r > 0.05 || g > 0.05 || b > 0.05) {
+          ctx.fillStyle = `rgb(${sR ? Math.round(255 * r) : 0},${sG ? Math.round(255 * g) : 0},${sB ? Math.round(255 * b) : 0})`;
+          ctx.fillRect(x0 + gx * cwid, y0 + gy * chgt, cwid, chgt);
+        }
+        dot(x0 + (gx + 0.5) * cwid, y0 + (gy + 0.5) * chgt);
+        send({ type: "frame", stage: "color", pt: t, gx, gy, lum: r, fl: sR ? 1 : 0,
+               flG: sG ? 1 : 0, flB: sB ? 1 : 0, r, g, b });
+      }
+      if (running !== tok) break;
+    }
+    send({ type: "row", y: gy });
+  }
+  black();
+  send({ type: "scan_done" });
+}
+
+// ---- multiplexed grey scan: N neighbouring cells flicker at once, each
+// with its own tag frequency; the line at tag k in the EEG is cell k ----
+async function runMuxScan(m) {
+  hideResult(); title.textContent = ""; sub.textContent = "";
+  const tok = running = {};
+  const plans = [];
+  for (const f of m.freqs) { await planFlicker(f, plans.map(p => p.hz)); plans.push({ hz: actualHz, k: halfFrames }); }
+  send({ type: "color_plan", hzs: plans.map(p => p.hz), refresh: refreshHz });
+  const gw = m.gridW, gh = m.gridH, target = m.target, n = plans.length;
+  const bw = Math.min(cv.width, cv.height * gw / gh) * 0.84;
+  const bh = bw * gh / gw;
+  const x0b = (cv.width - bw) / 2, y0b = (cv.height - bh) / 2;
+  const cwid = bw / gw, chgt = bh / gh;
+  const nStrips = Math.floor(gw / n);
+  // cell k of dwell s sits at column s + k*stride: the n patches are spread
+  // across the row so large patches never overlap; patch size is fixed
+  // (m.patch x a 6x4-grid cell) regardless of how fine the grid is
+  const stride = nStrips;
+  const pw = m.patch ? bw / 6 * m.patch : cwid, ph = m.patch ? bh / 4 * m.patch : chgt;
+  for (let gy = 0; gy < gh && running === tok; gy++) {
+    const strips = [...Array(nStrips).keys()];
+    if (gy % 2 === 1) strips.reverse();
+    for (const s of strips) {
+      const x0 = s;
+      const lums = plans.map((_, k) => target[gy][x0 + k * stride]);
+      const t0 = now();
+      flickerT0 = (await frameTs()) / 1000;
+      while (now() - t0 < m.spc && running === tok) {
+        const ts = await frameTs(); frameCount++;
+        const t = now();
+        const st = plans.map((p, k) => lums[k] > 0.05 && phaseOn(ts, p.k));
+        black();
+        for (let k = 0; k < n; k++) {
+          if (lums[k] > 0.05 && st[k]) {
+            const shade = Math.round(255 * (0.3 + 0.7 * lums[k]));
+            ctx.fillStyle = `rgb(${shade},${shade},${shade})`;
+            const cx = x0b + (x0 + k * stride + 0.5) * cwid, cy = y0b + (gy + 0.5) * chgt;
+            ctx.fillRect(cx - pw / 2, cy - ph / 2, pw, ph);
+          }
+        }
+        // fixate the middle patch; the outer two are parafoveal but still tagged
+        dot(x0b + (x0 + Math.floor(n / 2) * stride + 0.5) * cwid, y0b + (gy + 0.5) * chgt);
+        send({ type: "frame", stage: "mux", pt: t, gx: x0, gy, lum: lums[0], fl: st[0] ? 1 : 0,
+               flG: st[1] ? 1 : 0, flB: st[2] ? 1 : 0, r: lums[0], g: lums[1] || 0, b: lums[2] || 0 });
+      }
+      if (running !== tok) break;
+    }
+    send({ type: "row", y: gy });
+  }
+  black();
+  send({ type: "scan_done" });
+}
+
+// ---- frequency sweep: frame-exact ON blocks at several frequencies ----
+async function runSweep(m) {
+  hideResult(); title.textContent = "FREQUENCY SWEEP"; title.className = "";
+  const tok = running = {};
+  sub.textContent = "measuring display refresh…";
+  const frac = m.size || 0.38, full = frac >= 1;
+  const size = Math.min(cv.width, cv.height) * Math.min(frac, 1);
+  const plan = {};
+  for (const f of m.freqs) { await planFlicker(f); plan[f] = { hz: actualHz, k: halfFrames }; }
+  let b = 0;
+  const nBlocks = m.repeats * m.freqs.length;
+  for (let r = 0; r < m.repeats && running === tok; r++) {
+    for (const f of m.freqs) {
+      if (running !== tok) break;
+      halfFrames = plan[f].k; actualHz = plan[f].hz;
+      const [cOn, cOff] = (m.colorsPerFreq && m.colorsPerFreq[f]) || (m.colors || ["#ffff00", "#0000ff"]);
+      for (const on of [true, false]) {
+        frameCount = 0;
+        send({ type: "block", b, on, phase: "start", hz: plan[f].hz });
+        sub.textContent = `${on ? "ON" : "off"} ${plan[f].hz.toFixed(2)} Hz  (${b + 1}/${nBlocks}, ${halfFrames} frames on/off @ ${refreshHz} fps)`;
+        const t0 = now(), dur = on ? m.onS : m.offS;
+        flickerT0 = (await frameTs()) / 1000;
+        while (now() - t0 < dur && running === tok) {
+          await frameTs(); frameCount++;
+          const t = now();
+          const fl = on && flickerOn();
+          if (on) {
+            ctx.fillStyle = fl ? cOn : cOff;
+            if (full) ctx.fillRect(0, 0, cv.width, cv.height);
+            else { black(); ctx.fillRect((cv.width - size) / 2, (cv.height - size) / 2, size, size); }
+          } else black();
+          dot(cv.width / 2, cv.height / 2);
+          send({ type: "frame", stage: "sweep", pt: t, gx: -1, gy: -1,
+                 lum: on ? 1 : 0, fl: fl ? 1 : 0 });
+        }
+        send({ type: "block", b, on, phase: "end", hz: plan[f].hz });
+      }
+      b++;
+    }
+  }
+  black();
+  send({ type: "sweep_done" });
+}
+function showSweepResult(m) {
+  running = null; black();
+  title.textContent = m.passed ? "SSVEP FOUND" : "NO SSVEP AT ANY FREQUENCY";
+  title.className = m.passed ? "ok" : "warn";
+  sub.textContent = m.verdict + "   —   " + m.table;
+}
+
 async function runScan(m) {
+  if (m.color) return runColorScan(m);
+  if (m.mux) return runMuxScan(m);
   hideResult(); title.textContent = ""; sub.textContent = "";
   const tok = running = {};
   await planFlicker(m.freq);
@@ -137,16 +308,23 @@ async function runScan(m) {
     if (gy % 2 === 1) xs.reverse();
     for (const gx of xs) {
       const lum = target[gy][gx];
+      // fixed patch size (m.patch x a 6x4-grid cell) so a finer grid only
+      // adds positions (overlapping), never shrinks the flickering area
+      const pw = m.patch ? bw / 6 * m.patch : cwid, ph = m.patch ? bh / 4 * m.patch : chgt;
+      const bwc = m.bw ? ["#ffffff", "#000000"] : null;
       const t0 = now();
+      flickerT0 = (await frameTs()) / 1000;
       while (now() - t0 < m.spc && running === tok) {
-        await frame(); frameCount++;
+        await frameTs(); frameCount++;
         const t = now();
         const fl = lum > 0.05 && flickerOn();
         black();
         if (lum > 0.05) {
           const shade = Math.round(255 * (0.3 + 0.7 * lum));
-          ctx.fillStyle = fl ? `rgb(${shade},${shade},0)` : `rgb(0,0,${shade})`;
-          ctx.fillRect(x0 + gx * cwid, y0 + gy * chgt, cwid, chgt);
+          ctx.fillStyle = bwc ? (fl ? `rgb(${shade},${shade},${shade})` : "#000000")
+                              : (fl ? `rgb(${shade},${shade},0)` : `rgb(0,0,${shade})`);
+          const cx = x0 + (gx + 0.5) * cwid, cy = y0 + (gy + 0.5) * chgt;
+          ctx.fillRect(cx - pw / 2, cy - ph / 2, pw, ph);
         }
         dot(x0 + (gx + 0.5) * cwid, y0 + (gy + 0.5) * chgt);
         send({ type: "frame", stage: "scan", pt: t, gx, gy,
@@ -208,6 +386,51 @@ function showResult(m) {
 }
 
 function hideResult() { resultBox.style.display = "none"; }
+
+// ---- arm gate: nothing flickers until the subject pulls the trigger ----
+async function armStart() {
+  hideResult(); title.textContent = "READY"; title.className = "ok";
+  sub.innerHTML = "put the headset on, look at the dot, then " +
+                  "<b>pull the trigger or press any controller button</b> (or click / any key) to start";
+  black(); dot(cv.width / 2, cv.height / 2);
+  // start on ANY of: a click/trigger on the page, a keyboard key, or a
+  // controller button seen through the Gamepad API (Quest Browser exposes
+  // the Touch controllers even when a trigger click never reaches the page)
+  const goFull = () => {  // must run INSIDE the user gesture to be honoured
+    try {
+      const el = document.documentElement;
+      const req = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (req && !document.fullscreenElement) req.call(el).catch(() => {});
+    } catch {}
+  };
+  await new Promise(res => {
+    const done = () => { clearInterval(gp); res(); };
+    addEventListener("pointerdown", () => { goFull(); done(); }, { once: true });
+    addEventListener("keydown", () => { goFull(); done(); }, { once: true });
+    const gp = setInterval(() => {
+      try {
+        for (const g of navigator.getGamepads ? navigator.getGamepads() : []) {
+          if (g && g.buttons.some(b => b && (b.pressed || b.value > 0.5))) return done();
+        }
+      } catch {}
+    }, 100);
+  });
+  sub.textContent = "trigger received"; send({ type: "armclick" });
+
+  try {  // the click is a user gesture: create/resume audio now so cues can play
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    // never block the start on the audio device: resume() can hang on some
+    // browsers (Quest); race it against a short timeout
+    await Promise.race([audioCtx.resume().catch(() => {}), sleep(800)]);
+  } catch {}
+  sub.textContent = "starting…";
+  for (let n = 3; n > 0; n--) {
+    sub.textContent = `keep looking at the dot — starting in ${n}`;
+    black(); dot(cv.width / 2, cv.height / 2);
+    await sleep(1000);
+  }
+  send({ type: "go" });
+}
 const frame = () => new Promise(requestAnimationFrame);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -217,6 +440,7 @@ async function ensureAudio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === "suspended") {
     try { await audioCtx.resume(); } catch {}
+    if (audioCtx.state === "suspended" && location.search.includes("auto=1")) return;
     if (audioCtx.state === "suspended") {
       sub.textContent = "TAP anywhere once to enable sound";
       await new Promise(res => addEventListener("pointerdown",
@@ -225,7 +449,73 @@ async function ensureAudio() {
   }
 }
 
+// ---- electrode check: eyes open / eyes closed, beeps cue the transitions ----
+function beep(n) {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    for (let k = 0; k < n; k++) {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.frequency.value = n === 2 ? 440 : 880; o.connect(g); g.connect(audioCtx.destination);
+      const t0 = audioCtx.currentTime + k * 0.25;
+      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.4, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.18); o.start(t0); o.stop(t0 + 0.2);
+    }
+  } catch {}
+}
+async function runAlpha(m) {
+  hideResult(); title.className = "";
+  const tok = running = {};
+  for (let b = 0; b < m.blocks && running === tok; b++) {
+    for (const closed of [false, true]) {
+      beep(closed ? 2 : 1);
+      title.textContent = closed ? "EYES CLOSED" : "EYES OPEN";
+      send({ type: "block", b, on: closed, phase: "start" });
+      const t0 = now(), dur = closed ? m.closedS : m.openS;
+      while (now() - t0 < dur && running === tok) {
+        await sleep(100);  // timer, not rAF: keeps going even if the tab is hidden
+        const left = Math.ceil(dur - (now() - t0));
+        sub.textContent = closed ? `keep them closed — ${left} s (one beep = open)`
+                                 : `look at the dot, relax — ${left} s (two beeps = close)`;
+        black(); dot(cv.width / 2, cv.height / 2);
+      }
+      send({ type: "block", b, on: closed, phase: "end" });
+    }
+  }
+  beep(3); black();
+  send({ type: "alpha_done" });
+}
+function showAlphaResult(m) {
+  running = null; black();
+  title.textContent = m.good ? "OZ ELECTRODE OK" : "OZ ELECTRODE NOT READING OCCIPITAL ALPHA";
+  title.className = m.good ? "ok" : "warn";
+  sub.textContent = m.verdict + "  |  " + m.table;
+}
+
+// ---- music piece tagged at 40 Hz: the melody plays through every block;
+// in ON blocks its amplitude is modulated at modFreq (depth 1), in OFF
+// blocks it plays unmodulated at the same mean level. The ASSR at modFreq
+// is "does the ear-as-level-meter follow the tag".
+function startMusic(am) {
+  const notes = [261.63, 329.63, 392.0, 523.25, 392.0, 329.63, 293.66, 349.23,
+                 440.0, 349.23, 293.66, 246.94, 329.63, 392.0, 493.88, 587.33,
+                 493.88, 392.0, 349.23, 440.0, 523.25, 440.0, 349.23, 293.66];
+  const dur = 0.32; let i = 0, next = audioCtx.currentTime + 0.1; const timers = [];
+  function tick() {
+    while (next < audioCtx.currentTime + 0.5) {
+      const o = audioCtx.createOscillator(), env = audioCtx.createGain();
+      o.type = "triangle"; o.frequency.value = notes[i % notes.length];
+      env.gain.setValueAtTime(0.0001, next);
+      env.gain.exponentialRampToValueAtTime(0.6, next + 0.02);
+      env.gain.exponentialRampToValueAtTime(0.0001, next + dur * 0.95);
+      o.connect(env); env.connect(am); o.start(next); o.stop(next + dur);
+      next += dur; i++;
+    }
+  }
+  const id = setInterval(tick, 100); tick();
+  return () => clearInterval(id);
+}
 async function runAssr(m) {
+  if (m.music) return runMusic(m);
   hideResult(); title.textContent = "EAR AS A MICROPHONE"; title.className = "";
   await ensureAudio();
   const tok = running = {};
@@ -258,6 +548,48 @@ async function runAssr(m) {
   send({ type: "assr_done" });
 }
 
+async function runMusic(m) {
+  hideResult(); title.textContent = "EAR AS A LEVEL METER"; title.className = "";
+  await ensureAudio();
+  const tok = running = {};
+  const am = audioCtx.createGain(); am.gain.value = 0.5;         // mean level
+  const mod = audioCtx.createOscillator(); mod.frequency.value = m.modFreq;
+  const modDepth = audioCtx.createGain(); modDepth.gain.value = 0.5;
+  const modGate = audioCtx.createGain(); modGate.gain.value = 0;  // 1 = tagged
+  const master = audioCtx.createGain(); master.gain.value = 0.8;
+  mod.connect(modDepth); modDepth.connect(modGate); modGate.connect(am.gain);
+  am.connect(master); master.connect(audioCtx.destination);
+  mod.start();
+  const stopMusic = startMusic(am);
+  black(); dot(cv.width / 2, cv.height / 2);
+  for (let b = 0; b < m.blocks && running === tok; b++) {
+    for (const on of [true, false]) {
+      send({ type: "block", b, on, phase: "start", hz: m.modFreq });
+      sub.textContent = `listen — block ${b + 1}/${m.blocks} ` + (on ? "tagged" : "plain");
+      modGate.gain.setValueAtTime(on ? 1 : 0, audioCtx.currentTime);
+      const t0 = now();
+      while (now() - t0 < (on ? m.onS : m.offS) && running === tok) {
+        await sleep(50);
+        send({ type: "frame", stage: "assr", pt: now(), gx: -1, gy: -1,
+               lum: on ? 1 : 0, fl: 0, hzA: m.modFreq });
+      }
+      send({ type: "block", b, on, phase: "end", hz: m.modFreq });
+    }
+  }
+  stopMusic(); mod.stop();
+  send({ type: "assr_done" });
+}
+
+function showColorResult(m) {
+  running = null; black();
+  title.textContent = "COLOUR RESULT"; title.className = "";
+  sub.textContent = m.text || "";
+  document.getElementById("rimg").src = m.png;
+  const rt = document.getElementById("rtext");
+  rt.textContent = m.text || ""; rt.className = m.good ? "ok" : "warn";
+  resultBox.style.display = "flex";
+}
+
 function showAssrResult(m) {
   running = null; black();
   title.textContent = m.passed ? "ASSR DETECTED — your ear heard it"
@@ -269,16 +601,22 @@ function showAssrResult(m) {
 function connect() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.onopen = () => { sub.textContent = "connected — waiting for driver"; send({ type: "hello", ua: navigator.userAgent, auto: location.search.includes("auto=1") ? 1 : 0 }); };
+  ws.onopen = () => { sub.textContent = "connected — waiting for driver"; send({ type: "hello", ua: navigator.userAgent, vis: document.visibilityState, q: location.search, auto: location.search.includes("auto=1") ? 1 : 0 }); };
   ws.onclose = () => { running = null; sub.textContent = "driver disconnected — retrying"; setTimeout(connect, 2000); };
   ws.onmessage = ev => {
     let m; try { m = JSON.parse(ev.data); } catch { return; }
     switch (m.cmd) {
       case "signal": showSignal(m); break;
       case "eeg": showMuse(m); break;
+      case "arm": armStart(); break;
       case "start_calib": runCalib(m); break;
       case "calib_result": showCalibResult(m); break;
       case "start_scan": runScan(m); break;
+      case "start_sweep": runSweep(m); break;
+      case "color_result": showColorResult(m); break;
+      case "sweep_result": showSweepResult(m); break;
+      case "start_alpha": runAlpha(m); break;
+      case "alpha_result": showAlphaResult(m); break;
       case "start_assr": runAssr(m); break;
       case "assr_result": showAssrResult(m); break;
       case "result": showResult(m); break;
@@ -287,6 +625,10 @@ function connect() {
   };
 }
 black(); connect();
+// a hidden tab is throttled to ~1 fps: tell the driver so a void session
+// is never mistaken for a negative result
+document.addEventListener("visibilitychange", () =>
+  send({ type: "visibility", state: document.visibilityState }));
 // keep the screen awake where supported (Quest Browser honors this)
 if (navigator.wakeLock) navigator.wakeLock.request("screen").catch(() => {});
 </script>

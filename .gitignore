@@ -1,3 +1,5 @@
 runs/
 __pycache__/
 *.pyc
+*.bak_full
+*.err

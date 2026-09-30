@@ -23,6 +23,7 @@ import socket
 import sys
 import time
 
+import math
 import numpy as np
 from PIL import Image
 
@@ -172,6 +173,186 @@ def channel_quality(tail):
     return out
 
 
+def score_sweep(session, blocks, hzs, log_name="sweep_log.csv"):
+    """Per frequency: exact-line SNR (f and 2f, whole-block periodogram) of
+    the ON blocks at that frequency vs ALL OFF blocks scored at the same
+    frequency; max-over-channels mean log-SNR difference, exact permutation.
+    All segments are cut to one common length so ON and OFF are exchangeable."""
+    from itertools import combinations
+    from scipy.signal import periodogram
+    path = os.path.join(session, "eeg.csv")
+    names = csv_header(path) or CH_NAMES
+    E = np.genfromtxt(path, delimiter=",", skip_header=1)
+    et = E[:, 0]
+    fs = reconstruct.infer_fs(et)
+    if log_name and os.path.exists(os.path.join(session, log_name)):
+        L = np.genfromtxt(os.path.join(session, log_name), delimiter=",",
+                          skip_header=1)
+        lt, lfl, lpt = L[:, 0], L[:, 4], L[:, 5]
+    else:
+        lt = None
+
+    def delivered(t0, t1, fallback):
+        if lt is None:
+            return float(fallback)
+        s = (lt >= t0) & (lt <= t1)
+        fl, pt = lfl[s], lpt[s]
+        ed = np.where((fl[1:] == 1) & (fl[:-1] == 0))[0] + 1
+        per = np.diff(pt[ed])
+        per = per[(per > 0) & (per < 1)]
+        return float(1 / np.median(per)) if len(per) >= 5 else float(fallback)
+
+    def line_snr(seg, f0, half=0.15, flank=(0.5, 2.0)):
+        seg = seg - seg.mean()
+        f, p = periodogram(seg, fs=fs, window="hann", detrend="constant")
+        h = max(half, (f[1] - f[0]) * 1.01)   # always >= 1 bin (short blocks)
+        pk = p[np.abs(f - f0) <= h].mean()
+        fl_ = (np.abs(f - f0) >= flank[0]) & (np.abs(f - f0) <= flank[1])
+        if not fl_.any():
+            return np.nan
+        return pk / max(p[fl_].mean(), 1e-12)
+
+    segs = []
+    for (kind, t0, t1), hz in zip(blocks, hzs):
+        sel = (et >= t0 + 1.0) & (et <= t1)
+        if sel.sum() < fs * 3:
+            continue
+        fdel = delivered(t0, t1, hz) if kind == "on" else None
+        segs.append((kind, round(float(hz), 2) if hz else None, fdel,
+                     E[sel, 1:]))
+    if not segs:
+        return dict(names=names, freqs=[], results={}, passed=False,
+                    best_freq=None, best_channel=None, p_min=float("nan"))
+    n_min = min(s[3].shape[0] for s in segs)
+    segs = [(k, hz, fd, X[:n_min]) for k, hz, fd, X in segs]
+    stds = np.array([[s[3][:, c].std() for c in range(len(names))] for s in segs])
+    keep = stds <= 4 * np.median(stds, 0)
+    freqs = sorted(set(s[1] for s in segs if s[0] == "on" and s[1]))
+    per_block = [dict(kind=k, hz=hz, delivered=fd,
+                      snr={names[c]: float(np.nan_to_num(line_snr(X[:, c], fd or hz or 1.0), nan=0.0))
+                           for c in range(len(names))})
+                 for k, hz, fd, X in segs if (hz or fd)]
+    out = {}
+    for f in freqs:
+        rows = []
+        for j, (kind, hz, fdel, X) in enumerate(segs):
+            if kind == "on" and hz != f:
+                continue
+            f0 = fdel if kind == "on" else f
+            v = np.zeros(len(names))
+            for c in range(len(names)):
+                if keep[j, c]:
+                    s1, s2 = line_snr(X[:, c], f0), line_snr(X[:, c], 2 * f0)
+                    val = np.log(max(s1, 1e-9)) + (np.log(max(s2, 1e-9))
+                                                   if np.isfinite(s2) else 0.0)
+                    v[c] = val if np.isfinite(val) else 0.0
+            rows.append((kind == "on", v))
+        on = np.array([r[0] for r in rows])
+        V = np.array([r[1] for r in rows])
+        if on.sum() < 2 or (~on).sum() < 2:
+            continue
+        diff = V[on].mean(0) - V[~on].mean(0)
+        if not np.isfinite(diff).any():
+            continue
+        diff = np.where(np.isfinite(diff), diff, -np.inf)
+        best_c = int(np.argmax(diff))
+        obs = float(diff[best_c])
+        n, n_on = len(on), int(on.sum())
+        null = []
+        if math.comb(n, n_on) <= 200000:
+            for cmb in combinations(range(n), n_on):
+                m = np.zeros(n, bool)
+                m[list(cmb)] = True
+                null.append(np.max(V[m].mean(0) - V[~m].mean(0)))
+        else:
+            rng = np.random.default_rng(0)
+            for _ in range(20000):
+                m = np.zeros(n, bool)
+                m[rng.choice(n, n_on, replace=False)] = True
+                null.append(np.max(V[m].mean(0) - V[~m].mean(0)))
+        null = np.array(null)
+        p = float(np.mean(null >= obs - 1e-12)) if np.isfinite(obs) else 1.0
+        per_ch = {names[c]: dict(on_med=float(np.exp(np.median(V[on, c]))),
+                                 off_med=float(np.exp(np.median(V[~on, c]))),
+                                 diff=float(diff[c]))
+                  for c in range(len(names))}
+        out[f"{f:g}"] = dict(
+            freq=f, n_on=n_on, n_off=int((~on).sum()), best=names[best_c],
+            stat=obs, p=p, n_null=len(null), channels=per_ch,
+            delivered=float(np.median([s[2] for s in segs
+                                       if s[0] == "on" and s[1] == f])))
+    if not out:
+        return dict(names=names, freqs=freqs, results={}, passed=False,
+                    best_freq=None, best_channel=None, p_min=float("nan"))
+    best_k = min(out, key=lambda k: out[k]["p"])
+    p_min = out[best_k]["p"]
+    return dict(names=names, freqs=freqs, results=out,
+                best_freq=out[best_k]["freq"], best_channel=out[best_k]["best"],
+                p_min=p_min, passed=bool(p_min < 0.01 / len(out)),
+                segment_s=float(n_min / fs), per_block=per_block)
+
+
+def score_alpha(session, blocks, band=(8.0, 12.0)):
+    """Median eyes-closed vs eyes-open alpha rms per channel over blocks.
+    blocks: [(kind, t0, t1)] with kind 'on' = eyes CLOSED."""
+    from scipy.signal import welch
+    path = os.path.join(session, "eeg.csv")
+    names = csv_header(path) or CH_NAMES
+    E = np.genfromtxt(path, delimiter=",", skip_header=1)
+    et = E[:, 0]
+    fs = reconstruct.infer_fs(et)
+    out = {}
+    fgrid = None
+    for i, n in enumerate(names):
+        vals = {"on": [], "off": []}
+        psds = {"on": [], "off": []}
+        for kind, t0, t1 in blocks:
+            sel = (et >= t0 + 2.0) & (et <= t1)  # 2 s: blink/settle after the cue
+            seg = E[sel, i + 1]
+            if len(seg) < fs * 4:
+                continue
+            seg = seg - np.median(seg)
+            mad = np.median(np.abs(seg)) * 1.4826 + 1e-9
+            seg = np.clip(seg, -6 * mad, 6 * mad)
+            f, p = welch(seg, fs=fs, window="hann", nperseg=int(fs * 2),
+                         noverlap=int(fs))
+            fgrid = f
+            psds[kind].append(p)
+            vals[kind].append(np.sqrt(p[(f >= band[0]) & (f <= band[1])].mean()
+                                      * (band[1] - band[0])))
+        c, o = (np.median(vals["on"]) if vals["on"] else np.nan,
+                np.median(vals["off"]) if vals["off"] else np.nan)
+        # individual alpha frequency: the 0.5 Hz bin (7.5-13 Hz) with the
+        # largest closed/open POWER ratio of the median spectra; a narrow
+        # alpha peak is diluted 3-4x by the broadband 8-12 Hz rms above
+        Pc = np.median(psds["on"], 0) if psds["on"] else None
+        Po = np.median(psds["off"], 0) if psds["off"] else None
+        if Pc is not None and Po is not None:
+            sel = (fgrid >= 7.5) & (fgrid <= 13.0)
+            r = Pc[sel] / np.maximum(Po[sel], 1e-12)
+            k = int(np.argmax(r))
+            iaf = float(fgrid[sel][k])
+            nb = (np.abs(fgrid - iaf) <= 0.5)
+            peak_ratio = float(Pc[nb].mean() / max(Po[nb].mean(), 1e-12))
+            peak_uv = float(np.sqrt(Pc[nb].sum() * 0.5))
+        else:
+            iaf, peak_ratio, peak_uv = float("nan"), float("nan"), float("nan")
+        out[n] = dict(closed_uv=float(c), open_uv=float(o),
+                      ratio=float(c / o) if o else float("nan"),
+                      iaf_hz=iaf, peak_ratio=peak_ratio, peak_uv=peak_uv,
+                      n_closed=len(vals["on"]), n_open=len(vals["off"]))
+    aux = [n for n in names if "AUX" in n]
+    aux_ok = bool(aux and out[aux[0]]["peak_ratio"] >= 3.0)
+    best = max(out, key=lambda n: out[n]["peak_ratio"] if np.isfinite(out[n]["peak_ratio"]) else -1)
+    verdict = ((f"AUX sees occipital alpha: {out[aux[0]]['iaf_hz']:.1f} Hz peak "
+                f"x{out[aux[0]]['peak_ratio']:.1f} power with eyes closed") if aux_ok
+               else (f"AUX shows no eyes-closed alpha peak (x{out[aux[0]]['peak_ratio']:.1f}) "
+                     "— reseat/wet the Oz electrode" if aux
+                     else f"no AUX channel; best {best}"))
+    return dict(names=names, channels=out, aux_ok=aux_ok, best=best,
+                verdict=verdict, band=list(band))
+
+
 class Driver:
     def __init__(self, args):
         self.args = args
@@ -182,6 +363,8 @@ class Driver:
         self.queue = asyncio.Queue()
         self.log_file = None
         self.blocks = []
+        self.block_hz = []          # per-block flicker frequency (sweep)
+        self.color_hzs = []         # page's frame-exact plan for the colour scan
         self.frames = 0
         self.spec = None
         if args.spectator:
@@ -191,6 +374,10 @@ class Driver:
         self.seq = 0
         self.sid = os.path.basename(self.session)
         self.stim_freq = args.freq  # replaced by the page's delivered value
+        self.auto = False           # ?auto=1 on the page skips the arm gate
+        self.last_cmd = None
+        self.pages = []             # every connected stimulus page (oldest first)
+        self.vis = {}               # ws -> "visible" | "hidden" | None
 
     # ---- plumbing ----
 
@@ -207,7 +394,8 @@ class Driver:
     async def send(self, **msg):
         if msg.get("cmd") in ("start_calib", "start_scan", "start_assr",
                               "signal", "calib_result", "result",
-                              "assr_result"):
+                              "assr_result", "arm", "start_alpha",
+                              "alpha_result", "start_sweep", "sweep_result"):
             self.last_cmd = msg  # re-issued to a page that reconnects
         if self.page is not None:
             try:
@@ -219,7 +407,8 @@ class Driver:
         self.log_file = open(os.path.join(self.session, name), "w",
                              buffering=1)
         self.log_file.write(
-            "time,grid_x,grid_y,luminance,flicker_on,page_t\n")
+            "time,grid_x,grid_y,luminance,flicker_on,page_t,"
+            "flicker_g,flicker_b,r,g,b,audio_hz\n")
 
     def close_log(self):
         if self.log_file:
@@ -234,9 +423,11 @@ class Driver:
             if self.log_file:
                 self.log_file.write(
                     f"{t:.6f},{m['gx']},{m['gy']},{m['lum']:.4f},"
-                    f"{m['fl']},{m['pt']:.6f}\n")
+                    f"{m['fl']},{m['pt']:.6f},{m.get('flG', 0)},"
+                    f"{m.get('flB', 0)},{m.get('r', 0):.3f},{m.get('g', 0):.3f},"
+                    f"{m.get('b', 0):.3f},{m.get('hzA', 0):g}\n")
                 self.frames += 1
-            if m["stage"] == "scan" and self.frames % 12 == 0:
+            if m["stage"] in ("scan", "color") and self.frames % 12 == 0:
                 self.spectate(type="cursor", gx=m["gx"], gy=m["gy"],
                               lum=m["lum"], fl=m["fl"])
         elif typ == "block":
@@ -245,6 +436,17 @@ class Driver:
             else:
                 self.blocks.append(("on" if m["on"] else "off",
                                     self._block_t0, t))
+                self.block_hz.append(m.get("hz"))
+        elif typ == "hello":
+            self.auto = bool(m.get("auto"))
+            print(f"page: {str(m.get('ua', ''))[:70]}  auto={self.auto}")
+            self.queue.put_nowait(m)
+        elif typ == "color_plan":
+            self.color_hzs = [float(v) for v in m.get("hzs", [])]
+            print("colour flicker plan:", self.color_hzs, "@", m.get("refresh"), "fps")
+        elif typ == "visibility":
+            print(f"page visibility: {m.get('state')}")
+            self.spectate(type="log", msg=f"page {m.get('state')}")
         elif typ == "freq":
             # the page reports the frame-exact frequency it actually delivers
             self.stim_freq = float(m["hz"])
@@ -253,6 +455,59 @@ class Driver:
                   f"{m.get('halfFrames')} frames on/off)")
         else:
             self.queue.put_nowait(m)
+
+    # ---- which tab is the subject page? ----
+    # Quest Browser pauses background tabs (rAF ~1 fps), so only a VISIBLE
+    # page may drive a stage. The newest visible tab wins between stages;
+    # a running stage keeps its page unless that page goes hidden.
+    def mid_run(self):
+        return bool(self.last_cmd) and self.last_cmd.get("cmd") in (
+            "start_calib", "start_scan", "start_assr", "start_alpha",
+            "start_sweep")
+
+    async def adopt(self, ws):
+        old = self.page
+        self.page = ws
+        print(f"active page: #{self.pages.index(ws) + 1} of {len(self.pages)}")
+        if old is not None and old is not ws:
+            try:
+                await old.send(json.dumps(dict(
+                    cmd="msg", text="another tab took over — close this one")))
+            except Exception:
+                pass
+        if self.last_cmd is not None:
+            if self.mid_run():
+                self.blocks = []  # the stage restarts on the new page
+            try:
+                await ws.send(json.dumps(self.last_cmd))
+            except Exception:
+                pass
+
+    async def consider(self, ws):
+        """Called on a page's hello and every visibility change."""
+        visible = self.vis.get(ws) == "visible"
+        if self.page is ws:
+            if not visible:
+                print("active page went hidden")
+                for other in reversed(self.pages):
+                    if other is not ws and self.vis.get(other) == "visible":
+                        await self.adopt(other)
+                        break
+            return
+        if not visible:
+            print(f"page #{self.pages.index(ws) + 1} is hidden — ignored "
+                  "until it becomes visible")
+            return
+        if self.page is None or self.vis.get(self.page) != "visible"                 or not self.mid_run():
+            await self.adopt(ws)
+        else:
+            print("extra visible page while a stage is running — ignored")
+            try:
+                await ws.send(json.dumps(dict(
+                    cmd="msg", text="another tab is running the session "
+                    "— close this one")))
+            except Exception:
+                pass
 
     async def wait_for(self, typ, timeout=600):
         while True:
@@ -362,32 +617,124 @@ class Driver:
                 await asyncio.sleep(0.25)
             print(f"signal ok ({rate:.0f} Hz, ears good)")
 
+            # arm gate: the calibration must not start before the headset
+            # is on and the subject is looking at the dot. Without ?auto=1
+            # the page waits for a controller trigger / click, counts down
+            # 3 s and replies "go".
+            if not self.auto:
+                await self.send(cmd="arm")
+                print("armed: put the headset on and pull the trigger to start")
+                self.spectate(type="stage", stage="armed", detail="")
+                await self.wait_for("go", timeout=a.signal_timeout)
+                print("go")
+
             if a.mode == "assr":
                 return await self.run_assr(result)
+            if a.mode == "alpha":
+                return await self.run_alpha(result, recorder)
+            if a.mode == "sweep":
+                return await self.run_sweep(result, recorder)
+            if a.mode == "mux":
+                return await self.run_mux(result, recorder)
+            if a.mode == "music":
+                self.blocks, self.block_hz = [], []
+                self.open_log("assr_log.csv")
+                await self.send(cmd="start_assr", music=True, blocks=a.music_blocks,
+                                onS=a.music_on, offS=a.music_off, modFreq=40.0)
+                await self.wait_for("assr_done",
+                                    timeout=a.music_blocks * (a.music_on + a.music_off) + 120)
+                self.close_log()
+                await asyncio.sleep(0.7)
+                mus = score_sweep(self.session, self.blocks,
+                                  [40.0] * len(self.blocks), log_name=None)
+                mres = next(iter(mus["results"].values()), None)
+                with open(os.path.join(self.session, "music.json"), "w") as f:
+                    json.dump(mus, f, indent=1)
+                mtext = (f"40 Hz tag: p={mres['p']:.4f} best {mres['best']} "
+                         f"(ON {mres['channels'][mres['best']]['on_med']:.2f} / "
+                         f"OFF {mres['channels'][mres['best']]['off_med']:.2f})"
+                         if mres else "no scorable blocks")
+                print("music " + mtext)
+                await self.send(cmd="assr_result", passed=bool(mres and mres["p"] < config.CALIB_P_MAX), table=mtext)
+                result.update(ok=True, music=mtext)
+                recorder.stop()
+                print(f"MUSIC DONE -> {self.session}")
+                await asyncio.sleep(a.linger)
+                return 0
+            if a.mode == "extras":
+                # colour + music only, reusing a copied calibration.json
+                await self.run_full_extras(result)
+                result["ok"] = True
+                recorder.stop()
+                print(f"EXTRAS DONE -> {self.session}")
+                await asyncio.sleep(a.linger)
+                return 0
 
             # calibration (page-driven)
             self.spectate(type="stage", stage="calibrate", detail="")
             self.blocks = []
             self.open_log("calib_log.csv")
+            colors = ["#ffffff", "#000000"] if a.calib_style == "bw"                 else ["#ffff00", "#0000ff"]
+            result.update(calibStyle=a.calib_style, calibSize=a.calib_size)
             await self.send(cmd="start_calib", blocks=a.calib_blocks,
-                            onS=a.calib_on, offS=a.calib_off, freq=a.freq)
+                            onS=a.calib_on, offS=a.calib_off, freq=a.freq,
+                            colors=colors, size=a.calib_size)
             await self.wait_for(
                 "calib_done",
                 timeout=a.calib_blocks * (a.calib_on + a.calib_off + 2) + 60)
             self.close_log()
             await asyncio.sleep(0.7)
+            # G0: was the stimulus actually delivered? A background/hidden
+            # browser tab throttles rAF to ~1 fps: no flicker edges, a few
+            # rows per block. Such a session is VOID, not a null result.
+            g0 = self.delivery_check("calib_log.csv",
+                                     a.calib_blocks * (a.calib_on + a.calib_off))
+            result["g0"] = g0
+            if not g0["ok"]:
+                msg = ("STIMULUS NOT DELIVERED: " + g0["reason"] +
+                       " — keep the page visible & in the foreground")
+                print(msg)
+                await self.send(cmd="msg", text=msg)
+                result.update(ok=False, error="G0 " + g0["reason"])
+                await asyncio.sleep(a.linger)
+                return 2
             calib = run_session.score_calibration(
                 self.session, self.blocks, stim_freq=self.stim_freq)
             result["stimFreqActual"] = self.stim_freq
+            # exact-line detector on the same blocks: the validated G1 test
+            # (sweep2: 5 uV line at 10-12 Hz invisible to the 1 Hz-bin score)
+            line = score_sweep(self.session, self.blocks,
+                               [self.stim_freq] * len(self.blocks),
+                               log_name="calib_log.csv")
+            lres = next(iter(line["results"].values()), None)
+            if lres:
+                wl = {n: max(cc["diff"], 0.0) for n, cc in lres["channels"].items()}
+                tot = sum(wl.values())
+                calib["weights_welch"] = dict(calib["weights"])
+                if tot > 0:
+                    calib["weights"] = {n: v / tot for n, v in wl.items()}
+                calib["line"] = dict(p=lres["p"], best=lres["best"],
+                                     stat=lres["stat"], delivered=lres["delivered"],
+                                     channels=lres["channels"],
+                                     per_block=line.get("per_block"))
+                calib["passed_welch"] = calib["passed"]
+                calib["passed"] = bool(lres["p"] < config.CALIB_P_MAX)
+                calib["gate"] = "line-permutation"
+                calib["best"] = lres["best"]
+                with open(os.path.join(self.session, "calibration.json"), "w") as f:
+                    json.dump(calib, f, indent=1)
             perm = calib.get("permutation", {})
             pch = perm.get("p_channel") or [float("nan")] * len(calib["names"])
             table = "   ".join(
                 f"{n} d'={calib['channels'][n]['dprime']:.1f}"
                 f" p={pch[i]:.3f} w={calib['weights'][n]:.2f}"
                 for i, n in enumerate(calib["names"]))
-            table += (f"   |  gate: {calib.get('gate')}"
-                      f"  p_fw={perm.get('p_fw', float('nan')):.4f}"
+            table += (f"   |  welch p_fw={perm.get('p_fw', float('nan')):.4f}"
                       f" (n_null={perm.get('n_null', 0)})")
+            if calib.get("line"):
+                ln = calib["line"]
+                table = (f"LINE {ln['delivered']:.2f} Hz p={ln['p']:.4f} "
+                         f"best {ln['best']} stat {ln['stat']:+.2f}  ||  " + table)
             print(f"calibration passed={calib['passed']} {table}")
             result.update(calibPassed=calib["passed"], best=calib["best"],
                           weights=calib["weights"])
@@ -413,7 +760,8 @@ class Driver:
             self.spectate(type="stage", stage="scan", detail="")
             self.open_log("cursor_log.csv")
             await self.send(cmd="start_scan", gridW=a.grid_w, gridH=a.grid_h,
-                            spc=a.spc, freq=a.freq, target=target.tolist())
+                            spc=a.spc, freq=a.freq, target=target.tolist(),
+                            patch=a.patch, bw=(a.calib_style == "bw"))
             scan_s = a.grid_w * a.grid_h * a.spc
             await self.wait_for("scan_done", timeout=scan_s * 2 + 120)
             self.close_log()
@@ -424,9 +772,17 @@ class Driver:
             grid, r = reconstruct.run(
                 self.session,
                 calibration=os.path.join(self.session, "calibration.json"),
-                stim_freq=self.stim_freq)
+                stim_freq=self.stim_freq, method=a.recon_method)
             flicker_hz = self.measured_flicker()
-            result.update(r=r, measuredFlickerHz=flicker_hz)
+            rs_null = reconstruct.null_r(
+                self.session, n_shifts=8,
+                calibration=os.path.join(self.session, "calibration.json"),
+                stim_freq=self.stim_freq, method=a.recon_method)
+            result.update(r=r, measuredFlickerHz=flicker_hz, method=a.recon_method,
+                          r_null=rs_null,
+                          r_null_max=(max(rs_null) if rs_null else None))
+            print(f"grey image r={r:.3f} ({a.recon_method}); shifted-EEG null "
+                  f"r: {', '.join(f'{v:.2f}' for v in rs_null)}")
             png = grid_to_data_url(reconstruct_norm(grid))
             await self.send(cmd="result", png=png, r=r or 0.0,
                             flickerHz=flicker_hz)
@@ -434,6 +790,9 @@ class Driver:
             self.spectate(type="grid", w=a.grid_w, h=a.grid_h, scores=flat)
             self.spectate(type="stage", stage="done",
                           detail=f"r={r:.3f}" if r else "")
+            if a.mode == "full":
+                await asyncio.sleep(4.0)  # let the subject see the image
+                await self.run_full_extras(result)
             result["ok"] = True
             recorder.stop()  # stop at scan end, not after the linger
             print(f"SESSION DONE r={r} flicker={flicker_hz:.2f} Hz "
@@ -455,6 +814,346 @@ class Driver:
                       "w") as f:
                 json.dump(result, f, indent=1)
             recorder.stop()
+
+    def measured_cols(self, log_name, cols=(4, 6, 7)):
+        """Delivered frequency per flicker column from page-clock rising edges."""
+        path = os.path.join(self.session, log_name)
+        out = []
+        try:
+            L = np.genfromtxt(path, delimiter=",", skip_header=1)
+        except OSError:
+            return [float("nan")] * len(cols)
+        if L.ndim == 1 or L.shape[0] < 10:
+            return [float("nan")] * len(cols)
+        for c in cols:
+            v = L[:, c]
+            ed = np.where((v[1:] == 1) & (v[:-1] == 0))[0] + 1
+            per = np.diff(L[ed, 5])
+            per = per[(per > 0.01) & (per < 1.0)]
+            out.append(float(1 / np.median(per)) if len(per) >= 5 else float("nan"))
+        return out
+
+    async def run_mux(self, result, recorder):
+        """White 3-tag calibration, then the multiplexed grey scan."""
+        a = self.args
+        freqs = [float(v) for v in str(a.color_freqs).split(",") if v.strip()]
+        n = len(freqs)
+        gw, gh = a.grid_w - (a.grid_w % n), a.grid_h
+        target = targets.load_target(a.target, gw, gh)
+        np.save(os.path.join(self.session, "target.npy"), target)
+        names = csv_header(os.path.join(self.session, "eeg.csv")) or CH_NAMES
+        # calibration: each tag frequency, full-panel white/black
+        self.spectate(type="stage", stage="mux_calib", detail="")
+        self.blocks, self.block_hz = [], []
+        self.open_log("calib_log.csv")
+        cols = {f"{f:g}": ["#ffffff", "#000000"] for f in freqs}
+        await self.send(cmd="start_sweep", freqs=freqs, repeats=a.calib_blocks,
+                        onS=a.calib_on, offS=a.calib_on, colorsPerFreq=cols, size=1.0)
+        total = a.calib_blocks * n * 2 * a.calib_on
+        await self.wait_for("sweep_done", timeout=total + 120)
+        self.close_log()
+        await asyncio.sleep(0.7)
+        cal = score_sweep(self.session, self.blocks, self.block_hz, log_name="calib_log.csv")
+        ordered = sorted(cal["results"].values(), key=lambda rr: rr["freq"])
+        # channel weights: mean over tags of the per-channel ON-OFF log diff
+        diff = np.zeros(len(names))
+        for rr in ordered:
+            diff += np.array([max(rr["channels"][nm]["diff"], 0.0) for nm in names])
+        weights = diff / diff.sum() if diff.sum() > 0 else np.ones(len(names)) / len(names)
+        cal["weights"] = {nm: float(v) for nm, v in zip(names, weights)}
+        cal["names"] = names
+        cal["passed"] = bool(min(rr["p"] for rr in ordered) < config.CALIB_P_MAX)
+        with open(os.path.join(self.session, "calibration.json"), "w") as f:
+            json.dump(cal, f, indent=1)
+        ctab = "  ".join(f"{rr['freq']:g}Hz p={rr['p']:.3f} {rr['best']}" for rr in ordered)
+        print(f"mux calibration passed={cal['passed']}: {ctab}  weights="
+              + " ".join(f"{nm}:{v:.2f}" for nm, v in zip(names, weights)))
+        result["calib"] = dict(table=ctab, passed=cal["passed"], weights=cal["weights"])
+        await self.send(cmd="calib_result", passed=cal["passed"], table=ctab)
+        await asyncio.sleep(2.5)
+        # scan
+        self.spectate(type="stage", stage="mux_scan", detail="")
+        self.color_hzs = []
+        self.open_log("mux_log.csv")
+        await self.send(cmd="start_scan", mux=True, gridW=gw, gridH=gh, spc=a.spc,
+                        freqs=freqs, target=target.tolist(), patch=a.patch)
+        scan_s = (gw // n) * gh * a.spc
+        await self.wait_for("scan_done", timeout=scan_s * 2 + 120)
+        self.close_log()
+        await asyncio.sleep(0.7)
+        g0 = self.delivery_check("mux_log.csv", scan_s)
+        result["g0"] = g0
+        hz_del = self.measured_cols("mux_log.csv")
+        for k in range(n):
+            if not np.isfinite(hz_del[k]):
+                hz_del[k] = self.color_hzs[k] if k < len(self.color_hzs) else freqs[k]
+        print("mux scan delivered:", ["%.2f" % v for v in hz_del], "| G0", g0)
+        grid, r = reconstruct.reconstruct_mux(self.session, hz_del, weights=weights,
+                                              cursor_log="mux_log.csv", target=target,
+                                              stride=gw // n)
+        # shifted-EEG null
+        eeg_t = np.genfromtxt(os.path.join(self.session, "eeg.csv"), delimiter=",",
+                              skip_header=1, usecols=[0])
+        fs = reconstruct.infer_fs(eeg_t)
+        orig = reconstruct.load_session
+        rs_null = []
+        for k in range(8):
+            shift = 31.0 + k * 29.0
+            if shift > eeg_t[-1] - eeg_t[0] - 10:
+                break
+            def fake(session_dir, channels="", cursor_log="cursor_log.csv", _s=shift):
+                e, d, nm, c, xx, yy = orig(session_dir, channels, cursor_log)
+                return e, np.roll(d, int(round(_s * fs)), axis=0), nm, c, xx, yy
+            reconstruct.load_session = fake
+            try:
+                _, rn = reconstruct.reconstruct_mux(
+                    self.session, hz_del, weights=weights, cursor_log="mux_log.csv",
+                    target=target, out=os.path.join(self.session, "_null.png"),
+                    stride=gw // n)
+                if rn is not None:
+                    rs_null.append(rn)
+            finally:
+                reconstruct.load_session = orig
+        # restore the real reconstruction files (the null loop overwrote the grid)
+        grid, r = reconstruct.reconstruct_mux(self.session, hz_del, weights=weights,
+                                              cursor_log="mux_log.csv", target=target,
+                                              stride=gw // n)
+        print(f"mux image r={r:.3f}; shifted-EEG null r: "
+              + ", ".join(f"{v:.2f}" for v in rs_null))
+        result.update(ok=True, r=r, r_null=rs_null, r_null_max=max(rs_null) if rs_null else None,
+                      freqs_delivered=hz_del, gridW=gw, gridH=gh)
+        png = grid_to_data_url(reconstruct_norm(grid))
+        await self.send(cmd="result", png=png, r=r or 0.0, flickerHz=hz_del[0])
+        self.spectate(type="grid", w=gw, h=gh, scores=[float(v) for v in np.asarray(grid).ravel()])
+        recorder.stop()
+        print(f"MUX SESSION DONE r={r} -> {self.session}")
+        await asyncio.sleep(a.linger)
+        return 0
+
+    async def run_full_extras(self, result):
+        """Colour (frequency-tagged RGB) and music (40 Hz-tagged) stages."""
+        a = self.args
+        freqs = [float(v) for v in str(a.color_freqs).split(",") if v.strip()]
+        names = csv_header(os.path.join(self.session, "eeg.csv")) or CH_NAMES
+        calib = json.load(open(os.path.join(self.session, "calibration.json")))
+        weights = np.array([float(calib["weights"].get(n, 0.0)) for n in names])
+        if weights.sum() <= 0:
+            weights = np.ones(len(names))
+
+        # ---- colour calibration: full-field R, G, B flicker at f_R, f_G, f_B
+        self.spectate(type="stage", stage="color_calib",
+                      detail=",".join(f"{f:g}" for f in freqs))
+        self.blocks, self.block_hz = [], []
+        self.open_log("ccal_log.csv")
+        cols = {f"{f:g}": [c, "#000000"] for f, c in
+                zip(freqs, ("#ff0000", "#00ff00", "#0000ff"))}
+        await self.send(cmd="start_sweep", freqs=freqs, repeats=a.color_reps,
+                        onS=a.color_on, offS=a.color_on, colorsPerFreq=cols,
+                        size=1.0)
+        total = a.color_reps * len(freqs) * 2 * a.color_on
+        await self.wait_for("sweep_done", timeout=total + 120)
+        self.close_log()
+        await asyncio.sleep(0.7)
+        ccal = score_sweep(self.session, self.blocks, self.block_hz,
+                           log_name="ccal_log.csv")
+        ordered = sorted(ccal["results"].values(), key=lambda rr: rr["freq"])
+        gains = []
+        for k, f in enumerate(freqs):
+            rr = ordered[k] if k < len(ordered) else None
+            if rr is None:
+                gains.append(1.0)
+                continue
+            num = sum(weights[i] * max(rr["channels"][n]["on_med"]
+                                       - rr["channels"][n]["off_med"], 0.0)
+                      for i, n in enumerate(names))
+            g_ = num / weights.sum()
+            gains.append(float(g_) if np.isfinite(g_) and g_ > 0.05 else 0.05)
+        ccal["gains"] = gains
+        ccal["requested"] = freqs
+        with open(os.path.join(self.session, "ccal.json"), "w") as f:
+            json.dump(ccal, f, indent=1)
+        ctab = "  ".join(f"{rr['freq']:g}Hz p={rr['p']:.3f} {rr['best']}"
+                         for rr in ordered)
+        print(f"colour calibration: {ctab}  gains={['%.2f' % g for g in gains]}")
+        result["color_calib"] = dict(table=ctab, gains=gains,
+                                     p=[rr["p"] for rr in ordered])
+        await self.send(cmd="msg", text="colour calibration done: " + ctab)
+        await asyncio.sleep(2.0)
+
+        # ---- colour scan
+        gw, gh = a.color_grid_w, a.color_grid_h
+        ctarget = targets.color_target(a.color_target, gw, gh)
+        np.save(os.path.join(self.session, "target_color.npy"), ctarget)
+        self.spectate(type="stage", stage="color_scan", detail="")
+        self.color_hzs = []
+        self.open_log("color_log.csv")
+        await self.send(cmd="start_scan", color=True, gridW=gw, gridH=gh,
+                        spc=a.color_spc, freqs=freqs, target=ctarget.tolist())
+        scan_s = gw * gh * a.color_spc
+        await self.wait_for("scan_done", timeout=scan_s * 2 + 120)
+        self.close_log()
+        await asyncio.sleep(0.7)
+        hz_del = self.measured_cols("color_log.csv")
+        for k in range(3):
+            if not np.isfinite(hz_del[k]):
+                hz_del[k] = (self.color_hzs[k] if k < len(self.color_hzs)
+                             else freqs[k])
+        print("colour scan delivered:", ["%.2f" % v for v in hz_del])
+        try:
+            grid, rgb, cres = reconstruct.reconstruct_color(
+                self.session, hz_del, weights=weights, gains=gains,
+                cursor_log="color_log.csv", target=ctarget)
+        except Exception as exc:  # keep the session alive for the music stage
+            print("colour reconstruction failed:", repr(exc))
+            cres = dict(r_all=None, r_planes=None, hue_accuracy=None,
+                        error=repr(exc))
+            rgb = None
+        text = ("colour r=%s  (R %s, G %s, B %s)  hue accuracy %s" % (
+            "n/a" if cres.get("r_all") is None else f"{cres['r_all']:.2f}",
+            *(("n/a",) * 3 if not cres.get("r_planes") else
+              tuple(f"{v:.2f}" for v in cres["r_planes"])),
+            "n/a" if cres.get("hue_accuracy") is None
+            else f"{cres['hue_accuracy']:.0%}"))
+        print(text)
+        result["color"] = dict(freqs_requested=freqs, freqs_delivered=hz_del,
+                               gains=gains, **{k2: v for k2, v in cres.items()
+                                               if k2 != "out"})
+        png = rgb_to_data_url(rgb) if rgb is not None else ""
+        await self.send(cmd="color_result", png=png, text=text,
+                        good=bool(cres.get("r_all") and cres["r_all"] >= 0.6))
+        self.spectate(type="log", msg=text)
+        await asyncio.sleep(5.0)
+
+        # ---- music piece tagged at 40 Hz (ASSR = ear as a level meter)
+        self.spectate(type="stage", stage="music", detail="")
+        self.blocks, self.block_hz = [], []
+        self.open_log("assr_log.csv")
+        await self.send(cmd="start_assr", music=True, blocks=a.music_blocks,
+                        onS=a.music_on, offS=a.music_off, modFreq=40.0)
+        await self.wait_for("assr_done",
+                            timeout=a.music_blocks * (a.music_on + a.music_off) + 120)
+        self.close_log()
+        await asyncio.sleep(0.7)
+        mus = score_sweep(self.session, self.blocks,
+                          [40.0] * len(self.blocks), log_name=None)
+        mres = next(iter(mus["results"].values()), None)
+        # legacy 1 Hz-bin score too (it overwrites calibration.json: restore)
+        cal_path = os.path.join(self.session, "calibration.json")
+        cal_bytes = open(cal_path, "rb").read()
+        try:
+            legacy = run_session.score_calibration(self.session, self.blocks,
+                                                   stim_freq=40.0)
+            os.replace(cal_path, os.path.join(self.session, "assr_welch.json"))
+        except Exception as exc:
+            legacy = dict(passed=None, error=repr(exc))
+        finally:
+            open(cal_path, "wb").write(cal_bytes)
+        mus["legacy_passed"] = legacy.get("passed")
+        with open(os.path.join(self.session, "music.json"), "w") as f:
+            json.dump(mus, f, indent=1)
+        if mres:
+            mtext = (f"40 Hz tag: p={mres['p']:.4f} best {mres['best']} "
+                     f"(ON {mres['channels'][mres['best']]['on_med']:.2f} / "
+                     f"OFF {mres['channels'][mres['best']]['off_med']:.2f})")
+            passed = bool(mres["p"] < config.CALIB_P_MAX)
+        else:
+            mtext, passed = "music stage: no scorable blocks", False
+        print("music " + mtext)
+        result["music"] = dict(passed=passed, text=mtext,
+                               p=mres["p"] if mres else None,
+                               per_block=mus.get("per_block"))
+        await self.send(cmd="assr_result", passed=passed, table=mtext)
+        self.spectate(type="log", msg="music " + mtext)
+        await asyncio.sleep(3.0)
+
+    async def run_sweep(self, result, recorder):
+        """Frequency sweep: which flicker frequency (if any) evokes an SSVEP
+        in THIS subject with THIS electrode? Frame-exact ON blocks at each
+        frequency interleaved with OFF blocks, repeated; each frequency is
+        scored with the exact-line detector and an exact permutation test."""
+        a = self.args
+        freqs = [float(v) for v in str(a.sweep).split(",") if v.strip()]
+        self.spectate(type="stage", stage="sweep",
+                      detail=",".join(f"{f:g}" for f in freqs))
+        self.blocks, self.block_hz = [], []
+        self.open_log("sweep_log.csv")
+        colors = ["#ffffff", "#000000"] if a.calib_style == "bw" \
+            else ["#ffff00", "#0000ff"]
+        await self.send(cmd="start_sweep", freqs=freqs, repeats=a.calib_blocks,
+                        onS=a.calib_on, offS=a.calib_off, colors=colors,
+                        size=a.calib_size)
+        total = a.calib_blocks * len(freqs) * (a.calib_on + a.calib_off)
+        await self.wait_for("sweep_done", timeout=total + 120)
+        self.close_log()
+        await asyncio.sleep(0.7)
+        g0 = self.delivery_check("sweep_log.csv", total)
+        result["g0"] = g0
+        if not g0["ok"]:
+            msg = "STIMULUS NOT DELIVERED: " + g0["reason"]
+            print(msg)
+            await self.send(cmd="msg", text=msg)
+            result.update(ok=False, error="G0 " + g0["reason"])
+            recorder.stop()
+            await asyncio.sleep(a.linger)
+            return 2
+        res = score_sweep(self.session, self.blocks, self.block_hz)
+        res["blocks"] = [list(b) + [h] for b, h in zip(self.blocks, self.block_hz)]
+        json.dump(res, open(os.path.join(self.session, "sweep.json"), "w"),
+                  indent=1)
+        lines = [f"{r['freq']:g} Hz (delivered {r['delivered']:.2f}): best "
+                 f"{r['best']} stat {r['stat']:+.2f} p={r['p']:.4f} "
+                 f"(n_on {r['n_on']}, n_off {r['n_off']})"
+                 for r in res["results"].values()]
+        table = "   |   ".join(lines)
+        if res["passed"]:
+            verdict = (f"SSVEP at {res['best_freq']:g} Hz on "
+                       f"{res['best_channel']} (p={res['p_min']:.4f})")
+        else:
+            verdict = (f"no frequency passes (min p={res.get('p_min', float('nan')):.3f}"
+                       f" at {res.get('best_freq')} Hz)")
+        print("SWEEP " + verdict)
+        for line in lines:
+            print("  " + line)
+        result.update(ok=True, sweep=dict(passed=res["passed"],
+                                          best_freq=res["best_freq"],
+                                          p_min=res.get("p_min")))
+        await self.send(cmd="sweep_result", passed=res["passed"],
+                        verdict=verdict, table=table)
+        self.spectate(type="log", msg="sweep " + verdict)
+        recorder.stop()
+        print(f"SWEEP SESSION DONE passed={res['passed']} -> {self.session}")
+        await asyncio.sleep(a.linger)
+        return 0
+
+    async def run_alpha(self, result, recorder):
+        """Electrode check: eyes-open / eyes-closed blocks. Occipital alpha
+        (8-12 Hz) rises several-fold with eyes closed at Oz; a channel that
+        shows no rise is not on occipital scalp (or not coupled). Stimulus-
+        free, so it validates the aux electrode independently of SSVEP."""
+        a = self.args
+        self.spectate(type="stage", stage="alpha", detail="")
+        self.blocks = []
+        await self.send(cmd="start_alpha", blocks=a.calib_blocks,
+                        openS=a.calib_on, closedS=a.calib_off)
+        await self.wait_for("alpha_done",
+                            timeout=a.calib_blocks * (a.calib_on + a.calib_off + 3) + 60)
+        await asyncio.sleep(0.7)
+        res = score_alpha(self.session, self.blocks)
+        res["blocks"] = [list(b) for b in self.blocks]  # (kind, t0, t1) on the EEG clock
+        json.dump(res, open(os.path.join(self.session, "alpha.json"), "w"),
+                  indent=1)
+        table = "   ".join(
+            f"{n} {v['iaf_hz']:.1f}Hz x{v['peak_ratio']:.1f}"
+            for n, v in res["channels"].items())
+        verdict = res["verdict"]
+        print(f"ALPHA CHECK {verdict}: {table}")
+        result.update(ok=True, alpha=res)
+        await self.send(cmd="alpha_result", verdict=verdict, table=table,
+                        good=res["aux_ok"])
+        self.spectate(type="log", msg="alpha " + table)
+        recorder.stop()
+        await asyncio.sleep(a.linger)
+        return 0
 
     async def run_assr(self, result):
         """'Ear as a microphone' v1: 40 Hz amplitude-modulated tone in ON/OFF
@@ -487,6 +1186,34 @@ class Driver:
         await asyncio.sleep(a.linger)
         return 0
 
+    def delivery_check(self, log_name, duration_s):
+        """Rows per second and flicker edges in a stimulus log."""
+        path = os.path.join(self.session, log_name)
+        rows, edges, last = 0, 0, 0
+        try:
+            with open(path) as f:
+                next(f)
+                for line in f:
+                    parts = line.rstrip("\n").split(",")
+                    if len(parts) < 5:
+                        continue
+                    rows += 1
+                    fl = int(parts[4])
+                    if fl == 1 and last == 0:
+                        edges += 1
+                    last = fl
+        except OSError:
+            pass
+        fps = rows / max(duration_s, 1e-9)
+        if fps < 20:
+            reason = f"page ran at {fps:.1f} fps (hidden/background tab?)"
+        elif edges < 10:
+            reason = f"only {edges} flicker edges logged"
+        else:
+            reason = ""
+        return dict(ok=not reason, rows=rows, fps=round(fps, 1),
+                    edges=edges, reason=reason)
+
     def measured_flicker(self):
         """Median rising-edge period from the page's own clock (jitter-free)."""
         edges = []
@@ -516,6 +1243,16 @@ def reconstruct_norm(grid):
     g = np.asarray(grid)
     lo, hi = np.percentile(g, 2), np.percentile(g, 98)
     return np.clip((g - lo) / max(hi - lo, 1e-12), 0, 1)
+
+
+def rgb_to_data_url(rgb, scale=24):
+    """(h, w, 3) floats in [0,1] -> PNG data URL, nearest-neighbour upscaled."""
+    arr = (np.clip(np.asarray(rgb, float), 0, 1) * 255).astype(np.uint8)
+    img = Image.fromarray(arr, mode="RGB")
+    img = img.resize((img.width * scale, img.height * scale), Image.NEAREST)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
 def grid_to_data_url(norm, scale=24):
@@ -561,10 +1298,43 @@ async def main():
     ap.add_argument("--spc", type=float, default=4.0)
     ap.add_argument("--calib-blocks", type=int, default=config.CALIB_BLOCKS)
     ap.add_argument("--target", default="text:NO")
-    ap.add_argument("--mode", choices=["visual", "assr", "calib"],
+    ap.add_argument("--sweep", default="7.5,10,12,15,20",
+                    help="--mode sweep: flicker frequencies to test (Hz)")
+    ap.add_argument("--page-token", default="",
+                    help="only pages opened with ?k=<token> may drive the "
+                         "session (stale tabs on other devices are ignored)")
+    ap.add_argument("--recon-method", choices=["welch", "line"], default="line",
+                    help="per-cell score: welch = 1 Hz-bin relative power "
+                         "(paper), line = exact-frequency line SNR")
+    ap.add_argument("--color-freqs", default="7.2,9,12",
+                    help="--mode full: R,G,B tag frequencies (frame-exact at "
+                         "72 fps: 7.2/9/12; at 240 fps: 8/10/12)")
+    ap.add_argument("--color-reps", type=int, default=3)
+    ap.add_argument("--color-on", type=float, default=6.0,
+                    help="colour calibration ON = OFF seconds per block")
+    ap.add_argument("--color-grid-w", type=int, default=6)
+    ap.add_argument("--color-grid-h", type=int, default=4)
+    ap.add_argument("--color-spc", type=float, default=5.0)
+    ap.add_argument("--color-target", default="flag",
+                    help="flag | quad | ring | text:X | image path")
+    ap.add_argument("--patch", type=float, default=1.0,
+                    help="mux scan: flicker patch size in units of a 6x4-grid "
+                         "cell, independent of the grid (0 = the grid cell)")
+    ap.add_argument("--music-blocks", type=int, default=6)
+    ap.add_argument("--music-on", type=float, default=10.0)
+    ap.add_argument("--music-off", type=float, default=10.0)
+    ap.add_argument("--mode", choices=["visual", "assr", "calib", "alpha",
+                                       "sweep", "full", "extras", "mux",
+                                       "music"],
                     default="visual",
                     help="calib = G1 only (calibration, no scan); "
                          "assr = 'ear as a microphone' 40 Hz tone blocks")
+    ap.add_argument("--calib-style", choices=["yb", "bw"], default="yb",
+                    help="flicker colours: yb = yellow/blue (chromatic+luminance), "
+                         "bw = white/black (max luminance contrast)")
+    ap.add_argument("--calib-size", type=float, default=0.38,
+                    help="flicker square as a fraction of the short screen side; "
+                         ">= 1 = full field")
     ap.add_argument("--calib-on", type=float, default=config.CALIB_ON_S)
     ap.add_argument("--calib-off", type=float, default=config.CALIB_OFF_S)
     ap.add_argument("--freq", type=float, default=config.STIM_FREQ_HZ)
@@ -583,46 +1353,59 @@ async def main():
     driver = Driver(args)
 
     async def ws_handler(ws):
-        if not getattr(ws, "request", None) or \
-                ws.request.path.startswith("/ws"):
-            # One subject page at a time. A second tab (or a spectator who
-            # opened the stimulus URL) must never take over a running stage:
-            # Quest Browser pauses background tabs, which stalls the flicker.
-            if driver.page is not None:
-                print("extra stimulus page connected — ignored "
-                      "(close duplicate tabs)")
-                try:
-                    await ws.send(json.dumps(dict(
-                        cmd="msg", text="another tab is running the session "
-                        "— close this one")))
-                    async for _ in ws:
-                        pass
-                finally:
-                    return
-            driver.page = ws
-            print("stimulus page connected")
+        if not getattr(ws, "request", None) or                 ws.request.path.startswith("/ws"):
+            driver.pages.append(ws)
+            driver.vis[ws] = None
+            print(f"stimulus page connected (#{len(driver.pages)})")
             try:
-                # a reconnecting page resumes the current stage from its start
-                last = getattr(driver, "last_cmd", None)
-                if last is not None:
-                    if last.get("cmd") in ("start_calib", "start_assr"):
-                        driver.blocks = []  # stage restarts on the new page
-                    await ws.send(json.dumps(last))
                 async for raw in ws:
                     try:
-                        driver.handle(json.loads(raw))
-                    except (ValueError, KeyError):
-                        pass
+                        m = json.loads(raw)
+                    except ValueError:
+                        continue
+                    typ = m.get("type")
+                    if typ == "hello":
+                        tok = getattr(args, "page_token", "") or ""
+                        if tok and tok not in str(m.get("q", "")):
+                            print("page without the session token ignored "
+                                  f"(open the URL with ?k={tok})")
+                            driver.vis[ws] = "hidden"   # never adopted
+                            try:
+                                await ws.send(json.dumps(dict(
+                                    cmd="msg", text=f"stale tab: open ?k={tok}")))
+                            except Exception:
+                                pass
+                            continue
+                        driver.vis[ws] = m.get("vis", "visible")
+                        await driver.consider(ws)
+                    elif typ == "visibility":
+                        driver.vis[ws] = m.get("state")
+                        await driver.consider(ws)
+                    if driver.page is ws:
+                        try:
+                            driver.handle(m)
+                        except (ValueError, KeyError):
+                            pass
+            except websockets.ConnectionClosed:
+                pass  # tab closed / headset slept: normal, not an error
             finally:
+                if ws in driver.pages:
+                    driver.pages.remove(ws)
+                driver.vis.pop(ws, None)
                 if driver.page is ws:
                     driver.page = None
                     print("stimulus page disconnected")
+                    for other in reversed(driver.pages):
+                        if driver.vis.get(other) == "visible":
+                            await driver.adopt(other)
+                            break
 
     async with websockets.serve(ws_handler, "0.0.0.0", args.http_port,
                                 process_request=http_page,
                                 max_size=2 ** 22):
         print(f"stimulus page:  http://{local_ip()}:{args.http_port}/  "
-              f"(?auto=1 for unattended)")
+              f"(?auto=1 for unattended)"
+              + (f"  token: ?k={args.page_token}" if args.page_token else ""))
         print(f"EEG OSC in:     {local_ip()}:{args.osc_port}  "
               "(Mind Monitor / MuseLog / phantom)")
         code = await driver.run()

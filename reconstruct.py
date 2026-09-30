@@ -26,7 +26,7 @@ import os
 
 import numpy as np
 from PIL import Image
-from scipy.signal import welch
+from scipy.signal import welch, periodogram
 from scipy.ndimage import convolve1d
 
 import config
@@ -40,7 +40,7 @@ def read_csv(path):
     return header, rows
 
 
-def load_session(session_dir, channels=""):
+def load_session(session_dir, channels="", cursor_log="cursor_log.csv"):
     header, rows = read_csv(os.path.join(session_dir, "eeg.csv"))
     eeg_t = np.array([float(r[0]) for r in rows])
     names = header[1:]
@@ -53,7 +53,7 @@ def load_session(session_dir, channels=""):
         data = data[:, idx]
         names = [names[i] for i in idx]
 
-    _, crows = read_csv(os.path.join(session_dir, "cursor_log.csv"))
+    _, crows = read_csv(os.path.join(session_dir, cursor_log))
     cur_t = np.array([float(r[0]) for r in crows])
     gx = np.array([int(r[1]) for r in crows])
     gy = np.array([int(r[2]) for r in crows])
@@ -110,6 +110,23 @@ def ssvep_score(segment, fs, stim_freq=None):
     return sig_p / denom
 
 
+def line_snr(seg, fs, f0, half=0.15, flank=(0.5, 2.0)):
+    """Exact-frequency line detector: mean periodogram power within +-half Hz
+    of f0 (at least one bin) over the mean power 0.5-2 Hz either side.
+    One Hann periodogram over the whole segment, so a 4 s cell gives 0.25 Hz
+    bins: ~8x less noise per bin than the 1 Hz Welch bins of ssvep_score."""
+    seg = np.asarray(seg, dtype=float)
+    if len(seg) < fs * 1.5:
+        return np.nan
+    seg = seg - seg.mean()
+    f, p = periodogram(seg, fs=fs, window="hann", detrend="constant")
+    df = f[1] - f[0]
+    h = max(half, df)
+    pk = p[np.abs(f - f0) <= h].mean()
+    fk = p[(np.abs(f - f0) >= flank[0]) & (np.abs(f - f0) <= flank[1])].mean()
+    return pk / max(fk, 1e-12)
+
+
 def robust_sigma(x):
     return 1.4826 * np.median(np.abs(x - np.median(x))) + 1e-12
 
@@ -120,7 +137,7 @@ def hf_sigma(x):
     return robust_sigma(np.diff(x)) / np.sqrt(2)
 
 
-def cell_score(seg, fs, sigma_floor, stim_freq=None):
+def cell_score(seg, fs, sigma_floor, stim_freq=None, method="welch"):
     """Artifact-aware SSVEP score for one channel's segment.
 
     Deviations are referenced to the segment's own median and scaled by the
@@ -139,11 +156,14 @@ def cell_score(seg, fs, sigma_floor, stim_freq=None):
         return np.nan  # blink/motion-dominated: drop this cell-channel
     clipped = baseline + np.clip(dev, -config.ARTIFACT_Z * sigma,
                                  config.ARTIFACT_Z * sigma)
+    if method == "line":
+        f0 = config.STIM_FREQ_HZ if stim_freq is None else stim_freq
+        return line_snr(clipped, fs, f0)
     return ssvep_score(clipped, fs, stim_freq)
 
 
 def reconstruct(eeg_t, data, cur_t, gx, gy, fs=None, weights=None,
-                stim_freq=None):
+                stim_freq=None, method="welch"):
     """data: (n_samples, n_channels). weights: per-channel array or None."""
     if data.ndim == 1:
         data = data[:, None]
@@ -182,7 +202,8 @@ def reconstruct(eeg_t, data, cur_t, gx, gy, fs=None, weights=None,
         for c in range(n_ch):
             if weights[c] <= 0:
                 continue
-            sc = cell_score(data[i0:i1, c], fs, ch_sigma[c], stim_freq)
+            sc = cell_score(data[i0:i1, c], fs, ch_sigma[c], stim_freq,
+                            method)
             if not np.isnan(sc):
                 num += weights[c] * sc
                 den += weights[c]
@@ -223,19 +244,28 @@ def weights_from_calibration(calib_path, names):
     return w
 
 
-def run(session_dir, channels="", calibration="", out="", stim_freq=None):
+def run(session_dir, channels="", calibration="", out="", stim_freq=None,
+        method="welch", shift_s=0.0, cursor_log="cursor_log.csv",
+        weights=None, save=True):
+    """shift_s != 0: circularly shift the EEG by that many seconds relative
+    to the cursor log = a negative control (same data, wrong alignment)."""
     out = out or os.path.join(session_dir, "reconstruction.png")
-    eeg_t, data, names, cur_t, gx, gy = load_session(session_dir, channels)
-    weights = None
-    if calibration:
+    eeg_t, data, names, cur_t, gx, gy = load_session(session_dir, channels,
+                                                     cursor_log)
+    if weights is None and calibration:
         weights = weights_from_calibration(calibration, names)
-        print("channel weights:",
-              {n: round(float(w), 3) for n, w in zip(names, weights)})
-    grid = reconstruct(eeg_t, data, cur_t, gx, gy, weights=weights,
-                       stim_freq=stim_freq)
-    np.save(os.path.join(session_dir, "reconstruction_grid.npy"), grid)
-    save_image(grid, out)
-    print(f"reconstruction -> {out}")
+        if not shift_s:
+            print("channel weights:",
+                  {n: round(float(w), 3) for n, w in zip(names, weights)})
+    fs = infer_fs(eeg_t)
+    if shift_s:
+        data = np.roll(data, int(round(shift_s * fs)), axis=0)
+    grid = reconstruct(eeg_t, data, cur_t, gx, gy, fs=fs, weights=weights,
+                       stim_freq=stim_freq, method=method)
+    if save:
+        np.save(os.path.join(session_dir, "reconstruction_grid.npy"), grid)
+        save_image(grid, out)
+        print(f"reconstruction -> {out}")
 
     r = None
     tpath = os.path.join(session_dir, "target.npy")
@@ -243,8 +273,164 @@ def run(session_dir, channels="", calibration="", out="", stim_freq=None):
         target = np.load(tpath)
         if target.shape == grid.shape:
             r = float(np.corrcoef(target.ravel(), grid.ravel())[0, 1])
-            print(f"correlation with ground-truth target: r = {r:.3f}")
+            if save:
+                print(f"correlation with ground-truth target: r = {r:.3f}")
     return grid, r
+
+
+def null_r(session_dir, n_shifts=12, **kw):
+    """r of the same reconstruction with the EEG circularly shifted by
+    n_shifts different offsets (31 s .. ): the chance level for this session."""
+    eeg_t = np.array([float(r[0]) for r in read_csv(
+        os.path.join(session_dir, "eeg.csv"))[1]])
+    span = eeg_t[-1] - eeg_t[0]
+    rs = []
+    for k in range(n_shifts):
+        s = 31.0 + k * max(7.0, (span - 62.0) / max(n_shifts, 1))
+        if s > span - 10:
+            break
+        _, r = run(session_dir, shift_s=s, save=False, **kw)
+        if r is not None:
+            rs.append(r)
+    return rs
+
+
+def reconstruct_mux(session_dir, freqs, weights=None, cursor_log="mux_log.csv",
+                    out="", target=None, channels="", stride=None):
+    """Multiplexed grey scan: each dwell shows n = len(freqs) neighbouring
+    cells (gx..gx+n-1 of row gy), cell k tagged at freqs[k]. The line SNR at
+    tag k (channel-weighted) is cell k's value; each tag's values are divided
+    by their median over the scan so no tag's gain dominates."""
+    out = out or os.path.join(session_dir, "reconstruction_mux.png")
+    eeg_t, data, names, cur_t, gx, gy = load_session(session_dir, channels,
+                                                     cursor_log)
+    fs = infer_fs(eeg_t)
+    n_ch = data.shape[1]
+    w = np.ones(n_ch) if weights is None else np.asarray(weights, float)
+    ch_sigma = [hf_sigma(data[:, c]) for c in range(n_ch)]
+    n = len(freqs)
+    if stride is None:  # legacy adjacent layout
+        stride = 1
+    gw, gh = (gx.max() + 1 + (n - 1) * stride) if stride > 1 else gx.max() + n, gy.max() + 1
+    if target is not None:
+        gh, gw = np.asarray(target).shape
+    vals = {k: [] for k in range(n)}
+    cells = []
+    change = np.flatnonzero((np.diff(gx) != 0) | (np.diff(gy) != 0))
+    starts = np.concatenate(([0], change + 1))
+    ends = np.concatenate((change + 1, [len(gx)]))
+    nperseg = int(round(fs))
+    for s, e in zip(starts, ends):
+        t0, t1 = cur_t[s], cur_t[e - 1]
+        i0, i1 = np.searchsorted(eeg_t, t0), np.searchsorted(eeg_t, t1)
+        need = nperseg - (i1 - i0)
+        if need > 0:
+            i0 = max(0, i0 - need // 2)
+            i1 = min(len(data), i0 + nperseg)
+        row = []
+        for k, f0 in enumerate(freqs):
+            num = den = 0.0
+            for c in range(n_ch):
+                if w[c] <= 0:
+                    continue
+                sc = cell_score(data[i0:i1, c], fs, ch_sigma[c], f0, "line")
+                if not np.isnan(sc):
+                    num += w[c] * sc
+                    den += w[c]
+            row.append(num / den if den > 0 else np.nan)
+        cells.append((gy[s], gx[s], row))
+    grid = np.full((gh, gw), np.nan)
+    med = [np.nanmedian([c[2][k] for c in cells]) or 1.0 for k in range(n)]
+    for y, x, row in cells:
+        for k in range(n):
+            xx = x + k * stride
+            if xx < gw and np.isfinite(row[k]):
+                grid[y, xx] = row[k] / max(med[k], 1e-9)
+    if np.isnan(grid).all():
+        raise ValueError("no cell produced a score")
+    grid = np.where(np.isnan(grid), np.nanmedian(grid), grid)
+    kern = np.array(config.VERTICAL_KERNEL)
+    grid = convolve1d(grid, kern / kern.sum(), axis=0, mode="nearest")
+    np.save(os.path.join(session_dir, "reconstruction_mux_grid.npy"), grid)
+    save_image(grid, out)
+    rr = None
+    if target is not None and np.asarray(target).shape == grid.shape:
+        rr = float(np.corrcoef(np.asarray(target).ravel(), grid.ravel())[0, 1])
+    return grid, rr
+
+
+def reconstruct_color(session_dir, freqs, weights=None, gains=None,
+                      cursor_log="color_log.csv", out="", target=None,
+                      channels=""):
+    """Frequency-tagged RGB: each cell flickers its R, G, B components at
+    freqs[0..2]; the line SNR at each frequency (channel-weighted, divided by
+    the per-frequency gain from the colour calibration) is that colour plane."""
+    out = out or os.path.join(session_dir, "reconstruction_color.png")
+    eeg_t, data, names, cur_t, gx, gy = load_session(session_dir, channels,
+                                                     cursor_log)
+    fs = infer_fs(eeg_t)
+    n_ch = data.shape[1]
+    w = np.ones(n_ch) if weights is None else np.asarray(weights, float)
+    gains = np.ones(3) if gains is None else np.asarray(gains, float)
+    ch_sigma = [hf_sigma(data[:, c]) for c in range(n_ch)]
+    gw, gh = gx.max() + 1, gy.max() + 1
+    acc = np.zeros((gh, gw, 3))
+    cnt = np.zeros((gh, gw))
+    change = np.flatnonzero((np.diff(gx) != 0) | (np.diff(gy) != 0))
+    starts = np.concatenate(([0], change + 1))
+    ends = np.concatenate((change + 1, [len(gx)]))
+    nperseg = int(round(fs))
+    for s, e in zip(starts, ends):
+        t0, t1 = cur_t[s], cur_t[e - 1]
+        i0, i1 = np.searchsorted(eeg_t, t0), np.searchsorted(eeg_t, t1)
+        need = nperseg - (i1 - i0)
+        if need > 0:
+            i0 = max(0, i0 - need // 2)
+            i1 = min(len(data), i0 + nperseg)
+        for k, f0 in enumerate(freqs):
+            num = den = 0.0
+            for c in range(n_ch):
+                if w[c] <= 0:
+                    continue
+                sc = cell_score(data[i0:i1, c], fs, ch_sigma[c], f0, "line")
+                if not np.isnan(sc):
+                    num += w[c] * sc
+                    den += w[c]
+            if den > 0:
+                acc[gy[s], gx[s], k] += num / den / max(gains[k], 1e-6)
+        cnt[gy[s], gx[s]] += 1
+    with np.errstate(invalid="ignore"):
+        grid = acc / np.maximum(cnt, 1)[:, :, None]
+    grid[cnt == 0] = np.nan
+    for k in range(3):
+        plane = grid[:, :, k]
+        if np.isnan(plane).any():
+            plane[np.isnan(plane)] = np.nanmedian(plane)
+        kern = np.array(config.VERTICAL_KERNEL)
+        grid[:, :, k] = convolve1d(plane, kern / kern.sum(), axis=0,
+                                   mode="nearest")
+    np.save(os.path.join(session_dir, "reconstruction_color_grid.npy"), grid)
+    rgb = np.zeros_like(grid)
+    for k in range(3):
+        lo, hi = np.percentile(grid[:, :, k], 2), np.percentile(grid[:, :, k], 98)
+        rgb[:, :, k] = np.clip((grid[:, :, k] - lo) / max(hi - lo, 1e-12), 0, 1)
+    img = Image.fromarray((rgb * 255).astype(np.uint8), mode="RGB")
+    img.resize((gw * config.UPSCALE, gh * config.UPSCALE),
+               Image.BICUBIC).save(out)
+    res = dict(out=out, r_planes=None, r_all=None)
+    if target is not None and np.asarray(target).shape == grid.shape:
+        t = np.asarray(target, float)
+        res["r_planes"] = [float(np.corrcoef(t[:, :, k].ravel(),
+                                             grid[:, :, k].ravel())[0, 1])
+                           if t[:, :, k].std() > 0 else float("nan")
+                           for k in range(3)]
+        res["r_all"] = float(np.corrcoef(t.ravel(), grid.ravel())[0, 1])
+        # colour identity per cell: does the dominant plane match the target's?
+        dom_t = np.argmax(t, axis=2)
+        dom_g = np.argmax(rgb, axis=2)
+        m = t.max(axis=2) > 0.5
+        res["hue_accuracy"] = float((dom_t[m] == dom_g[m]).mean()) if m.any() else float("nan")
+    return grid, rgb, res
 
 
 def main():

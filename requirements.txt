@@ -1,5 +1,7 @@
 numpy
 scipy
+Pillow
+websockets>=13
+matplotlib
 pygame
 pylsl
-Pillow

@@ -45,8 +45,51 @@ def image_target(path, grid_w=None, grid_h=None):
     return np.asarray(img, dtype=float) / 255.0
 
 
-def load_target(spec, grid_w=None, grid_h=None):
-    """spec: 'text:NO CAMERAS' or a path to an image file."""
+def color_target(spec, grid_w=None, grid_h=None):
+    """RGB target (grid_h, grid_w, 3) in [0,1].
+    'flag'  = three vertical bands R | G | B
+    'quad'  = quadrants R, G, B, white
+    'text:X'= glyph X in yellow (R+G) on black  (tests two-plane cells)
+    'ring'  = red disc, green ring, blue corners
+    or an image path (RGB)."""
+    grid_w = grid_w or config.GRID_W
+    grid_h = grid_h or config.GRID_H
+    g = np.zeros((grid_h, grid_w, 3))
+    if spec == "flag":
+        w3 = grid_w / 3.0
+        for xg in range(grid_w):
+            g[:, xg, min(2, int(xg / w3))] = 1.0
+    elif spec == "quad":
+        h2, w2 = grid_h // 2, grid_w // 2
+        g[:h2, :w2, 0] = 1.0
+        g[:h2, w2:, 1] = 1.0
+        g[h2:, :w2, 2] = 1.0
+        g[h2:, w2:, :] = 1.0
+    elif spec.startswith("text:"):
+        gl = text_target(spec[5:], grid_w, grid_h)
+        g[:, :, 0] = gl
+        g[:, :, 1] = gl
+    elif spec == "ring":
+        yy, xx = np.mgrid[0:grid_h, 0:grid_w]
+        cy, cx = (grid_h - 1) / 2, (grid_w - 1) / 2
+        rr = np.sqrt(((yy - cy) / grid_h) ** 2 + ((xx - cx) / grid_w) ** 2)
+        g[rr < 0.18, 0] = 1.0
+        g[(rr >= 0.18) & (rr < 0.36), 1] = 1.0
+        g[rr >= 0.36, 2] = 1.0
+    else:
+        img = Image.open(spec).convert("RGB").resize((grid_w, grid_h),
+                                                     Image.LANCZOS)
+        g = np.asarray(img, dtype=float) / 255.0
+    return g
+
+
+def load_target(spec, grid_w=None, grid_h=None, binarize=None):
+    """spec: 'text:NO CAMERAS' or a path to an image file.
+    binarize: threshold at 0.5 so every cell is fully on or off (default: yes
+    for text targets, whose grey edge cells are just anti-aliasing and would
+    flicker at reduced contrast; no for images)."""
     if spec.startswith("text:"):
-        return text_target(spec[5:], grid_w, grid_h)
-    return image_target(spec, grid_w, grid_h)
+        g = text_target(spec[5:], grid_w, grid_h)
+        return (g > 0.5).astype(float) if (binarize is None or binarize) else g
+    g = image_target(spec, grid_w, grid_h)
+    return (g > 0.5).astype(float) if binarize else g
