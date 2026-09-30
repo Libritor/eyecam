@@ -1,6 +1,6 @@
 # EyeCam / EarMic forward plan — 2026-09-12
 
-Scope: eye-as-camera (EyeCamXR, Quest 3S + Muse) and the ear-as-microphone extension. Every number below comes from the five decoder reports, the audit, and the four research reports; claims marked `survives=false` in adversarial verification are replaced by their corrected forms.
+Scope: eye-as-camera (EyeCamXR, Quest 3S + Muse) and the ear-as-microphone extension. Every number below comes from the decoder analyses and audits in `analysis/` and from the literature review; claims that did not survive re-checking are replaced by their corrected forms.
 
 ---
 

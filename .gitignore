@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 *.bak_full
 *.err
+analysis/campaign_results.json
+analysis/*_run.log
