@@ -546,7 +546,7 @@ class Driver:
         merge_task = None
         ports = [int(p) for p in str(a.osc_port).split(",") if p.strip()]
         if len(ports) == 1:
-            recorder = Recorder("osc", self.session, ports[0])
+            recorder = Recorder(a.source, self.session, ports[0], muse=a.muse)
         else:
             recorder = MultiRecorder(self.session, ports)
         recorder.start()
@@ -1339,6 +1339,12 @@ async def main():
     ap.add_argument("--osc-port", default="5000",
                     help="UDP port, or comma list for several headbands "
                          "(e.g. 5000,5001 -> merged 8-channel eeg.csv)")
+    ap.add_argument("--source", choices=["osc", "ble"], default="osc",
+                    help="osc = EEG from a phone app or the phantom over UDP; "
+                         "ble = the Muse straight over this computer's "
+                         "Bluetooth (muse_ble.py), no phone app")
+    ap.add_argument("--muse", default="",
+                    help="--source ble: part of the headband's name or address")
     ap.add_argument("--preset", choices=list(config.PRESETS), default="")
     ap.add_argument("--grid-w", type=int, default=12)
     ap.add_argument("--grid-h", type=int, default=8)
@@ -1483,8 +1489,12 @@ async def main():
         print(f"stimulus page:  http://{local_ip()}:{args.http_port}/  "
               f"(?auto=1 for unattended)"
               + (f"  token: ?k={args.page_token}" if args.page_token else ""))
-        print(f"EEG OSC in:     {local_ip()}:{args.osc_port}  "
-              "(Mind Monitor / MuseLog / phantom)")
+        if args.source == "ble":
+            print("EEG in:         Muse over this computer's Bluetooth "
+                  "(no phone app)")
+        else:
+            print(f"EEG OSC in:     {local_ip()}:{args.osc_port}  "
+                  "(Mind Monitor / MuseLog / phantom)")
         code = await driver.run()
     sys.exit(code)
 

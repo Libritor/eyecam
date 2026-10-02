@@ -47,6 +47,47 @@ each colour flickering at its own frequency, and the colour image rebuilt from
 three spectral lines in the EEG; all 24 cells come back with the right
 dominant colour.*
 
+## Everything on one computer (this branch)
+
+This branch needs no phone app. The computer connects to the Muse itself over
+Bluetooth, shows the flicker in its own browser, plays any sound from its own
+audio output, records, scores and draws the image.
+
+```
+pip install -r requirements.txt
+python eyecam.py                 # read "NO" from the EEG (about 20 minutes)
+python eyecam.py --what full     # image, then colour, then tagged music
+python eyecam.py --what alpha    # is the Oz electrode on the scalp?
+python eyecam.py --what sweep    # which flicker frequency suits this person?
+python eyecam.py --what music    # the 40 Hz tagged music on its own
+python eyecam.py --demo          # no hardware: a synthetic subject
+```
+
+Turn the headband on, make sure it is **not** connected to MuseLog, Mind
+Monitor or any other phone app (a Muse talks to one device at a time), and
+run the command. The page opens by itself; click it once and it goes full
+screen. `--headset` shows the stimulus in a Quest browser instead,
+`--muse Muse-1E3D` picks one headband when several are in range, and
+`--phone` falls back to the old path with EEG from a phone app over Wi-Fi.
+`python muse_ble.py --scan` lists the headbands the computer can see.
+
+How it works: `muse_ble.py` speaks the headband's Bluetooth LE protocol
+directly (one characteristic per electrode, twelve 12-bit samples per packet,
+256 samples per second, preset `p20` so the auxiliary Oz input is on) and
+writes the same `eeg.csv` the phone path produced, on the same scale. Sample
+times are rebuilt from the packet counter, so they are smoother than the
+arrival times of Wi-Fi packets.
+
+Status: the packet decoder reproduces MuseLog's logged values exactly, the
+sample clock is tested against simulated bursts, drift, lost packets and
+stalls, and `--demo` runs the whole chain to an image (r = 0.95 on the
+synthetic subject). The live Bluetooth link has **not yet been run against a
+real headband**; the results below were recorded through MuseLog.
+
+A 60 Hz screen cannot show 12 Hz exactly; the page picks the nearest
+frame-exact rate (10 Hz) and the scoring follows it. A 120, 144 or 240 Hz
+screen gives 12 Hz.
+
 ## The idea, and the paper behind it
 
 A light that flickers at a steady rate makes visual cortex oscillate at the
@@ -98,8 +139,8 @@ to a living observer.
 |---|---|
 | Muse 2 / Muse S / Muse Athena | any model that streams raw EEG |
 | **Oz auxiliary electrode** | the Interaxon aux cup on micro-USB (Muse 2/S) or USB-C (Athena). This matters: without it we never detected a response. Place it two finger-widths above the bump at the back of the skull, on the midline, hair parted |
-| Phone with **Mind Monitor** (or the lab's MuseLog app) | streams `/muse/eeg` over OSC/UDP, with the aux channel enabled |
-| PC with Python 3.10+ | runs the driver and the analysis |
+| PC with Python 3.10+ and Bluetooth | connects to the Muse, runs the driver and the analysis |
+| Phone with Mind Monitor or MuseLog | optional (`--phone`): streams `/muse/eeg` over OSC/UDP, with the aux channel enabled |
 | Display | a laptop screen, or a Quest headset on the same Wi-Fi |
 
 ```
@@ -299,7 +340,9 @@ and the small result files for each session are in `docs/results`.
 | `xr_stimulus.html` | the stimulus page: frame-exact flicker, scans, colour and multiplexed scans, tagged music, arm gate |
 | `reconstruct.py` | per-position scoring (band power or line detector), grey, colour and multiplexed reconstruction, shifted nulls |
 | `run_session.py` | the original laptop orchestrator in pygame; also the permutation gate and legacy calibration score |
-| `osc_acquire.py` | records `/muse/eeg` on UDP to CSV, 4 to 8 channels |
+| `eyecam.py` | one command for the whole thing on one computer |
+| `muse_ble.py` | records the Muse straight over the computer's Bluetooth, aux channel included |
+| `osc_acquire.py` | records `/muse/eeg` on UDP to CSV, 4 to 8 channels (phone path) |
 | `phantom_subject.py` | synthetic subject for end-to-end tests, including colour tags and audio |
 | `targets.py` | text, pixel-font, image and colour targets |
 | `pc_audio.py` | the 40 Hz tagged music played on the PC's audio output |

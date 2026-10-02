@@ -5,3 +5,7 @@ websockets>=13
 matplotlib
 pygame
 pylsl
+bleak
+sounddevice
+python-osc
+scikit-learn
