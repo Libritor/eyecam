@@ -9,12 +9,44 @@ which grew out of the WearSys'19 abstract *"Eye itself as a camera: Sensors,
 integrity, and trust"* (doi 10.1145/3325424.3330210). It was built in Steve
 Mann's lab at the University of Toronto by Alexander Vicol.
 
+![The word NO shown to the eye and read back from the EEG](docs/figures/fig0_NO_from_eeg.png)
+
+**The word "NO", read back from brainwaves.** The subject looked at 45
+positions in turn while a square flickered at 12 Hz wherever the picture was
+white. The second panel is nothing but the relative strength of the 12 Hz
+response in the EEG at each position. It correlates with the picture at **r = 0.91**, and an
+automatic black/white threshold, which never sees the picture, gets **43 of
+45 positions right**. The same reconstruction from time-shifted EEG reaches at
+most r = 0.23.
+
+*Run of 2026-10-01: Quest 3S browser, Muse headband (model MU-02) with an auxiliary
+electrode at Oz, 8 s per position, three passes, 18 minutes of scanning. A second run
+the same day with a larger square and two passes gave r = 0.87 and again 43 of
+45. One subject, one day.*
+
+| after | pass 1 | passes 1-2 | passes 1-3 |
+|---|---|---|---|
+| correlation with the picture | 0.79 | 0.88 | 0.91 |
+| positions right after thresholding | 38 of 45 | 43 of 45 | 43 of 45 |
+
+What made the difference, after a month of images that were only weakly above
+chance, was getting four ordinary things right at once:
+
+1. **A picture that is a picture at scan resolution.** A word in a scalable
+   font, squeezed onto 48 positions, is a grey blob before any brain is
+   involved. The target is now a 4 by 5 pixel font, one position per pixel.
+2. **The paper's own scoring.** One spectrum over the whole dwell, power at
+   the flicker frequency plus its harmonic, divided by the 14 to 50 Hz power.
+3. **No vertical blend.** The paper's Eq. 1 is for overlapping scan lines; on
+   discrete positions it only smears rows together.
+4. **Repeat passes**, averaged per position.
+
 ![Colour flag and grey image reconstructed from EEG in VR](docs/figures/fig5_run2_images.png)
 
-*Run of 2026-09-29, Quest 3S browser, Muse 2 with an Oz auxiliary electrode.
-Bottom row: a red/green/blue flag shown with each colour flickering at its own
-frequency, and the colour image rebuilt from three spectral lines in the EEG;
-all 24 cells come back with the right dominant colour.*
+*Run of 2026-09-29, same setup. Bottom row: a red/green/blue flag shown with
+each colour flickering at its own frequency, and the colour image rebuilt from
+three spectral lines in the EEG; all 24 cells come back with the right
+dominant colour.*
 
 ## The idea, and the paper behind it
 
@@ -45,9 +77,13 @@ to a living observer.
   negative control for every result.
 - **A browser stimulus that runs anywhere**, including the Meta Quest browser,
   driven by a Python process on a PC. No app install on the headset.
+- **A legible grey image on consumer hardware**: the paper's whole-dwell
+  power ratio as the pixel value, a pixel-font target, repeat passes, and a
+  scan that pauses and redoes a position when the EEG stream drops.
 - **An exact-frequency line detector** with an exact permutation test, which is
   about eight times more sensitive than 1 Hz-bin band power and is what first
-  found the response on a Muse.
+  found the response on a Muse. It decides the calibration gate; the image
+  itself is scored with the paper's ratio.
 - **Subject calibration tools**: an electrode check (eyes-closed alpha), a
   frequency sweep that finds where this subject actually responds, and a
   delivery check that voids a run if the flicker was not really on screen.
@@ -172,7 +208,11 @@ and scoring uses that.
 
 ## How a result is decided
 
-- **Line detector.** For each block or scan position, one Hann periodogram over
+- **Pixel value (the paper's ratio).** For each scan position, one Hann
+  periodogram over the whole dwell; the pixel is the power at the flicker
+  frequency plus its first harmonic, divided by the power from 14 to 50 Hz
+  with the signal bins and the mains line left out.
+- **Line detector.** For each calibration block, one Hann periodogram over
   the whole window; the score is the power at the delivered flicker frequency
   divided by the power 0.5 to 2 Hz either side.
 - **Calibration gate.** Flicker-ON blocks against black OFF blocks, statistic is
@@ -216,8 +256,12 @@ and scoring uses that.
 The practical consequence: Mann's choice of 15 Hz is right for staying clear of
 alpha but is on the weak side of this subject's response curve, and a stock
 Muse without the Oz electrode showed no detectable response at all. Measure the
-subject first. Resolution has to come from more overlapping positions of a
-large square and longer dwell, as in the paper, not from shrinking the square.
+subject first. Shrinking the square does not buy resolution, and on the one
+day it was tried a larger square did not buy signal either; what moved the
+grey image from weakly above chance to legible was a target that survives the
+scan grid, the paper's scoring, no vertical blend, and repeat passes. Nearly
+all of the image comes from the Oz electrode: on its own it gives r = 0.92,
+the ear electrodes alone give 0.36.
 
 Raw EEG recordings are not in the repository. Figures are in `docs/figures`
 and the small result files for each session are in `docs/results`.
@@ -290,13 +334,15 @@ new subject use the browser path's sweep first.
 
 ## Where this is going
 
-- Large square on a fine, overlapping grid with 8 to 10 s per position, and two
-  passes averaged, to make the grey image legible.
+- Repeat the legible "NO" on another day and another subject, then scale it:
+  more letters, more positions, grey levels (`pixgrad:`), and a real
+  photograph.
 - The inverse geometry: the whole panel flickers through the image as a mask
   while the subject fixates position by position.
 - Chirp-coded flicker matched with the adaptive chirplet transform, the
   direction the paper itself points to.
-- Audio with a vertex electrode and earbuds.
+- Audio with a continuous 40 Hz modulated tone or click train; tagged music
+  through headphones with a vertex electrode gave nothing.
 - A note for the paper on security: every gate here is a public function of the
   stimulus log, and the phantom subject passes all of them. Anything a verifier
   can check from the stimulus alone, a forger who knows the stimulus can
