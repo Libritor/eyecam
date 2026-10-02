@@ -6,8 +6,7 @@ consumer EEG headband, on a laptop or inside a VR headset.
 This is a replication and extension of **Mann et al., "The Human Eye as a
 Camera," IEEE HealthCom 2019** ([wearcam.org/eyecam.pdf](http://wearcam.org/eyecam.pdf)),
 which grew out of the WearSys'19 abstract *"Eye itself as a camera: Sensors,
-integrity, and trust"* (doi 10.1145/3325424.3330210). It was built in Steve
-Mann's lab at the University of Toronto by Alexander Vicol.
+integrity, and trust"* (doi 10.1145/3325424.3330210). Work done by MannLab.
 
 ![The word NO shown to the eye and read back from the EEG](docs/figures/fig0_NO_from_eeg.png)
 
