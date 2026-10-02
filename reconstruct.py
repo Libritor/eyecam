@@ -127,6 +127,28 @@ def line_snr(seg, fs, f0, half=0.15, flank=(0.5, 2.0)):
     return pk / max(fk, 1e-12)
 
 
+def paper_score(seg, fs, f0):
+    """The paper's estimate, computed the way the paper computes it: ONE
+    spectrum over the whole dwell (Mann et al. 2019, Sec. III: "power
+    spectral density over a 1700-sample window ... the time it takes the
+    cursor to pass over a point"), power at f0 plus its first harmonic,
+    divided by the power over 14-50 Hz. Signal bins and the mains line are
+    left out of the denominator."""
+    seg = np.asarray(seg, dtype=float)
+    if len(seg) < fs * 0.9:
+        return np.nan
+    f, p = periodogram(seg - np.median(seg), fs=fs, window="hann")
+    h = max(0.3, f[1] - f[0])
+    sig = p[np.abs(f - f0) <= h].sum()
+    if 2 * f0 < fs / 2 - 1:
+        sig += p[np.abs(f - 2 * f0) <= h].sum()
+    lo, hi = config.NOISE_BAND
+    band = ((f >= lo) & (f <= min(hi, fs / 2 - 1)) & (np.abs(f - f0) > h)
+            & (np.abs(f - 2 * f0) > h) & (np.abs(f - 60.0) > 2.0))
+    den = p[band].sum()
+    return sig / den if den > 0 else np.nan
+
+
 def robust_sigma(x):
     return 1.4826 * np.median(np.abs(x - np.median(x))) + 1e-12
 
@@ -159,6 +181,9 @@ def cell_score(seg, fs, sigma_floor, stim_freq=None, method="welch"):
     if method == "line":
         f0 = config.STIM_FREQ_HZ if stim_freq is None else stim_freq
         return line_snr(clipped, fs, f0)
+    if method == "paper":
+        f0 = config.STIM_FREQ_HZ if stim_freq is None else stim_freq
+        return paper_score(clipped, fs, f0)
     return ssvep_score(clipped, fs, stim_freq)
 
 
@@ -192,6 +217,10 @@ def reconstruct(eeg_t, data, cur_t, gx, gy, fs=None, weights=None,
         t0, t1 = cur_t[s], cur_t[e - 1]
         i0 = np.searchsorted(eeg_t, t0)
         i1 = np.searchsorted(eeg_t, t1)
+        if gx[s] < 0 or gy[s] < 0:
+            continue  # pause marker, not a position
+        if t1 - t0 > 1.0 and (i1 - i0) < 0.6 * (t1 - t0) * fs:
+            continue  # the stream dropped during this visit (it is redone)
         # Pad the window so short dwells still give >= one PSD segment.
         need = nperseg - (i1 - i0)
         if need > 0:
@@ -323,6 +352,10 @@ def reconstruct_mux(session_dir, freqs, weights=None, cursor_log="mux_log.csv",
     for s, e in zip(starts, ends):
         t0, t1 = cur_t[s], cur_t[e - 1]
         i0, i1 = np.searchsorted(eeg_t, t0), np.searchsorted(eeg_t, t1)
+        if gx[s] < 0 or gy[s] < 0:
+            continue  # pause marker, not a position
+        if t1 - t0 > 1.0 and (i1 - i0) < 0.6 * (t1 - t0) * fs:
+            continue  # the stream dropped during this visit (it is redone)
         need = nperseg - (i1 - i0)
         if need > 0:
             i0 = max(0, i0 - need // 2)
@@ -383,6 +416,10 @@ def reconstruct_color(session_dir, freqs, weights=None, gains=None,
     for s, e in zip(starts, ends):
         t0, t1 = cur_t[s], cur_t[e - 1]
         i0, i1 = np.searchsorted(eeg_t, t0), np.searchsorted(eeg_t, t1)
+        if gx[s] < 0 or gy[s] < 0:
+            continue  # pause marker, not a position
+        if t1 - t0 > 1.0 and (i1 - i0) < 0.6 * (t1 - t0) * fs:
+            continue  # the stream dropped during this visit (it is redone)
         need = nperseg - (i1 - i0)
         if need > 0:
             i0 = max(0, i0 - need // 2)
@@ -443,8 +480,12 @@ def main():
     ap.add_argument("--calibration", default="",
                     help="calibration.json with per-channel weights")
     ap.add_argument("--out", default="")
+    ap.add_argument("--method", choices=["welch", "line", "paper"],
+                    default="welch")
+    ap.add_argument("--freq", type=float, default=None)
     args = ap.parse_args()
-    run(args.session, args.channels, args.calibration, args.out)
+    run(args.session, args.channels, args.calibration, args.out,
+        stim_freq=args.freq, method=args.method)
 
 
 if __name__ == "__main__":

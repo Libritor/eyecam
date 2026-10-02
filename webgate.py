@@ -33,7 +33,8 @@ def main():
              "--http-port", str(HTTP), "--osc-port", str(OSC),
              "--grid-w", "8", "--grid-h", "6", "--spc", "0.8",
              "--calib-blocks", "3", "--target", "text:NO",
-             "--spectator", "", "--signal-timeout", "120", "--linger", "2"],
+             "--spectator", "", "--signal-timeout", "120", "--linger", "2"]
+            + os.environ.get("WEBGATE_EXTRA", "").split(),
             cwd=ROOT)
         procs.append(driver)
         time.sleep(2)
@@ -41,6 +42,7 @@ def main():
         chrome_profile = os.path.join(SESSION, "chrome_profile")
         chrome = subprocess.Popen(
             [CHROME, "--headless=new", "--disable-gpu", "--mute-audio",
+             "--autoplay-policy=no-user-gesture-required",
              f"--user-data-dir={chrome_profile}",
              f"http://127.0.0.1:{HTTP}/?auto=1"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

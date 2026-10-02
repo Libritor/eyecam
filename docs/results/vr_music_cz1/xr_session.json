@@ -1,0 +1,9 @@
+{
+ "mode": "browser",
+ "gridW": 12,
+ "gridH": 8,
+ "secondsPerCell": 4.0,
+ "calibBlocks": 6,
+ "ok": true,
+ "music": "40 Hz tag: p=0.3183 best AUX (ON 1.00 / OFF 0.98)"
+}

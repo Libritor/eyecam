@@ -43,6 +43,24 @@ addEventListener("resize", fit); fit();
 
 function black() { ctx.fillStyle = "#000"; ctx.fillRect(0, 0, cv.width, cv.height); }
 
+// The driver pauses the scan when the EEG stream goes silent. The position
+// in progress is abandoned and done again from the start after the resume.
+let paused = false;
+async function holdWhilePaused() {
+  if (!paused) return false;
+  black();
+  send({ type: "frame", stage: "paused", pt: now(), gx: -1, gy: -1, lum: 0, fl: 0 });
+  const keep = sub.textContent;
+  while (paused) {
+    sub.textContent = "PAUSED - no EEG data from the Muse. Check MuseLog on the phone.";
+    await sleep(200);
+  }
+  sub.textContent = "resuming...";
+  await sleep(2000);
+  sub.textContent = keep;
+  return true;
+}
+
 function dot(x, y) {
   // fixation target: white core with a dark ring so it reads on the yellow,
   // blue and black phases alike — THIS is what the subject's eyes follow
@@ -161,11 +179,13 @@ async function runColorScan(m) {
   for (let gy = 0; gy < gh && running === tok; gy++) {
     const xs = [...Array(gw).keys()];
     if (gy % 2 === 1) xs.reverse();
-    for (const gx of xs) {
+    for (let xi = 0; xi < xs.length; xi++) {
+      const gx = xs[xi];
+      if (await holdWhilePaused()) { xi--; continue; }
       const [r, g, b] = target[gy][gx];
       const t0 = now();
       flickerT0 = (await frameTs()) / 1000;
-      while (now() - t0 < m.spc && running === tok) {
+      while (now() - t0 < m.spc && running === tok && !paused) {
         const ts = await frameTs(); frameCount++;
         const t = now();
         const sR = r > 0.05 && phaseOn(ts, plans[0].k);
@@ -180,6 +200,7 @@ async function runColorScan(m) {
         send({ type: "frame", stage: "color", pt: t, gx, gy, lum: r, fl: sR ? 1 : 0,
                flG: sG ? 1 : 0, flB: sB ? 1 : 0, r, g, b });
       }
+      if (paused) { xi--; continue; }
       if (running !== tok) break;
     }
     send({ type: "row", y: gy });
@@ -299,14 +320,22 @@ async function runScan(m) {
   await planFlicker(m.freq);
   const gw = m.gridW, gh = m.gridH, target = m.target;
   // board: centered, 84% of the smaller span, aspect from grid
-  const bw = Math.min(cv.width, cv.height * gw / gh) * 0.84;
+  const bw = Math.min(cv.width, cv.height * gw / gh) * (m.board || 0.84);
   const bh = bw * gh / gw;
   const x0 = (cv.width - bw) / 2, y0 = (cv.height - bh) / 2;
   const cwid = bw / gw, chgt = bh / gh;
-  for (let gy = 0; gy < gh && running === tok; gy++) {
+  // several passes over the board; odd passes run bottom-to-top so slow
+  // drift does not line up with the image the same way twice
+  const passes = Math.max(1, m.passes || 1);
+  for (let ps = 0; ps < passes && running === tok; ps++)
+  for (let ry = 0; ry < gh && running === tok; ry++) {
+    const gy = ps % 2 === 1 ? gh - 1 - ry : ry;
     const xs = [...Array(gw).keys()];
-    if (gy % 2 === 1) xs.reverse();
-    for (const gx of xs) {
+    if ((ry + ps) % 2 === 1) xs.reverse();
+    if (passes > 1) sub.textContent = `pass ${ps + 1}/${passes}`;
+    for (let xi = 0; xi < xs.length; xi++) {
+      const gx = xs[xi];
+      if (await holdWhilePaused()) { xi--; continue; }
       const lum = target[gy][gx];
       // fixed patch size (m.patch x a 6x4-grid cell) so a finer grid only
       // adds positions (overlapping), never shrinks the flickering area
@@ -314,13 +343,15 @@ async function runScan(m) {
       const bwc = m.bw ? ["#ffffff", "#000000"] : null;
       const t0 = now();
       flickerT0 = (await frameTs()) / 1000;
-      while (now() - t0 < m.spc && running === tok) {
+      while (now() - t0 < m.spc && running === tok && !paused) {
         await frameTs(); frameCount++;
         const t = now();
         const fl = lum > 0.05 && flickerOn();
         black();
         if (lum > 0.05) {
-          const shade = Math.round(255 * (0.3 + 0.7 * lum));
+          // white/black: the flicker amplitude IS the grey level (a half-
+          // grey position flickers at half the drive of a white one)
+          const shade = Math.round(255 * (bwc ? lum : 0.3 + 0.7 * lum));
           ctx.fillStyle = bwc ? (fl ? `rgb(${shade},${shade},${shade})` : "#000000")
                               : (fl ? `rgb(${shade},${shade},0)` : `rgb(0,0,${shade})`);
           const cx = x0 + (gx + 0.5) * cwid, cy = y0 + (gy + 0.5) * chgt;
@@ -330,6 +361,7 @@ async function runScan(m) {
         send({ type: "frame", stage: "scan", pt: t, gx, gy,
                lum, fl: fl ? 1 : 0 });
       }
+      if (paused) { xi--; continue; }
       if (running !== tok) break;
     }
     send({ type: "row", y: gy });
@@ -556,7 +588,8 @@ async function runMusic(m) {
   const mod = audioCtx.createOscillator(); mod.frequency.value = m.modFreq;
   const modDepth = audioCtx.createGain(); modDepth.gain.value = 0.5;
   const modGate = audioCtx.createGain(); modGate.gain.value = 0;  // 1 = tagged
-  const master = audioCtx.createGain(); master.gain.value = 0.8;
+  // m.mute: the driver plays the same music on the PC's headphones
+  const master = audioCtx.createGain(); master.gain.value = m.mute ? 0 : 0.8;
   mod.connect(modDepth); modDepth.connect(modGate); modGate.connect(am.gain);
   am.connect(master); master.connect(audioCtx.destination);
   mod.start();
@@ -621,6 +654,8 @@ function connect() {
       case "assr_result": showAssrResult(m); break;
       case "result": showResult(m); break;
       case "msg": sub.textContent = m.text; break;
+      case "pause": paused = true; break;
+      case "resume": paused = false; break;
     }
   };
 }

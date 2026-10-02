@@ -419,6 +419,8 @@ class Driver:
         """Fast path for page messages (called from the WS receive loop)."""
         t = local_clock()
         typ = m.get("type")
+        if typ == "assr_done" and getattr(self, "pc_audio", None):
+            self.pc_audio.stop()
         if typ == "frame":
             if self.log_file:
                 self.log_file.write(
@@ -431,6 +433,9 @@ class Driver:
                 self.spectate(type="cursor", gx=m["gx"], gy=m["gy"],
                               lum=m["lum"], fl=m["fl"])
         elif typ == "block":
+            pc = getattr(self, "pc_audio", None)
+            if pc and m["phase"] == "start" and abs(float(m.get("hz") or 0) - 40.0) < 0.01:
+                pc.block(m["on"])      # music on this PC's headphones
             if m["phase"] == "start":
                 self._block_t0 = t
             else:
@@ -509,11 +514,27 @@ class Driver:
             except Exception:
                 pass
 
+    paused = False
+    scan_active = False
+
     async def wait_for(self, typ, timeout=600):
+        self.scan_active = (typ == "scan_done")
+        self.eeg_lost = False
         while True:
-            m = await asyncio.wait_for(self.queue.get(), timeout)
+            try:
+                m = await asyncio.wait_for(self.queue.get(),
+                                           5.0 if self.paused else timeout)
+            except asyncio.TimeoutError:
+                if self.paused:
+                    continue  # a paused scan may wait as long as it takes
+                raise
             if m.get("type") == typ:
+                self.scan_active = False
                 return m
+            if getattr(self, "eeg_lost", False) and typ != "go":
+                await self.send(cmd="msg", text="EEG stream lost - session "
+                                                "stopped. Check the phone.")
+                raise RuntimeError("EEG stream lost during " + typ)
 
     # ---- session flow ----
 
@@ -581,6 +602,29 @@ class Driver:
                     await self.send(cmd="eeg", rate=tail.rate(),
                                     q=channel_quality(tail), names=names())
                     self.spectate(type="eeg", rate=tail.rate(), rms=[])
+                    # a scan with no EEG behind it is wasted subject time:
+                    # stop the stage once the stream has been silent 10 s
+                    # scans PAUSE on a silent stream (3 s) and resume when
+                    # it is back; the interrupted position is redone. Block
+                    # stages cannot be redone piecemeal: they stop at 10 s.
+                    if tail.rate() > 100:
+                        self.eeg_good = getattr(self, "eeg_good", 0) + 1
+                        self.eeg_silent = 0
+                        if self.paused and self.eeg_good >= 3:
+                            self.paused = False
+                            print("EEG stream back: resuming scan")
+                            await self.send(cmd="resume")
+                    elif tail.rate() < 1:
+                        self.eeg_good = 0
+                        self.eeg_silent = getattr(self, "eeg_silent", 0) + 1
+                        if (self.scan_active and not self.paused
+                                and self.eeg_silent >= 3):
+                            self.paused = True
+                            print("EEG STREAM SILENT: scan paused")
+                            await self.send(cmd="pause")
+                        elif not self.scan_active and self.eeg_silent == 10:
+                            print("EEG STREAM LOST (10 s without samples)")
+                            self.eeg_lost = True
                     await asyncio.sleep(1.0)
             hb_task = asyncio.create_task(heartbeat())
 
@@ -640,7 +684,8 @@ class Driver:
                 self.blocks, self.block_hz = [], []
                 self.open_log("assr_log.csv")
                 await self.send(cmd="start_assr", music=True, blocks=a.music_blocks,
-                                onS=a.music_on, offS=a.music_off, modFreq=40.0)
+                                onS=a.music_on, offS=a.music_off, modFreq=40.0,
+                                mute=bool(getattr(self, "pc_audio", None)))
                 await self.wait_for("assr_done",
                                     timeout=a.music_blocks * (a.music_on + a.music_off) + 120)
                 self.close_log()
@@ -761,8 +806,9 @@ class Driver:
             self.open_log("cursor_log.csv")
             await self.send(cmd="start_scan", gridW=a.grid_w, gridH=a.grid_h,
                             spc=a.spc, freq=a.freq, target=target.tolist(),
-                            patch=a.patch, bw=(a.calib_style == "bw"))
-            scan_s = a.grid_w * a.grid_h * a.spc
+                            patch=a.patch, bw=(a.calib_style == "bw"),
+                            passes=a.passes, board=a.board)
+            scan_s = a.grid_w * a.grid_h * a.spc * max(1, a.passes)
             await self.wait_for("scan_done", timeout=scan_s * 2 + 120)
             self.close_log()
             await asyncio.sleep(0.7)
@@ -1029,7 +1075,8 @@ class Driver:
         self.blocks, self.block_hz = [], []
         self.open_log("assr_log.csv")
         await self.send(cmd="start_assr", music=True, blocks=a.music_blocks,
-                        onS=a.music_on, offS=a.music_off, modFreq=40.0)
+                        onS=a.music_on, offS=a.music_off, modFreq=40.0,
+                                mute=bool(getattr(self, "pc_audio", None)))
         await self.wait_for("assr_done",
                             timeout=a.music_blocks * (a.music_on + a.music_off) + 120)
         self.close_log()
@@ -1303,9 +1350,28 @@ async def main():
     ap.add_argument("--page-token", default="",
                     help="only pages opened with ?k=<token> may drive the "
                          "session (stale tabs on other devices are ignored)")
-    ap.add_argument("--recon-method", choices=["welch", "line"], default="line",
-                    help="per-cell score: welch = 1 Hz-bin relative power "
-                         "(paper), line = exact-frequency line SNR")
+    ap.add_argument("--recon-method", choices=["welch", "line", "paper"],
+                    default="paper",
+                    help="per-cell score: paper = one spectrum over the whole "
+                         "dwell, f0 + harmonic over 14-50 Hz (Mann 2019); "
+                         "welch = same ratio from 1 Hz bins; line = "
+                         "exact-frequency line SNR")
+    ap.add_argument("--pc-audio", action="store_true",
+                    help="music stage: play the tagged music on THIS "
+                         "computer's default output (headphones) and mute "
+                         "the page")
+    ap.add_argument("--board", type=float, default=0.84,
+                    help="grey scan: board size as a fraction of the screen; "
+                         "shrink it (0.6) with a large --patch so the square "
+                         "is never clipped at the edge positions")
+    ap.add_argument("--vblend", action="store_true",
+                    help="apply the paper's Eq. 1 vertical blend. It is for "
+                         "overlapping scan lines; on discrete positions it "
+                         "only smears rows together, so it is off by default")
+    ap.add_argument("--passes", type=int, default=1,
+                    help="repeat the grey scan this many times; repeat visits "
+                         "to a position are averaged (the paper integrates "
+                         "over 48 overlapping scan lines)")
     ap.add_argument("--color-freqs", default="7.2,9,12",
                     help="--mode full: R,G,B tag frequencies (frame-exact at "
                          "72 fps: 7.2/9/12; at 240 fps: 8/10/12)")
@@ -1345,12 +1411,23 @@ async def main():
     ap.add_argument("--linger", type=float, default=10,
                     help="seconds to keep serving the result before exit")
     args = ap.parse_args()
+    if not args.vblend:
+        config.VERTICAL_KERNEL = [1.0]
+    if args.target.startswith("pix"):
+        import targets as _t
+        _g = _t.load_target(args.target)
+        args.grid_h = max(args.grid_h, _g.shape[0]) if args.grid_h != 8 else _g.shape[0]
+        args.grid_w = max(args.grid_w, _g.shape[1]) if args.grid_w != 12 else _g.shape[1]
     if args.preset:
         args.grid_w, args.grid_h, args.spc = config.PRESETS[args.preset]
     # rank can never exceed the ON-block count (same clamp as run_session)
     config.CALIB_RANK_MIN = min(config.CALIB_RANK_MIN, args.calib_blocks - 1)
 
     driver = Driver(args)
+    if args.pc_audio:
+        import pc_audio
+        driver.pc_audio = pc_audio.PcAudio(mod_hz=40.0)
+        print("music plays on this PC:", driver.pc_audio.device)
 
     async def ws_handler(ws):
         if not getattr(ws, "request", None) or                 ws.request.path.startswith("/ws"):

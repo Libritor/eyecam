@@ -138,6 +138,23 @@ Useful options: `--freq` flicker frequency, `--grid-w/--grid-h` positions,
 flicker, `--color-freqs` the three colour tags, `--page-token` to ignore stale
 browser tabs, `--osc-port 5000,5001` to merge two headbands.
 
+Added on 2026-10-01: `--target pix:NO` draws the word in a 4 by 5 pixel font,
+one scan position per pixel (`pixgrad:NO` puts the last letter at half grey);
+`--passes N` repeats the grey scan and averages repeat visits;
+`--recon-method paper` (now the default) scores a position with one spectrum
+over the whole dwell, as the paper does; `--board` shrinks the board so a
+large `--patch` is not clipped at the edges; `--vblend` turns the paper's
+Eq. 1 vertical blend back on (it is for overlapping scan lines and is off by
+default); `--pc-audio` plays the tagged music on this computer's default
+output instead of the headset. A scan pauses when the EEG stream goes silent
+for 3 s and redoes the interrupted position when it returns.
+
+The run that produced the legible image:
+
+```
+python xr_session.py --mode visual --freq 12 --target pix:NO --spc 8 --passes 3     --calib-blocks 6 --calib-on 8 --calib-off 8 --calib-style bw --calib-size 1
+```
+
 ### Running in a Quest headset
 
 ```
@@ -180,14 +197,21 @@ and scoring uses that.
 | This subject responds at 7.5 to 12 Hz, not at 15 or 20 Hz | laptop sweep: Oz line ratio 9.0 at 10.4 Hz and 5.9 at 11.4 Hz against 1.0 with the screen off; nothing at 20 Hz |
 | The response is reproducible in the Quest browser | 12 Hz calibration gate passed at p = 0.0011 in three of three runs on 2026-09-29 |
 | Frequency-tagged colour works | flag planes correlate at R 0.75, G 0.86, B 0.90; 24 of 24 cells with the right hue; shifted nulls reach at most 58% |
-| Grey images are weakly above chance | 8 by 6 positions at 6 s: r = 0.41 to 0.49, nulls up to 0.48. Not yet legible |
+| Grey images are weakly above chance with a scalable-font target | 8 by 6 positions at 6 s: r = 0.41 to 0.49, nulls up to 0.48. Not legible, and the target itself was a blob at that resolution |
+| A pixel-font "NO" is legible (2026-10-01) | 9 by 5 positions, 8 s each: r = 0.91 after three passes (0.79, 0.88, 0.91 by pass; nulls up to 0.23) and r = 0.87 after two passes with a square 4.6 times larger (nulls up to 0.35). 43 of 45 positions right after an automatic black/white threshold in both runs |
+| A larger square did not help | at two passes each: 0.87 large against 0.88 paper-sized. Electrode contact differed between the runs, so this is not a clean comparison |
+| The image survives a bad calibration | with Oz off the scalp for the first two calibration blocks its weight fell to 0.26; re-weighting (Oz 0.49, Oz only, all equal) moves r between 0.91 and 0.92. Ear electrodes alone give 0.36 |
+| The paper's scoring beats the line detector and ACT here | on three earlier scans the whole-dwell ratio gave the best or tied-best per-position accuracy; chirplet fits and a classifier trained on the other runs were no better |
 | Only the fixated square counts | with three tagged squares on screen, the one under fixation responds and the two a third of the panel away do not |
 | Smaller squares are not higher resolution | 12 by 8 cell-sized squares at 8 s give a line below the noise flanks; the response scales with flickering area |
-| 40 Hz tagged music | not detected through headset speakers (p = 0.13 to 0.69) |
+| Colour on 2026-10-01, an hour into the session | 15 of 24 cells with the right hue (planes R 0.38, G 0.28, B 0.70); Oz response had dropped from 192 to 5.5 at 12 Hz |
+| 40 Hz tagged music | not detected through headset speakers (p = 0.13 to 0.69), nor with the cup at the vertex and headphones (19 tagged and 19 plain blocks, p = 0.32; any response is below about 0.3 uV) |
 
 ![Response curve and spectrum](docs/figures/fig3_response_curve.png)
 
 ![Calibration blocks in VR](docs/figures/fig6_run2_calibration_blocks.png)
+
+!["NO" read from the EEG, per pass](docs/figures/fig11_pix_NO.png)
 
 The practical consequence: Mann's choice of 15 Hz is right for staying clear of
 alpha but is on the weak side of this subject's response curve, and a stock
@@ -214,6 +238,15 @@ and the small result files for each session are in `docs/results`.
   the grey edge cells of an anti-aliased glyph give weaker lines.
 - Neck tension puts broadband muscle noise on the Oz channel. Support the head.
 - For audio the cup belongs at Cz, the top of the head, with earbuds.
+- A word rendered in a scalable font and downsampled to a few dozen positions
+  is not a word any more. Use the `pix:` targets.
+- A phone that dozes with its screen off firewalls the streaming app. On
+  Android: `adb shell dumpsys deviceidle whitelist +<package>` and keep it on
+  a charger with the screen awake.
+- `adb shell am start -d` loses everything after `?` unless the whole command
+  is one quoted string: `adb shell "am start ... -d 'http://host:8082/?k=tok' ..."`.
+- If the PC changes Wi-Fi network mid-session its address changes, and both the
+  headset page and the EEG sender have to follow.
 
 ## Files
 
@@ -225,7 +258,10 @@ and the small result files for each session are in `docs/results`.
 | `run_session.py` | the original laptop orchestrator in pygame; also the permutation gate and legacy calibration score |
 | `osc_acquire.py` | records `/muse/eeg` on UDP to CSV, 4 to 8 channels |
 | `phantom_subject.py` | synthetic subject for end-to-end tests, including colour tags and audio |
-| `targets.py` | text, image and colour targets |
+| `targets.py` | text, pixel-font, image and colour targets |
+| `pc_audio.py` | the 40 Hz tagged music played on the PC's audio output |
+| `analysis/run_both.py` | runs two scan variants back to back and pushes the page to the Quest |
+| `analysis/rescore_paper.py`, `decoder_bakeoff.py`, `pix_runs_figure.py` | re-scoring of past scans, decoder comparison, and the per-pass figure |
 | `config.py` | shared parameters |
 | `spectator_bridge.py`, `spectator.html` | live mirror of a session for a second screen or headset |
 | `analysis/decoders_compare.py` | band power vs line detector vs CCA with nulls |
