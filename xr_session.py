@@ -365,6 +365,8 @@ class Driver:
         self.blocks = []
         self.block_hz = []          # per-block flicker frequency (sweep)
         self.color_hzs = []         # page's frame-exact plan for the colour scan
+        self.block_cls = []         # black/white/blue class per calibration block
+        self.bwb_codes = []         # page's delivered (Hz, phase) codes
         self.frames = 0
         self.spec = None
         if args.spectator:
@@ -395,7 +397,8 @@ class Driver:
         if msg.get("cmd") in ("start_calib", "start_scan", "start_assr",
                               "signal", "calib_result", "result",
                               "assr_result", "arm", "start_alpha",
-                              "alpha_result", "start_sweep", "sweep_result"):
+                              "alpha_result", "start_sweep", "sweep_result",
+                              "start_bwb_calib"):
             self.last_cmd = msg  # re-issued to a page that reconnects
         if self.page is not None:
             try:
@@ -422,6 +425,12 @@ class Driver:
         if typ == "assr_done" and getattr(self, "pc_audio", None):
             self.pc_audio.stop()
         if typ == "frame":
+            if m["stage"] == "scan":
+                pos = (m["gx"], m["gy"])
+                if pos != getattr(self, "cur_pos", None):
+                    self.cur_pos, self.cur_t0, self.cur_masked = pos, t, set()
+            elif m["stage"] in ("paused", "redo"):
+                self.cur_pos = None
             if self.log_file:
                 self.log_file.write(
                     f"{t:.6f},{m['gx']},{m['gy']},{m['lum']:.4f},"
@@ -442,10 +451,17 @@ class Driver:
                 self.blocks.append(("on" if m["on"] else "off",
                                     self._block_t0, t))
                 self.block_hz.append(m.get("hz"))
+                self.block_cls.append(m.get("cls"))
         elif typ == "hello":
             self.auto = bool(m.get("auto"))
             print(f"page: {str(m.get('ua', ''))[:70]}  auto={self.auto}")
             self.queue.put_nowait(m)
+        elif typ == "bwb_plan":
+            self.bwb_codes = [dict(hz=float(c["hz"]), phaseDeg=float(c["phaseDeg"]))
+                              for c in m.get("codes", [])]
+            print("black/white/blue codes delivered:",
+                  ", ".join(f"{c['hz']:.2f} Hz @ {c['phaseDeg']:.0f} deg" for c in self.bwb_codes),
+                  "@", m.get("refresh"), "fps")
         elif typ == "color_plan":
             self.color_hzs = [float(v) for v in m.get("hzs", [])]
             print("colour flicker plan:", self.color_hzs, "@", m.get("refresh"), "fps")
@@ -468,7 +484,7 @@ class Driver:
     def mid_run(self):
         return bool(self.last_cmd) and self.last_cmd.get("cmd") in (
             "start_calib", "start_scan", "start_assr", "start_alpha",
-            "start_sweep")
+            "start_sweep", "start_bwb_calib")
 
     async def adopt(self, ws):
         old = self.page
@@ -483,6 +499,7 @@ class Driver:
         if self.last_cmd is not None:
             if self.mid_run():
                 self.blocks = []  # the stage restarts on the new page
+                self.block_hz, self.block_cls = [], []
             try:
                 await ws.send(json.dumps(self.last_cmd))
             except Exception:
@@ -545,10 +562,17 @@ class Driver:
 
         merge_task = None
         ports = [int(p) for p in str(a.osc_port).split(",") if p.strip()]
-        if len(ports) == 1:
+        if a.muse or a.lsl:
+            # Muse on this PC's Bluetooth (muselsl) or any LSL EEG stream:
+            # recorded straight from LSL, no phone app and no OSC
+            ports = []
+            recorder = Recorder("lsl", self.session, 0,
+                                extra=["--no-aux"] if a.no_aux else [])
+        elif len(ports) == 1:
             recorder = Recorder("osc", self.session, ports[0])
         else:
             recorder = MultiRecorder(self.session, ports)
+        eeg_src = "LSL" if (a.muse or a.lsl) else f"udp:{a.osc_port}"
         recorder.start()
         await asyncio.sleep(1.5)
         if not recorder.alive():
@@ -560,11 +584,11 @@ class Driver:
                 await asyncio.sleep(1.5)
             if not recorder.alive():
                 raise RuntimeError(
-                    f"EEG recorder failed on udp:{a.osc_port}: "
+                    f"EEG recorder failed on {eeg_src}: "
                     + recorder.stderr_tail()[-200:])
         merged_path = os.path.join(self.session, "eeg.csv")
         tail = EEGTail(merged_path)
-        osc_target = ", ".join(f"{local_ip()}:{p}" for p in ports)
+        osc_target = ", ".join(f"{local_ip()}:{p}" for p in ports) or             ("the Muse over this PC's Bluetooth" if a.muse else "an LSL EEG stream")
         merge_task = None
         if len(ports) > 1:
             async def merge_loop():
@@ -582,7 +606,7 @@ class Driver:
                        if "TP9" in n[i] or "TP10" in n[i])
         result = dict(mode="browser", gridW=a.grid_w, gridH=a.grid_h,
                       secondsPerCell=a.spc, calibBlocks=a.calib_blocks)
-        hb_task = None
+        hb_task = bw_task = None
         try:
             print("waiting for a browser to open the stimulus page...")
             wait_deadline = time.monotonic() + a.signal_timeout
@@ -628,6 +652,55 @@ class Driver:
                     await asyncio.sleep(1.0)
             hb_task = asyncio.create_task(heartbeat())
 
+            # --mask-blinks: a position whose dwell is more than --mask-limit
+            # blinks / closed eyes is redone, through the same path as a
+            # stream drop (the page abandons it and shows it again)
+            async def blink_watch():
+                import blinkmask
+                errors = set()
+                while True:
+                    await asyncio.sleep(0.25)
+                    try:
+                        await blink_step(blinkmask)
+                    except Exception as exc:          # never silent, never fatal
+                        if repr(exc) not in errors:
+                            errors.add(repr(exc))
+                            print("blink watch:", repr(exc))
+
+            async def blink_step(blinkmask):
+                pos = getattr(self, "cur_pos", None)
+                if not (self.scan_active and pos and not self.paused):
+                    return
+                tail.poll()
+                rows = [r for r in tail.rows if r[0] >= local_clock() - 4.0]
+                width = min((len(r[1]) for r in rows), default=0)
+                if len(rows) < 256 or width < 4:
+                    return
+                tt = np.array([r[0] for r in rows])
+                X = np.array([r[1][:width] for r in rows])
+                ok, _ = blinkmask.compute(tt, X, names()[:width], 256.0, self.stim_freq,
+                                          self.mask_opts, alpha_base=self.alpha_base)
+                for ts in tt[(~ok) & (tt >= self.cur_t0)]:
+                    self.cur_masked.add(round(float(ts), 4))
+                if len(self.cur_masked) / 256.0 > self.mask_opts["limit"] * a.spc:
+                    self.cur_pos = None
+                    redos = self.redo_count.get(pos, 0)
+                    if redos >= a.max_redo:   # never loop forever on one position
+                        print(f"position {pos}: still over the limit after {redos} "
+                              "redo(s): keeping it (it is dropped from scoring)")
+                        return
+                    self.redo_count[pos] = redos + 1
+                    print(f"position {pos}: {len(self.cur_masked) / 256.0:.1f} s of "
+                          f"blinks / closed eyes > {self.mask_opts['limit']:.0%} of the "
+                          f"dwell: redoing it ({redos + 1}/{a.max_redo})")
+                    await self.send(cmd="redo")
+            if a.mask_blinks:
+                import blinkmask
+                self.mask_opts = blinkmask.options(a)
+                self.alpha_base = None
+                self.redo_count = {}
+                bw_task = asyncio.create_task(blink_watch())
+
             # signal check: rate stable AND at least one EAR electrode good
             # (TP9/TP10 carry the SSVEP; a session without them is doomed)
             self.spectate(type="stage", stage="signal_check", detail="")
@@ -655,9 +728,9 @@ class Driver:
                     break
                 if nowm > deadline:
                     raise TimeoutError(
-                        f"no usable EEG on udp:{a.osc_port} "
+                        f"no usable EEG on {eeg_src} "
                         f"(rate {rate:.0f} Hz, ears_ok={ears_ok}; "
-                        f"send /muse/eeg to {osc_target})")
+                        f"source: {osc_target})")
                 await asyncio.sleep(0.25)
             print(f"signal ok ({rate:.0f} Hz, ears good)")
 
@@ -680,6 +753,8 @@ class Driver:
                 return await self.run_sweep(result, recorder)
             if a.mode == "mux":
                 return await self.run_mux(result, recorder)
+            if a.mode == "bwb":
+                return await self.run_bwb(result, recorder)
             if a.mode == "music":
                 self.blocks, self.block_hz = [], []
                 self.open_log("assr_log.csv")
@@ -801,6 +876,46 @@ class Driver:
             if not calib["passed"] and a.require_pass:
                 raise RuntimeError("calibration gate failed (no SSVEP)")
 
+            if a.mask_blinks:
+                import blinkmask
+                try:
+                    hdr, rows_ = reconstruct.read_csv(os.path.join(self.session, "eeg.csv"))
+                    tt_ = np.array([float(x[0]) for x in rows_])
+                    X_ = np.array([[float(v) for v in x[1:]] for x in rows_])
+                    self.alpha_base = blinkmask.alpha_baseline(
+                        tt_, X_, hdr[1:], 256.0, self.stim_freq,
+                        [(t0, t1) for k, t0, t1 in calib.get("blocks", []) if k == "off"])
+                    print("blink mask: eyes-open alpha baseline",
+                          "from the calibration OFF blocks" if self.alpha_base
+                          else "unavailable (no Oz channel): eye-closure detection off")
+                except Exception as exc:
+                    print("blink mask baseline:", repr(exc))
+
+            # which picture: black & white "NO" (the original scan) or the
+            # black / white / blue frequency-phase scan - asked on the page
+            choice = a.choice
+            if choice is None and a.mode == "visual":
+                if self.auto:
+                    choice = "bw"
+                else:
+                    note = (f"calibration found the {self.stim_freq:.1f} Hz response "
+                            f"(best {calib['best']})" if calib["passed"] else
+                            "calibration did NOT find a clear response - expect noise")
+                    print("choose the picture on the stimulus page (button or key 1 / 2)")
+                    await self.send(cmd="choose", passed=bool(calib["passed"]), note=note,
+                                    options=[dict(value="bw", label="Black & white",
+                                                  detail=f"the original scan: {a.target}, "
+                                                         f"{a.passes} pass(es), {a.spc:g} s per position"),
+                                             dict(value="bwb", label="Black, white & blue",
+                                                  detail=f"frequency-phase codes {a.bwb_codes}; "
+                                                         f"{a.bwb_target}, {a.bwb_passes} pass(es)")])
+                    m = await self.wait_for("choice", timeout=a.signal_timeout)
+                    choice = m.get("value", "bw")
+            result["choice"] = choice or "bw"
+            print(f"picture: {result['choice']}")
+            if choice == "bwb":
+                return await self.run_bwb(result, recorder)
+
             # scan (page-driven serpentine)
             self.spectate(type="stage", stage="scan", detail="")
             self.open_log("cursor_log.csv")
@@ -813,25 +928,57 @@ class Driver:
             self.close_log()
             await asyncio.sleep(0.7)
 
-            # reconstruct with the unchanged laptop stack
+            # reconstruct: the chosen method (default: the paper exactly -
+            # 1700-sample window, (f + 2f) / 14-50 Hz, Eq. 1), plus the two
+            # comparisons, so every run says what each choice costs
             print("reconstructing...")
-            grid, r = reconstruct.run(
-                self.session,
-                calibration=os.path.join(self.session, "calibration.json"),
-                stim_freq=self.stim_freq, method=a.recon_method)
+            cal_path = os.path.join(self.session, "calibration.json")
+            vblend = not a.no_eq1
+            mk = {}
+            if a.mask_blinks:
+                import blinkmask
+                mk = dict(mask_blinks=True, mask_opts=blinkmask.options(a))
+            grid, r = reconstruct.run(self.session, calibration=cal_path,
+                                      stim_freq=self.stim_freq, method=a.recon_method,
+                                      vblend=vblend, **mk)
+            compare = {}
+            for label, kw in (("paper, no Eq. 1", dict(method="paper", vblend=False)),
+                              ("upstream repo method", dict(method="upstream"))):
+                try:
+                    compare[label] = reconstruct.run(self.session, calibration=cal_path,
+                                                     stim_freq=self.stim_freq, save=False,
+                                                     **kw, **mk)[1]
+                except Exception as exc:
+                    compare[label] = None
+                    print(f"{label}: {exc!r}")
             flicker_hz = self.measured_flicker()
             rs_null = reconstruct.null_r(
-                self.session, n_shifts=8,
-                calibration=os.path.join(self.session, "calibration.json"),
-                stim_freq=self.stim_freq, method=a.recon_method)
+                self.session, n_shifts=8, calibration=cal_path,
+                stim_freq=self.stim_freq, method=a.recon_method, vblend=vblend, **mk)
+            import nofigure
+            fig = nofigure.figure(
+                grid, target, os.path.join(self.session, "reconstruction_figure.png"),
+                title=(f"{a.target}: {self.stim_freq:.1f} Hz, {a.spc:g} s per position, "
+                       f"{a.passes} pass(es); method {a.recon_method}"
+                       + (" + Eq. 1" if vblend and a.recon_method == "paper" else "")),
+                subtitle=("other methods on the same EEG: " + ", ".join(
+                    f"{k} r = {v:.2f}" for k, v in compare.items() if v is not None)
+                    + (f";  time-shifted EEG (chance) up to r = {max(rs_null):.2f}"
+                       if rs_null else "")))
             result.update(r=r, measuredFlickerHz=flicker_hz, method=a.recon_method,
-                          r_null=rs_null,
+                          eq1=vblend, r_compare=compare, threshold_right=fig["right"],
+                          mask_blinks=bool(a.mask_blinks),
+                          threshold_n=fig["n"], r_null=rs_null,
                           r_null_max=(max(rs_null) if rs_null else None))
-            print(f"grey image r={r:.3f} ({a.recon_method}); shifted-EEG null "
+            print(f"grey image r={r:.3f} ({a.recon_method}{', Eq. 1' if vblend else ''}); "
+                  + ", ".join(f"{k} r={v:.3f}" for k, v in compare.items() if v is not None)
+                  + f"; threshold right {fig['right']}/{fig['n']}; shifted-EEG null "
                   f"r: {', '.join(f'{v:.2f}' for v in rs_null)}")
-            png = grid_to_data_url(reconstruct_norm(grid))
-            await self.send(cmd="result", png=png, r=r or 0.0,
-                            flickerHz=flicker_hz)
+            with open(os.path.join(self.session, "reconstruction_figure.png"), "rb") as f:
+                png = "data:image/png;base64," + base64.b64encode(f.read()).decode()
+            await self.send(cmd="result", png=png, r=r or 0.0, flickerHz=flicker_hz,
+                            wide=True, text=(f"r = {r:.2f}  -  automatic threshold: "
+                                             f"{fig['right']} of {fig['n']} positions right"))
             flat = [float(v) for v in np.asarray(grid).ravel()]
             self.spectate(type="grid", w=a.grid_w, h=a.grid_h, scores=flat)
             self.spectate(type="stage", stage="done",
@@ -853,6 +1000,8 @@ class Driver:
         finally:
             if hb_task:
                 hb_task.cancel()
+            if bw_task:
+                bw_task.cancel()
             if merge_task:
                 merge_task.cancel()
                 recorder.poll_merge()  # flush what is already buffered
@@ -1113,6 +1262,88 @@ class Driver:
         self.spectate(type="log", msg="music " + mtext)
         await asyncio.sleep(3.0)
 
+    async def run_bwb(self, result, recorder):
+        """Black / white / blue: calibrate the two frequency-phase codes and the
+        no-flicker class on one scan-sized patch, then scan a class picture
+        and decode every cell with FBCCA + phase templates (bwb.py)."""
+        import random
+        import bwb
+        a = self.args
+        codes = []
+        for part in str(a.bwb_codes).split(","):
+            hz, _, deg = part.partition(":")
+            codes.append(dict(hz=float(hz), phaseDeg=float(deg or 0)))
+        if len(codes) != 2:
+            raise ValueError("--bwb-codes needs two codes: white,blue (Hz:deg)")
+        ctarget = targets.bwb_target(a.bwb_target, a.bwb_grid_w, a.bwb_grid_h,
+                                     fg=a.bwb_fg, bg=a.bwb_bg)
+        gh, gw = ctarget.shape
+        np.save(os.path.join(self.session, "target_bwb.npy"), ctarget)
+        geom = dict(gridW=gw, gridH=gh, patch=a.patch, board=a.board)
+
+        # ---- calibration: shuffled black / white / blue blocks on one patch
+        order = []
+        for _ in range(a.bwb_reps):
+            trio = [0, 1, 2]
+            random.shuffle(trio)
+            order += trio
+        self.spectate(type="stage", stage="bwb_calib", detail=a.bwb_codes)
+        self.blocks, self.block_hz, self.block_cls = [], [], []
+        self.bwb_codes = []
+        self.open_log("bwb_cal_log.csv")
+        await self.send(cmd="start_bwb_calib", codes=codes, order=order,
+                        onS=a.bwb_on, restS=1.0, **geom)
+        await self.wait_for("bwb_calib_done",
+                            timeout=len(order) * (a.bwb_on + 1.0) * 2 + 120)
+        self.close_log()
+        delivered = self.bwb_codes or codes
+        blocks = [dict(cls=int(c), t0=t0, t1=t1)
+                  for (_, t0, t1), c in zip(self.blocks, self.block_cls) if c is not None]
+        print(f"colour calibration: {len(blocks)} blocks")
+
+        # ---- scan
+        self.spectate(type="stage", stage="bwb_scan", detail=a.bwb_target)
+        self.open_log("bwb_log.csv")
+        await self.send(cmd="start_scan", bwb=True, codes=codes, spc=a.bwb_spc,
+                        passes=a.bwb_passes, target=ctarget.tolist(), **geom)
+        await self.wait_for("scan_done",
+                            timeout=gw * gh * a.bwb_spc * a.bwb_passes * 2 + 120)
+        self.close_log()
+        await asyncio.sleep(0.7)
+        with open(os.path.join(self.session, "bwb_meta.json"), "w") as f:
+            json.dump(dict(codes=delivered, blocks=blocks, spc=a.bwb_spc), f, indent=1)
+
+        # ---- decode
+        print("decoding black / white / blue...")
+        try:
+            cls, rgb, res = await asyncio.to_thread(
+                bwb.decode, self.session, delivered, blocks, a.bwb_spc, gw, gh,
+                ctarget, a.bwb_channels)
+            text = bwb.summary(res)
+            good = res.get("accuracy", 0) >= 0.6
+        except Exception as exc:
+            print("black/white/blue decoding failed:", repr(exc))
+            res, rgb, text, good = dict(error=repr(exc)), None, f"decoding failed: {exc}", False
+        print(text)
+        if "confusion" in res:
+            print("confusion (rows = shown black/white/blue, cols = decoded):",
+                  res["confusion"])
+        result["bwb"] = {k: v for k, v in res.items() if k != "classes"}
+        comp = os.path.join(self.session, "bwb_comparison.png")
+        if os.path.exists(comp):          # shown vs decoded, side by side
+            with open(comp, "rb") as f:
+                png = "data:image/png;base64," + base64.b64encode(f.read()).decode()
+        else:
+            png = rgb_to_data_url(rgb) if rgb is not None else ""
+        await self.send(cmd="color_result", png=png, text=text, good=bool(good),
+                        wide=os.path.exists(comp))
+        self.spectate(type="log", msg=text)
+        result["ok"] = True
+        recorder.stop()
+        print(f"BLACK/WHITE/BLUE DONE -> {self.session}")
+        await asyncio.sleep(a.linger)
+        return 0
+
     async def run_sweep(self, result, recorder):
         """Frequency sweep: which flicker frequency (if any) evokes an SSVEP
         in THIS subject with THIS electrode? Frame-exact ON blocks at each
@@ -1334,11 +1565,27 @@ def http_page(connection, request):
 
 async def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--session", default=os.path.join("runs", "xr1"))
+    ap.add_argument("--session", default=None,
+                    help="session folder (default: a new runs/<date-time>_<mode>, "
+                         "so a run never overwrites another run's EEG)")
     ap.add_argument("--http-port", type=int, default=8082)
     ap.add_argument("--osc-port", default="5000",
                     help="UDP port, or comma list for several headbands "
                          "(e.g. 5000,5001 -> merged 8-channel eeg.csv)")
+    ap.add_argument("--muse", action="store_true",
+                    help="connect to the Muse over THIS PC's Bluetooth (muselsl) "
+                         "and record it directly; no phone app, no OSC")
+    ap.add_argument("--muse-model", default="auto", choices=["auto", "athena", "legacy"],
+                    help="Muse protocol for --muse (athena = Muse S Gen 3)")
+    ap.add_argument("--muse-address", default=None, help="Muse MAC address for --muse")
+    ap.add_argument("--muse-preset", default=None,
+                    help="--muse: muselsl preset (default p20 = aux/Oz ON on a classic "
+                         "Muse; none with --no-aux or --muse-model athena)")
+    ap.add_argument("--lsl", action="store_true",
+                    help="record an EEG stream another program already puts on LSL "
+                         "(muselsl stream, mind2motor run_muse.py --live, Petal)")
+    ap.add_argument("--no-aux", action="store_true",
+                    help="with --muse/--lsl: drop the aux column (no Oz electrode)")
     ap.add_argument("--preset", choices=list(config.PRESETS), default="")
     ap.add_argument("--grid-w", type=int, default=12)
     ap.add_argument("--grid-h", type=int, default=8)
@@ -1350,12 +1597,40 @@ async def main():
     ap.add_argument("--page-token", default="",
                     help="only pages opened with ?k=<token> may drive the "
                          "session (stale tabs on other devices are ignored)")
-    ap.add_argument("--recon-method", choices=["welch", "line", "paper"],
+    ap.add_argument("--legible", action="store_true",
+                    help="the settings of the published legible 'NO', with a bigger "
+                         "flicker: --target pix:NO --freq 12 --spc 8 --passes 3 "
+                         "--patch 1.5 --calib-style bw --calib-size 1 --calib-blocks 6 "
+                         "--calib-on 8 --calib-off 8 (any of these given explicitly wins)")
+    ap.add_argument("--mask-blinks", action="store_true",
+                    help="leave blinks (AF7/AF8) and closed eyes (Oz alpha) out of "
+                         "every position's spectrum; redo a position that is more "
+                         "than --mask-limit masked (off by default)")
+    ap.add_argument("--blink-uv", type=float, default=None,
+                    help="blink threshold on AF7/AF8 (0.5-10 Hz), uV (default 100)")
+    ap.add_argument("--alpha-ratio", type=float, default=None,
+                    help="eyes closed when Oz 8-12 Hz power exceeds this x the "
+                         "eyes-open baseline (default 3)")
+    ap.add_argument("--closure-min-s", type=float, default=None,
+                    help="minimum duration of a closure, s (default 1)")
+    ap.add_argument("--margin-s", type=float, default=None,
+                    help="masked margin each side of a blink / closure, s (default 0.2)")
+    ap.add_argument("--max-redo", type=int, default=2,
+                    help="--mask-blinks: redo one position at most this many times")
+    ap.add_argument("--mask-limit", dest="limit", type=float, default=None,
+                    help="redo / drop a position more than this fraction masked "
+                         "(default 0.35)")
+    ap.add_argument("--choice", choices=["bw", "bwb"], default=None,
+                    help="--mode visual: picture after calibration (default: ask on "
+                         "the page; ?auto=1 takes bw)")
+    ap.add_argument("--no-eq1", action="store_true",
+                    help="paper method without step 3 (Eq. 1 vertical blend)")
+    ap.add_argument("--recon-method", choices=["welch", "line", "paper", "upstream"],
                     default="paper",
-                    help="per-cell score: paper = one spectrum over the whole "
-                         "dwell, f0 + harmonic over 14-50 Hz (Mann 2019); "
-                         "welch = same ratio from 1 Hz bins; line = "
-                         "exact-frequency line SNR")
+                    help="per-cell score: paper = Mann 2019 exactly (1700-sample "
+                         "window, (f0 + 2 f0) / all 14-50 Hz power, Eq. 1); upstream "
+                         "= this repo as published (whole dwell, clipping, no Eq. 1); "
+                         "welch = 1 Hz bins; line = exact-frequency line SNR")
     ap.add_argument("--pc-audio", action="store_true",
                     help="music stage: play the tagged music on THIS "
                          "computer's default output (headphones) and mute "
@@ -1391,7 +1666,7 @@ async def main():
     ap.add_argument("--music-off", type=float, default=10.0)
     ap.add_argument("--mode", choices=["visual", "assr", "calib", "alpha",
                                        "sweep", "full", "extras", "mux",
-                                       "music"],
+                                       "music", "bwb"],
                     default="visual",
                     help="calib = G1 only (calibration, no scan); "
                          "assr = 'ear as a microphone' 40 Hz tone blocks")
@@ -1408,9 +1683,43 @@ async def main():
                     help="'' disables the spectator mirror")
     ap.add_argument("--require-pass", action="store_true")
     ap.add_argument("--signal-timeout", type=float, default=600)
+    ap.add_argument("--bwb-codes", default="12:0,9:180",
+                    help="--mode bwb: frequency-phase codes 'Hz:deg,Hz:deg' for white "
+                         "and blue (snapped to whole display frames; the page reports "
+                         "what it delivers). The same Hz with different phases also works")
+    ap.add_argument("--bwb-target", default="bands",
+                    help="bands | checker | text:X | pix:X | image path")
+    ap.add_argument("--bwb-fg", choices=["black", "white", "blue"], default=None,
+                    help="text:/pix: targets: glyph colour (default white)")
+    ap.add_argument("--bwb-bg", choices=["black", "white", "blue"], default=None,
+                    help="text:/pix: targets: background colour (default blue, with "
+                         "black rows); setting fg/bg adds a background margin instead")
+    ap.add_argument("--bwb-grid-w", type=int, default=6)
+    ap.add_argument("--bwb-grid-h", type=int, default=4)
+    ap.add_argument("--bwb-spc", type=float, default=4.0,
+                    help="seconds per cell in the black/white/blue scan")
+    ap.add_argument("--bwb-passes", type=int, default=1)
+    ap.add_argument("--bwb-reps", type=int, default=4,
+                    help="calibration blocks per class")
+    ap.add_argument("--bwb-on", type=float, default=8.0,
+                    help="seconds per calibration block")
+    ap.add_argument("--bwb-channels", default="",
+                    help="channels to decode (default: all, e.g. TP9,TP10,AUX)")
     ap.add_argument("--linger", type=float, default=10,
                     help="seconds to keep serving the result before exit")
     args = ap.parse_args()
+    if args.legible:
+        legible = dict(target="pix:NO", freq=12.0, spc=8.0, passes=3, patch=1.5,
+                       calib_style="bw", calib_size=1.0, calib_blocks=6,
+                       calib_on=8.0, calib_off=8.0)
+        given = {act.dest for act in ap._actions
+                 if any(o == x or x.startswith(o + "=") for o in act.option_strings
+                        for x in sys.argv[1:])}
+        for k, v in legible.items():
+            if k not in given:          # a flag typed on the command line wins
+                setattr(args, k, v)
+    if args.session is None:
+        args.session = os.path.join("runs", time.strftime("%Y%m%d-%H%M%S") + "_" + args.mode)
     if not args.vblend:
         config.VERTICAL_KERNEL = [1.0]
     if args.target.startswith("pix"):
@@ -1483,9 +1792,27 @@ async def main():
         print(f"stimulus page:  http://{local_ip()}:{args.http_port}/  "
               f"(?auto=1 for unattended)"
               + (f"  token: ?k={args.page_token}" if args.page_token else ""))
-        print(f"EEG OSC in:     {local_ip()}:{args.osc_port}  "
-              "(Mind Monitor / MuseLog / phantom)")
-        code = await driver.run()
+        muse = None
+        if args.muse:
+            from muse_stream import MuseStream
+            preset = args.muse_preset
+            if preset is None and not args.no_aux and args.muse_model != "athena":
+                preset = "p20"          # classic Muse: aux (Oz) input ON
+            muse = MuseStream(args.muse_address, args.muse_model, preset=preset).start()
+            print("EEG in:         Muse over this PC's Bluetooth (muselsl -> LSL)"
+                  + (f", preset {preset}" if preset else "")
+                  + ("" if preset or args.no_aux else
+                     "; Athena: aux preset not set - check AUX with --mode alpha"))
+        elif args.lsl:
+            print("EEG in:         LSL EEG stream (start muselsl / mind2motor first)")
+        else:
+            print(f"EEG OSC in:     {local_ip()}:{args.osc_port}  "
+                  "(Mind Monitor / MuseLog / phantom)")
+        try:
+            code = await driver.run()
+        finally:
+            if muse:
+                muse.stop()
     sys.exit(code)
 
 

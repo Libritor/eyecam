@@ -19,8 +19,6 @@ const common = [
   { key: 'chansSel', label: 'Channels', type: 'text', help: "'auto' = TP9+TP10; calibration may set the best single channel (e.g. AUX for an Oz electrode); or list e.g. TP10,AUX" },
   { key: 'metric', label: 'SSVEP metric', type: 'select', options: metricOpts },
   { key: 'winSec', label: 'Window', type: 'number', min: 0.25, step: 0.05, unit: 's' },
-  { key: 'kalmanOrder', label: 'Kalman model', type: 'select', options: [['2', 'Smooth trend (order 2, sharper)'], ['1', 'Random walk (order 1)']], show: x => x.metric === 'kalman' },
-  { key: 'kalmanTau', label: 'Kalman smoothing', type: 'number', min: 0, step: 0.1, unit: 's (0 = from window)', show: x => x.metric === 'kalman', help: 'Time constant of the forward–backward smoother. Larger = less noise, softer edges.' },
   { key: 'latency', label: 'Latency comp.', type: 'number', step: 0.01, unit: 's' },
   { key: 'psd', label: 'PSD', type: 'select', options: [['welch', 'Welch (2 s segments)'], ['periodogram', 'Periodogram']] },
   { key: 'maskMode', label: 'Artifact masking', type: 'select', options: [['off', 'Off (whole-window reject)'], ['auto', 'Auto (from this recording)'], ['calib', 'Calibrated thresholds']], help: 'Ignore only the contaminated 0.25 s blocks (blinks, jaw EMG, electrode shifts).' },
@@ -35,14 +33,13 @@ function baseParams(session, extra) {
   return {
     chansSel: s.chans ?? 'auto', metric: s.metric ?? DEFAULTS.metric, psd: s.psd ?? 'welch', latency: s.latency ?? DEFAULTS.latency,
     rejectUV: s.rejectUV ?? DEFAULTS.rejectUV, bw: s.bw ?? DEFAULTS.bw, harmonics: s.harmonics ?? 2, freq: session.run.freq,
-    maskMode: s.mask ?? 'off', maskK: s.maskK ?? 5, minValid: s.minValid ?? 0.4, spatial: s.spatial ?? 'off',
-    kalmanOrder: '2', kalmanTau: 0, kalmanProject: false, ...extra,
+    maskMode: s.mask ?? 'off', maskK: s.maskK ?? 5, minValid: s.minValid ?? 0.4, spatial: s.spatial ?? 'off', ...extra,
   };
 }
 function finalize(session, v) {
   const sel = v.chansSel === 'auto' ? null : String(v.chansSel).split(',').map(x => x.trim()).filter(Boolean);
   const adv = advancedParams({ mask: v.maskMode, maskK: v.maskK, minValid: v.minValid, spatial: v.spatial }, session.calib, session.eeg);
-  return { ...v, mask: undefined, spatialW: undefined, spatialChans: undefined, ...adv, chans: resolveChannels(session.eeg, sel), segSec: Math.min(2, v.winSec || 2), cycles: makeCycles(session.run, session.run.freq), kalmanOrder: +(v.kalmanOrder ?? 2) };
+  return { ...v, mask: undefined, spatialW: undefined, spatialChans: undefined, ...adv, chans: resolveChannels(session.eeg, sel), segSec: Math.min(2, v.winSec || 2), cycles: makeCycles(session.run, session.run.freq) };
 }
 
 function imgCanvas(res, cmap, cls = 'out') {
@@ -94,8 +91,7 @@ const VIEWS = {
       { type: 'section', label: 'Image' },
       { key: 'stepPx', label: 'Column step', type: 'number', min: 1, unit: 'px' },
       { key: 'combine', label: 'Eq. (1) row combine', type: 'checkbox' },
-      { key: 'phaseSpan', label: 'Phase tracking span', type: 'number', min: 1, unit: 's (coherent)', show: x => x.metric === 'coherent' || x.deconv || x.kalmanProject },
-      { key: 'kalmanProject', label: 'Kalman: project on response phase', type: 'checkbox', show: x => x.metric === 'kalman' },
+      { key: 'phaseSpan', label: 'Phase tracking span', type: 'number', min: 1, unit: 's (coherent)', show: x => x.metric === 'coherent' || x.deconv },
       { key: 'deconv', label: 'Deconvolve cursor blur', type: 'checkbox', help: 'Least-squares inversion of the cursor/window blur; helps only at high SNR.' },
       { key: 'deconvLambda', label: 'Deconv smoothness', type: 'number', min: 0, step: 0.1, show: x => x.deconv },
       { key: 'rowBaseline', label: 'Remove per-line baseline', type: 'checkbox' },
@@ -319,7 +315,7 @@ VIEWS.scan.extra = (session, values, rerender, setForm) => {
   const btn = h('button', {}, 'Auto-tune analysis (cross-validated)');
   btn.onclick = async () => {
     btn.disabled = true;
-    const metrics = ['harmonic', 'fbcca', 'coherent', 'kalman'];
+    const metrics = ['harmonic', 'fbcca', 'coherent'];
     const masks = ['off', 'auto', ...(session.calib?.thresholds ? ['calib'] : [])];
     const spatials = ['off', ...(session.calib?.filter?.weights ? ['calib'] : [])];
     const cands = [];

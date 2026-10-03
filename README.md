@@ -1,273 +1,590 @@
-# EyeCam: the human eye as a camera
+# eyecam: the human eye as a camera
 
-This is a working build of Mann et al., *The Human Eye as a Camera* (IEEE HealthCom 2019).
-A flickering stimulus evokes an SSVEP (steady-state visual evoked potential) in the visual
-cortex. EyeCam reads it with a Muse EEG headband and turns it into pictures of what the
-subject is looking at. Every experiment in the paper has its own mode.
+> This branch also contains the **EyeCam web app** (browser version: `start.bat`,
+> `server.py`, `web/`). Its instructions are in [README_webapp.md](README_webapp.md).
 
-## Step by step: taking a picture with your eye
+Reconstructing what a person is looking at from their brainwaves, with a
+consumer EEG headband, on a laptop or inside a VR headset.
 
-Total time is about 20 minutes: 5 to set up, 3 to calibrate, and 8–16 to scan a letter N.
+This is a replication and extension of **Mann et al., "The Human Eye as a
+Camera," IEEE HealthCom 2019** ([wearcam.org/eyecam.pdf](http://wearcam.org/eyecam.pdf)),
+which grew out of the WearSys'19 abstract *"Eye itself as a camera: Sensors,
+integrity, and trust"* (doi 10.1145/3325424.3330210). Work done by MannLab.
 
-### 1. Prepare the headset
-1. **Charge it fully.** A nearly flat Muse can drop into its bootloader (firmware-update
-   mode) and stop sending EEG. The app detects this and tells you.
-2. **Close the Muse phone app.** The headset accepts only one connection at a time.
-3. **Wet the four sensors slightly** (water or saline). Dry sensors are the main cause of noise.
-4. Put it on **snug**, forehead sensors on bare skin. **Push hair away from behind your
-   ears** so the rubber TP9/TP10 pads touch skin. These two channels carry the image.
+![The word NO shown to the eye and read back from the EEG](docs/figures/fig0_NO_from_eeg.png)
 
-### 2. Prepare yourself and the room
-- Sit about 50 cm from the screen with your **head supported** (headrest or a wall behind
-  you). The paper used a chin rest.
-- **Relax your jaw.** TP9/TP10 sit on the jaw muscle, and clenching, talking or
-  swallowing floods the signal.
-- Dim the room. Turn the screen brightness up.
+**The word "NO", read back from brainwaves.** The subject looked at 45
+positions in turn while a square flickered at 12 Hz wherever the picture was
+white. The second panel is nothing but the relative strength of the 12 Hz
+response in the EEG at each position. It correlates with the picture at **r = 0.91**, and an
+automatic black/white threshold, which never sees the picture, gets **43 of
+45 positions right**. The same reconstruction from time-shifted EEG reaches at
+most r = 0.23.
 
-### 3. Start the app
-```
-cd eyecam
-python server.py            # or double-click start.bat; opens http://localhost:8765
-```
-Use **Chrome or Edge**, since only they support Web Bluetooth and Web Serial.
+*Run of 2026-10-01: Quest 3S browser, Muse headband (model MU-02) with an auxiliary
+electrode at Oz, 8 s per position, three passes, 18 minutes of scanning. A second run
+the same day with a larger square and two passes gave r = 0.87 and again 43 of
+45. One subject, one day.*
 
-### 4. Connect
-Click **Connect Muse** (top right) and pick your Muse (e.g. *Muse-0357*). The status
-should read **"streaming from Muse-… (Muse 2 / S gen 1)"** at about 256 Hz.
-If it won't connect, see *Troubleshooting* below. The fallback is
-`python server.py --muse` and then the **Python bridge** button.
-
-### 5. Check the signal (*Signal monitor* tab)
-- All four contact dots should be **green**. TP9 and TP10 should read below roughly 60 µV.
-  If not, re-wet, adjust the headset and wait 1–2 minutes for the sensors to settle.
-- Optional: tick **Flicker on** and stare at the patch for 10 s. A spike at the flicker
-  frequency should appear in the spectrum.
-
-### 6. Calibrate (*Calibration* tab) — about 2½ minutes
-1. Wait until the panel says **"Contact OK — ready"** or **"Ready with TP9"** (or TP10),
-   then press **Start calibration**. One ear with stable contact is enough. A channel that
-   keeps flickering no longer restarts the countdown. The analysis uses the better ear and
-   down-weights the other.
-2. The screen goes fullscreen. Press **SPACE**, then **keep your eyes on the dot**. A
-   square flashes on and off around it for 80 s. Stay still.
-3. Follow the spoken prompts: rest, blink, clench your jaw, swallow, turn your head.
-4. Read the **report**:
-   - **GO**: your brain response is measurable. Continue.
-   - **MARGINAL**: it works but slowly. Use the plan it gives (2+ passes), or improve
-     contact first.
-   - **NO-GO**: no usable signal. **Don't scan yet.** Fix contact (step 1) and recalibrate.
-5. Click **Apply to analysis**. This sets the analysis to the **Kalman-tracked SSVEP**
-   with masking off, plus the spatial filter if calibration found that it helps.
-   Optionally click **Save calibration**. Calibration is remembered by this browser.
-
-### 7. Take the picture (*Eye camera (raster)* tab)
-1. Click **Use calibrated scan plan**. This loads the letter **N**, the exact flicker
-   frequency for your display, and the cursor speed and number of passes.
-   (Without calibration: preset **Letter N**, and click **Use 14.49 Hz** if a refresh-rate
-   warning appears.)
-2. Press **Start imaging**. The screen goes fullscreen.
-3. For each scan line, press **SPACE**, then **follow the white dot** inside the flashing
-   square with your eyes until it stops. Rest and blink between lines.
-   - **R** in a break redoes the previous line.
-   - **ESC** finishes early. The image is built from the lines you completed.
-
-### 8. Read and save the result
-- The page shows the letter you looked at next to the **image reconstructed from your EEG**.
-  Below it:
-  - **validity**: how well the image matches the shown letter; above about 0.6 is readable.
-  - **split-half reliability**: how consistent the passes are.
-  - how much data was **masked** as artifact.
-- After calibration the image uses the **Kalman tracker** (see
-  [Kalman tracking](#kalman-tracking-of-the-ssvep)). To compare it with the paper's method,
-  set **SSVEP metric** → *Paper §III* and **Artifact masking** → *Calibrated thresholds*.
-  The image re-renders at once.
-- Click **Auto-tune analysis** to try FBCCA, coherent lock-in, the Kalman tracker,
-  masking and the spatial filter on your own recording, and apply whichever scores best.
-- Click **Save session (.json)**, which keeps raw EEG plus the stimulus log, and
-  **Save image (.png)**.
-
-### 9. Reprocess later
-**Review & reprocess** → load the `.json` → change any analysis setting and re-render.
-
-### No headset?
-Click **Simulator**. It produces synthetic Muse-like EEG (including realistic artifacts)
-whose SSVEP follows whatever flickers on screen, so every step above works end to end.
-**Review → Build a synthetic demo session** shows a finished reconstruction straight away.
-
-### Troubleshooting
-| Symptom | Cause and fix |
-|---|---|
-| "This Muse is in its BOOTLOADER" | Firmware-update mode, usually after a flat battery. Charge it, open the official Muse app to finish or restore the firmware, close the app, connect again. |
-| "No Characteristics matching UUID …" / headset disconnects while connecting | Windows has a stale Bluetooth cache. Remove the Muse in Windows Bluetooth settings and at `chrome://settings/content/bluetoothDevices`, power-cycle it, reconnect. Or use `python server.py --muse`. |
-| Contact never turns green | Re-wet the sensors, clear hair behind the ears, tighten the band, wait 1–2 min. |
-| One ear (e.g. TP10) keeps flickering red/green | You can still calibrate once the other ear is stable. To fix it, read the channel's hint. *Large swings* means the pad is moving: re-seat it on bare skin just above and behind the ear and make the band snug. *Muscle/interference* means relax your jaw, or the pad is touching hair. A pad that never settles may need a drop of saline. |
-| Calibration says NO-GO | The signal is too weak to image. Improve contact. For the biggest gain, add an Oz electrode on the AUX port (see below). |
-| Warning that the display can't make 15 Hz | Your monitor's refresh (e.g. 144.9 Hz) isn't a multiple of 30. Click **Use 14.49 Hz**, or set Windows to 60/120 Hz. |
-| Image is just noise | Check validity. If it's below about 0.3, scan slower or use more passes (more data per pixel), and recalibrate after fixing contact. |
-| "Quick demo" seems to do nothing | Presets only *load settings*. Press **Start imaging**. |
-
-### Three ways to get EEG in
-
-| Button | How | When |
-|---|---|---|
-| Connect Muse | Web Bluetooth, straight from the page. Detects the protocol: legacy (preset `p21`, or `p20` with AUX) or Muse S **Athena** (multiplexed 14-bit packets, preset `p1041`) | Muse 2016 / Muse 2 / Muse S gen 1 / Muse S Athena |
-| Python bridge | `python server.py --muse` runs `muselsl stream`, and the server forwards its LSL outlet over a WebSocket (`--model athena` forces the Athena protocol) | Web Bluetooth won't pair, or you already use muselsl |
-| Python bridge | `python server.py --lsl` joins any LSL `type=EEG` stream (BlueMuse, `mind2motor/run_muse.py --live`, …) | Something else already owns the headset |
-
-For better signal, plug an extra electrode into the Muse's micro-USB AUX port, place it
-over **Oz** (back of the head, on the midline), and tick **AUX/Oz** before connecting.
-That is the paper's setup. The Muse S Athena has no AUX port, so it always uses TP9/TP10. Run Calibration afterwards: if
-the Oz channel carries the strongest SSVEP, calibration selects it (Channels = AUX).
-*Channels = auto* otherwise means TP9 + TP10, which pick up a weaker occipital SSVEP.
-
-## Calibrate first (noise handling)
-
-On a Muse, signal quality is the bottleneck. A first real recording had almost no SSVEP,
-and only 15 % of its 4 s windows were artifact-free. So **Calibration** (about 2½ min) runs
-before imaging:
-
-1. **Contact gate.** TP9 or TP10 must stay below 100 µV peak-to-peak per second (and low
-   EMG) for at least 85 % of the last 10 s. One stable ear is enough.
-2. **SSVEP check.** 8 × (5 s flicker / 5 s off) while fixating a dot. Measures your SSVEP
-   amplitude and detectability d′ per channel, then trains a **spatial filter**: a
-   generalized eigenvector over all channels that can subtract the forehead-reference noise
-   shared by TP9/TP10 and AF7/AF8. The filter is cross-validated (train on odd cycles, test
-   on even) and adopted only if it wins on held-out data.
-3. **Artifact prompts.** Rest, blink, clench, swallow and turn your head. These set
-   personal thresholds for the **artifact mask**, which ignores only contaminated 0.25 s
-   blocks (muscle above 70 Hz, electrode shifts) instead of rejecting whole windows.
-4. **Report.** GO / MARGINAL / NO-GO, plus a scan plan for the letter N. A readable N
-   needs d′·√(seconds per pixel) ≈ 3.5, a figure taken from `noisebench.html`.
-
-Imaging then offers **repeat passes** (alternating direction, median-combined) and optional
-**per-line reference patches**. Every scan-line result reports **split-half reliability**
-(even vs odd passes; needs no ground truth) and **validity** against the displayed stimulus.
-**Auto-tune** scores metric × mask × spatial-filter variants and applies the best.
-
-What the simulated benchmark showed (`noisebench.html`, Muse-like artifacts):
-- Scan time and SSVEP strength dominate everything else.
-- Masking gives a small, mixed gain (about +0.04 validity on average).
-- The spatial filter helps a lot (×6.7 d′) only when reference noise dominates.
-  Calibration measures whether that is true for you.
-- FBCCA helps at very weak signals.
-- The Kalman tracker (below) beat all of these.
-
-### Kalman tracking of the SSVEP
-
-The windowed metrics compute each image column from its own fixed window. When an artifact
-hits, the whole window is lost, or the mask shrinks it. Metric **Kalman-tracked amplitude**
-(`web/js/kalman.js`) instead treats the SSVEP as a hidden state that changes slowly, like
-the intended velocity in a BCI decoder:
-
-- **Observation.** Once per flicker cycle (1/15 s), the EEG is demodulated against the
-  logged flicker phase. The result is the response's complex amplitude at the fundamental
-  and its 2nd harmonic.
-- **Model.** The amplitude follows a smooth trend (an integrated random walk). Each
-  cycle's measurement noise comes from the local EEG variance, so muscle bursts and
-  electrode pops are trusted less in proportion to how noisy they are. Nothing is cut
-  out with a hard threshold.
-- **Smoothing.** A forward Kalman filter plus a backward Rauch–Tung–Striebel pass gives a
-  zero-lag estimate at every cycle. It runs once over the whole recording. The power is
-  bias-corrected (|x|² minus its posterior variance), so dark areas sit near zero.
-
-Benchmark: `noisebench.html`, Muse-like artifacts, 10-line letter N, 3 seeds × 3 scan
-plans per level. Validity is the correlation with the shown letter:
-
-| SSVEP at Oz | Paper metric + calibrated mask (previous default) | FBCCA + mask + spatial filter | **Kalman, mask off** |
+| after | pass 1 | passes 1-2 | passes 1-3 |
 |---|---|---|---|
-| 1 µV | 0.16 | 0.05 | **0.28** |
-| 2 µV | 0.55 | 0.35 | **0.72** |
-| 3 µV | 0.78 | 0.70 | **0.89** |
+| correlation with the picture | 0.79 | 0.88 | 0.91 |
+| positions right after thresholding | 38 of 45 | 43 of 45 | 43 of 45 |
 
-- **Accuracy.** Kalman beat the previous default in 24 of 27 scans (mean +0.13 validity) and
-  in all 9 at 3 µV. Split-half reliability roughly doubled at 2–3 µV. At 1 µV it helps, but
-  the letter is still barely readable.
-- **Speed.** It is about 10× faster than FBCCA.
-- **Default after calibration**, with masking off. Adding the hard mask on top, plus a
-  spatial filter that calibration had not adopted, made it worse (0.45 at 2 µV), because
-  masked gaps throw away data the soft weighting already handles. A spatial filter that
-  calibration does adopt (it won on held-out data) is still used.
-- **Settings.** *Kalman smoothing* is the time constant; 0 derives it from the window, and
-  larger means less noise but softer edges. *Kalman model* is order 2 (sharper, the
-  default) or order 1. *Project on response phase* is an option on scan views.
-- **Limits.**
-  - These numbers come from the simulator; real Muse data is not tested yet. Auto-tune
-    will show whether the gain holds for your recordings.
-  - It does not beat the cursor-size blur. It gives a cleaner image for the same scan
-    time.
+What made the difference, after a month of images that were only weakly above
+chance, was getting four ordinary things right at once:
 
-## The experiments (paper → mode)
+1. **A picture that is a picture at scan resolution.** A word in a scalable
+   font, squeezed onto 48 positions, is a grey blob before any brain is
+   involved. The target is now a 4 by 5 pixel font, one position per pixel.
+2. **The paper's own scoring.** One spectrum over the whole dwell, power at
+   the flicker frequency plus its harmonic, divided by the 14 to 50 Hz power.
+3. **No vertical blend.** The paper's Eq. 1 is for overlapping scan lines; on
+   discrete positions it only smears rows together.
+4. **Repeat passes**, averaged per position.
 
-| Paper | Mode | What it does |
-|---|---|---|
-| §III, Fig. 1, 7, 8, 9 | **Eye camera (raster)** | A 100 px cursor slides across the image at 15 px/s, flashing yellow/blue at 15 Hz wherever the image is non-black. Each pixel is (P15+P30)/P(14–50 Hz), from the PSD over the 1700 samples (6.67 s) the cursor takes to pass it. The 48 overlapping scan lines are merged with eq. (1), f = 2x + x₁ + x₋₁ + (x₂+x₋₂)/2, then interpolated. Presets: *NO CAMERAS* (≈85 min, as in the paper), *face* (displayed rotated 90°, rotated back afterwards, ×2 gain), and *quick demo*. You can rest between lines (SPACE); R redoes a line. |
-| §III, Fig. 6 | **Mind's eye (free gaze)** | The whole image flickers at 12 Hz while the eyes raster across it. Eye position comes from a Tobii (`server.py --tobii`), a webcam (WebGazer), the mouse, or a guiding cursor (no tracker). A 1.5 Hz 6th-order Butterworth filter smooths eye X/Y. The result is Delaunay-interpolated and shown in viridis with pixel axes. Optional speed weighting and blink rejection come from the paper's future-work section. |
-| §II, Fig. 4 | **Visual field (metaveillance)** | Four light squares flicker at 12 Hz and move through the visual field. The live SSVEP sets an RGB LED from blue (weak) to red (strong). *On-screen sweep* needs no hardware; covert vs overt attention gives a narrow beam vs a broad cone, and it reports width in degrees and left/right hysteresis. The *3D plotter* option drives GRBL through vertical passes at 5 mm/s while retreating 0.5 mm/s from 4 to 21 cm. It then renders the side-view long exposure and the interpolated metaveillograph (a virtual plotter is included). |
-| Fig. 10, 11 | **Real-world rig** | Operator console for the two-tripod rig: metronome, spoken cues, pipe height per line, a marker showing where the light should be right now, and the Arduino flicker lamp. Reconstruction is the same as the raster mode. |
-| Fig. 12 | **Shutter-glasses chunks** | The scene is split into chunks, and each is fixated for 8 s under 15 Hz shutter glasses (Arduino-driven), cued by voice. You get one pixel per chunk. There is also an on-screen emulation. |
-| Fig. 13, 14 | **SSVEPVMP memory prosthetic** | The world flickers at 15 Hz (shutter glasses, flicker lamp, or a webcam video see-through). The SSVEP is tracked continuously, and moments of high SSVEP trigger a head-camera snapshot and are logged as detections. SPACE marks the moments you find interesting. The result is the normalized SSVEP trace with red bands at your marks and a hit rate (the paper reports 89 %). |
-| §III ("optimized…") | **Stimulus tuner** | Blocks of frequency × colour pairs, ranked by SNR. You can make the best one the default. |
-| §I-A, Fig. 2, 3 | **Camera metaveillance** | A video-feedback loop: whatever the camera under test sees drives the lamp (red bias → green → blue), with a time constant that produces the paper's response/"desponse" hysteresis. There is also a long-exposure camera (lighten/add) for photographing the lamp, or the brain-modulated LED of Fig. 4. |
-| — | **Review & reprocess** | Load saved sessions (`.json` holds raw EEG + stimulus log) and re-render them with any metric, window, channel set, interpolation or colormap. Export PNG / CSV. |
+![Colour flag and grey image reconstructed from EEG in VR](docs/figures/fig5_run2_images.png)
 
-**Analysis** (top bar) sets the defaults every mode uses: channels, metric (the paper's
-§III harmonic ratio, its §II "12 Hz vs rest" ratio, neighbour-bin SNR, absolute power,
-FBCCA, lock-in, coherent lock-in or the Kalman tracker), PSD method, harmonics, latency compensation and artifact rejection. Every result
-view can override them afterwards.
+*Run of 2026-09-29, same setup. Bottom row: a red/green/blue flag shown with
+each colour flickering at its own frequency, and the colour image rebuilt from
+three spectral lines in the EEG; all 24 cells come back with the right
+dominant colour.*
 
-## Hardware (optional)
+## The idea, and the paper behind it
 
-- **Arduino**: flash `firmware/eyecam_io/eyecam_io.ino`, then *Hardware → Connect*. It
-  drives:
-  - the brain-modulated RGB LED (pins 9/10/11),
-  - a flickering lamp through a MOSFET (pin 6),
-  - LC shutter glasses, with each lens across pins 2/3 and 4/5 and alternating polarity.
+A light that flickers at a steady rate makes visual cortex oscillate at the
+same rate. That response, the **steady-state visual evoked potential (SSVEP)**,
+shows up in EEG over the back of the head as a narrow spectral line at the
+flicker frequency, and it is larger when the flickering patch is brighter.
 
-  Serial protocol: `C r g b`, `F hz`, `L 0|1`, `S hz`, `X`.
-- **GRBL plotter**: *Hardware → Connect*. Jog the display to the eye position, click
-  *Zero here (eye)*, and pick the axis mapping in the Visual-field mode.
-- **Phone as the moving display (Fig. 4)**: run `python server.py --lan` and open the
-  printed `http://<pc-ip>:8765/flicker.html?f=12&pattern=quad` on the phone. `flicker.html`
-  also works as a full-screen light source for the rig.
+Mann and colleagues turned that into a camera. A small flickering square is
+moved over a scene while the subject follows it with their eyes. At each
+position the strength of the EEG line is one pixel. The eye and brain are the
+sensor; the picture is assembled from brainwaves alone. The paper used a Muse
+headband modified with an extra occipital (Oz) electrode in a 3D-printed
+holder, a 100 by 100 pixel square, about 6.7 s per point, 15 Hz flicker (moved
+up from 12 Hz to stay clear of the alpha rhythm), a chin rest, and 48
+overlapping scan lines blended by a small vertical kernel (their Eq. 1). It
+also names the chirplet transform as a future direction for estimating the
+evoked response.
+
+The point of the original work is as much about integrity and trust as about
+imaging: if the eye itself is the camera, the record of what was seen is tied
+to a living observer.
+
+## What this repository adds
+
+- **A complete, gated pipeline** from stimulus to image, with a hardware-free
+  synthetic subject as a positive control and shifted-EEG reconstructions as a
+  negative control for every result.
+- **A browser stimulus that runs anywhere**, including the Meta Quest browser,
+  driven by a Python process on a PC. No app install on the headset.
+- **A legible grey image on consumer hardware**: the paper's whole-dwell
+  power ratio as the pixel value, a pixel-font target, repeat passes, and a
+  scan that pauses and redoes a position when the EEG stream drops.
+- **An exact-frequency line detector** with an exact permutation test, which is
+  about eight times more sensitive than 1 Hz-bin band power and is what first
+  found the response on a Muse. It decides the calibration gate; the image
+  itself is scored with the paper's ratio.
+- **Subject calibration tools**: an electrode check (eyes-closed alpha), a
+  frequency sweep that finds where this subject actually responds, and a
+  delivery check that voids a run if the flicker was not really on screen.
+- **Frequency-tagged colour**: red, green and blue flicker at three different
+  frequencies at once, and the three EEG lines become the three colour planes.
+- **A 40 Hz-tagged music stage** for the auditory steady-state response
+  ("ear as a level meter").
+- An honest record of what works and what does not yet.
+
+## What you need
+
+| item | notes |
+|---|---|
+| Muse 2 / Muse S / Muse Athena | any model that streams raw EEG |
+| **Oz auxiliary electrode** | the Interaxon aux cup on micro-USB (Muse 2/S) or USB-C (Athena). This matters: without it we never detected a response. Place it two finger-widths above the bump at the back of the skull, on the midline, hair parted |
+| Phone with **Mind Monitor** (or the lab's MuseLog app) | streams `/muse/eeg` over OSC/UDP, with the aux channel enabled |
+| PC with Python 3.10+ | runs the driver and the analysis |
+| Display | a laptop screen, or a Quest headset on the same Wi-Fi |
+
+```
+pip install -r requirements.txt
+```
+
+**Safety.** The stimulus is full-contrast flicker between 7 and 20 Hz. Do not
+use it with anyone who has photosensitive epilepsy or a history of seizures,
+and stop if you feel unwell.
+
+## Try it with no hardware
+
+The phantom subject reads the stimulus log and injects a synthetic response
+into the same UDP port a real headband would use, so the whole stack runs
+end to end:
+
+```
+python gate_test.py                       # offline maths check
+python xr_session.py --mode full --session runs/demo --osc-port 5001 --freq 15 \
+    --grid-w 6 --grid-h 4 --spc 2 --calib-blocks 5 --calib-on 5 --calib-off 5 \
+    --color-freqs 7.5,10,15 --color-grid-w 4 --color-grid-h 3 --color-spc 3
+python phantom_subject.py --session runs/demo --port 5001       # second terminal
+# then open http://localhost:8082/?auto=1 in a browser
+```
+
+## Run it for real
+
+1. Put the Muse on, attach the Oz cup, and start Mind Monitor. Set OSC
+   streaming to the PC's IP, port 5000. The driver prints the address to use.
+2. Start a session on the PC (examples below). It serves the stimulus page on
+   port 8082.
+3. Open `http://<PC-IP>:8082/` on the display: a laptop browser tab, or the
+   Quest browser. The page shows live electrode contact, waits for good signal,
+   then says READY.
+4. Look at the white dot and click, press a key, or pull the controller
+   trigger. The click also switches the page to full screen.
+
+**No phone? Connect the Muse to the PC directly.** Add `--muse` to any
+`xr_session.py` command. The session then connects to the headset over the PC's
+Bluetooth with `muselsl` (reconnecting after contact glitches) and records it
+straight from LSL, with no Mind Monitor and no OSC. Use `--muse-model athena` for a Muse S
+Gen 3, and `--no-aux` if nothing is plugged into the aux port. `--lsl` instead
+records an EEG stream another program already publishes, for example
+`muselsl stream` or mind2motor's `run_muse.py --live`. `lsl_to_osc.py` turns
+such a stream into `/muse/eeg` OSC for tools that only listen for OSC.
+
+```
+python xr_session.py --muse --mode alpha --session runs/alpha1 --calib-blocks 4 --calib-on 20 --calib-off 20
+```
+
+Recommended order for a new subject:
+
+```
+# 1. Is the Oz electrode on occipital scalp? (3 min, eyes open/closed on beeps)
+python xr_session.py --mode alpha --session runs/alpha1 --calib-blocks 4 --calib-on 20 --calib-off 20
+
+# 2. Which flicker frequency does this person respond to? (5 min)
+python xr_session.py --mode sweep --sweep 7.5,10,12,15,20 --calib-blocks 4 \
+    --calib-on 8 --calib-off 8 --calib-style bw --calib-size 1 --session runs/sweep1
+
+# 3. Full session at the best frequency: calibration gate, grey image,
+#    colour calibration, colour image, music (13 min)
+python xr_session.py --mode full --session runs/full1 --freq 12 \
+    --grid-w 8 --grid-h 6 --spc 6 --calib-blocks 6 --calib-on 8 --calib-off 8 \
+    --calib-style bw --calib-size 1 --color-freqs 7.2,9,12 --target text:NO
+```
+
+### After calibration: choose the picture
+
+In `--mode visual`, once the calibration gate has run, the page asks which
+picture to scan. Click a button, or press 1 or 2:
+
+1. **Black & white**: the original scan (`--target`, `--spc`, `--passes`), for
+   example the pixel-font "NO".
+2. **Black, white & blue**: the frequency-phase coded colour scan
+   (`--bwb-*` options, see below).
+
+The prompt also says whether calibration found a clear response.
+`--choice bw` or `--choice bwb` skips the prompt, and `?auto=1` takes black & white.
+
+```
+python xr_session.py --muse --mode visual --freq 12 --target pix:NO --spc 8 --passes 3 \
+    --calib-blocks 6 --calib-on 8 --calib-off 8 --calib-style bw --calib-size 1
+```
+
+Each run now gets its own folder, `runs/<date-time>_<mode>`, unless
+`--session` names one. Previously every run went to `runs/xr1` and the next
+run overwrote its `eeg.csv`.
+
+### How the black & white image is computed
+
+`--recon-method paper` (the default) follows Mann et al. 2019, Sec. III
+exactly:
+
+1. **Window.** One power spectrum per position, over a **1700-sample window**
+   (6.64 s at 256 Hz, the paper's "time it takes the cursor to pass over a
+   point"), centred on the visit. A shorter dwell uses the whole dwell.
+2. **Score.** (P(f) + P(2f)) divided by **all** the power from 14 to 50 Hz.
+   No artifact clipping and no bins left out.
+3. **Eq. 1.** f(x) = 2x + x1 + x-1 + (x2 + x-2)/2 over the rows above and
+   below. Rows missing at the image edge are left out and the weights
+   renormalised.
+
+`--no-eq1` skips step 3. `--recon-method upstream` is this repository's
+scoring as published (the whole dwell, artifact clipping, signal bins out of
+the denominator, no Eq. 1). It gives exactly the published code's numbers:
+checked cell by cell against `origin/main`, with zero difference.
+
+The repository's `config.VERTICAL_KERNEL` was `[.5, .5, 1, .5, .5]`. That gives
+the ±2 rows twice the paper's weight, and it is now `[.5, 1, 2, 1, .5]`.
+
+Every black & white run prints and saves `r` for the chosen method, for
+"paper, no Eq. 1" and for "upstream", plus the time-shifted (chance) values.
+Eq. 1 is meant for overlapping scan lines; on a 5-row pixel font it blurs the
+rows together. On the phantom, r was 0.46 with Eq. 1 against 0.57 without, so
+the comparison numbers show what step 3 costs.
+
+The result is the four-panel figure of the published "NO",
+`reconstruction_figure.png`: the picture shown, one value per position from
+the EEG (r), the same values interpolated, and an automatic (Otsu)
+black/white threshold with the count of positions it gets right. It is also
+shown on the page. `python nofigure.py --session runs/<name>` redraws it.
+
+### Why is my image worse? (`diagnose.py`)
+
+```
+python diagnose.py --session runs/<name>
+```
+
+For every channel it reports the SSVEP itself: the exact-line SNR at the
+flicker frequency during the ON and OFF blocks, next to the published runs
+(best channel 54 and 192). It also reports broadband noise, 60 Hz pickup,
+the share of seconds with large swings, and the alpha peak. It ends with a
+verdict: weak SSVEP, Oz electrode not working, artifacts, or mains.
+
+With `--muse` the recorder now writes the phone app's libmuse scale (0 to
+1650 uV, resting near 850). Before, it wrote muselsl's microvolts centred on 0,
+which the contact check (`channel_quality`) read as "stuck at the rail".
+
+### The legible-"NO" settings in one flag (`--legible`)
+
+`--legible` sets the published run's settings plus a bigger flicker:
+`--target pix:NO --freq 12 --spc 8 --passes 3 --patch 1.5 --calib-style bw
+--calib-size 1 --calib-blocks 6 --calib-on 8 --calib-off 8`. Any of these
+typed explicitly wins, and no default changes without the flag. The scan
+takes about 18 minutes plus calibration.
+
+```
+python xr_session.py --muse --legible
+python xr_session.py --muse --legible --mask-blinks
+```
+
+### Blinks and closed eyes (`--mask-blinks`, off by default)
+
+With the eyes shut there is no visual input, so the SSVEP is genuinely
+absent. Those stretches are treated as **missing data**: left out, never
+filled in. `blinkmask.py` detects them:
+
+- **Blinks.** AF7/AF8 filtered to 0.5-10 Hz deviating more than `--blink-uv`
+  (default 100 uV).
+- **Closed eyes.** 8-12 Hz power on Oz (AUX), in 2 s windows, above
+  `--alpha-ratio` (default 3) times the eyes-open baseline for at least
+  `--closure-min-s` (default 1 s). The baseline is the calibration OFF blocks.
+  The flicker and its harmonic are cut out of the band (±1 Hz). When the
+  flicker leaves less than 2 Hz of the band (for example 10 Hz on a 60 Hz
+  screen), closure detection switches itself off and says so. Without an Oz
+  channel it is off too; blinks are still masked.
+- **Margin.** Every masked stretch grows by `--margin-s` (default 0.2 s) on
+  each side.
+
+**Scoring.** Each position's paper ratio is computed from the valid samples
+only. The periodograms of the valid pieces are averaged, weighted by length
+(Welch-style), and the ratio itself is unchanged. With nothing masked the
+score is exactly the unmasked one. The masked fraction of every visit is
+saved in `masking.json`. A visit more than `--mask-limit` (default 0.35)
+masked is left out. The time-shifted chance runs are masked the same way:
+the mask moves with the EEG.
+
+**Live redo.** During the scan the driver tracks masked time at the current
+position. Past the limit, the page drops the position and shows it again,
+through the same path as a stream drop ("blink / eyes closed - showing this
+position again"). Each position is redone at most `--max-redo` times
+(default 2).
+
+#### Envelope tool: check the response and the blink detector by eye
+
+```
+python analysis/envelope.py runs/<session>                         # Oz, peak detector
+python analysis/envelope.py runs/<session> --channels TP9,TP10 --smoother hilbert --harmonic
+python analysis/envelope.py runs/<session> --t0 60 --t1 150 --rectify square --smoother lowpass
+```
+
+Processing: drift removal, a 60 Hz notch, then a zero-phase order-4
+band-pass at the delivered f ± `--bw` (and 2f with `--harmonic`). The signal
+is rectified (`abs`/`square`) and smoothed: `peak` (decay `--tau`, default
+0.5 s), `lowpass`, or `hilbert`. The plot shades calibration ON blocks and
+the bright scan cells, and marks masked stretches in red.
+
+#### Rescoring and the gate
+
+```
+python analysis/rescore_blinks.py runs/a runs/b      # with / without masking
+python blink_gate.py                                 # synthetic end-to-end check
+python phantom_subject.py --session runs/<s> --port 5001 --aux --blinks 12 --closures 1
+```
+
+`rescore_blinks.py` reports, per session, r, the positions right after the
+threshold, the maximum shifted-EEG r, and the masked fraction per position.
+It covers three arms: unmasked, masked, and "keep-all" (masked samples left
+out, no position dropped). Use keep-all for sessions recorded without the
+live redo: a dropped position there has no second visit to replace it.
+
+Measured so far, on synthetic data only:
+
+| Test | Masked | Unmasked | Clean, no blinks |
+|---|---|---|---|
+| `blink_gate.py` (one pass, 15 blinks/min, 2 closures/min, with redos) | r = 0.869 | 0.861 | 0.871 |
+| Live phantom with blinks and closures, 1 pass, 3 s per position | r = 0.85 (Eq. 1), 0.95 (no Eq. 1) | — | — |
+
+In the live phantom run, 5 positions were redone and the chance runs stayed
+at or below 0.22. Masking matches the no-blink image. In these simulations the
+blinks barely touch the scored channels, so the gain over not masking is
+small. Real blink and jaw artifacts on TP9/TP10/Oz are what it is for. It is
+not yet tested on real recordings.
+
+### Modes of `xr_session.py`
+
+| `--mode` | what it runs |
+|---|---|
+| `alpha` | eyes-open / eyes-closed blocks; reports the alpha peak per channel |
+| `sweep` | full-field flicker at several frequencies, scored per frequency |
+| `calib` | the calibration gate only |
+| `visual` | calibration gate, then a single-square scan and reconstruction |
+| `full` | `visual` plus colour calibration, colour scan and tagged music |
+| `extras` | colour and music only, reusing an existing `calibration.json` |
+| `mux` | three squares per dwell, each with its own tag frequency |
+| `music` / `assr` | the 40 Hz auditory stage on its own |
+| `bwb` | black / white / blue: frequency-phase coded colour, decoded with FBCCA (see below) |
+
+Useful options: `--freq` flicker frequency, `--grid-w/--grid-h` positions,
+`--spc` seconds per position, `--patch` square size independent of the grid
+(`0` = one grid cell, `1.0` = a 6 by 4 cell), `--calib-style bw` white/black
+flicker, `--color-freqs` the three colour tags, `--page-token` to ignore stale
+browser tabs, `--osc-port 5000,5001` to merge two headbands.
+
+Added on 2026-10-01: `--target pix:NO` draws the word in a 4 by 5 pixel font,
+one scan position per pixel (`pixgrad:NO` puts the last letter at half grey);
+`--passes N` repeats the grey scan and averages repeat visits;
+`--recon-method paper` (now the default) scores a position with one spectrum
+over the whole dwell, as the paper does; `--board` shrinks the board so a
+large `--patch` is not clipped at the edges; `--vblend` turns the paper's
+Eq. 1 vertical blend back on (it is for overlapping scan lines and is off by
+default); `--pc-audio` plays the tagged music on this computer's default
+output instead of the headset. A scan pauses when the EEG stream goes silent
+for 3 s and redoes the interrupted position when it returns.
+
+The run that produced the legible image:
+
+```
+python xr_session.py --mode visual --freq 12 --target pix:NO --spc 8 --passes 3     --calib-blocks 6 --calib-on 8 --calib-off 8 --calib-style bw --calib-size 1
+```
+
+### Black, white and blue (`--mode bwb`)
+
+Each colour has its own code. A white cell flickers white/black at code 0, a
+blue cell flickers blue/black at code 1, and a black cell does not flicker. A
+code is a **frequency plus a phase** (hybrid frequency-phase modulation, as in
+JFPM spellers). Its phase restarts at every cell, so the response arrives with
+a known phase. `bwb.py` scores each cell two ways:
+
+- **FBCCA** (filter-bank CCA, Chen et al. 2015) at each code's frequency, using
+  all channels in three sub-bands. It ignores phase.
+- **A phase template match:** the cell's response at f and 2f, measured
+  relative to the code's phase and projected onto the response recorded for
+  that code during calibration.
+
+The session first shows shuffled black, white and blue calibration blocks on
+one scan-sized patch. A shrinkage LDA learns from them which mix of the four
+scores separates the three classes, and it is cross-validated by leaving one
+block out at a time. Then it scans the picture and colours every cell black,
+white or blue.
+
+```
+python xr_session.py --muse --mode bwb --bwb-target bands --bwb-codes 12:0,9:180
+python bwb.py --session runs/<session>          # re-decode a recorded session
+```
+
+| Option | What it does |
+|---|---|
+| `--bwb-codes` | `Hz:deg` pairs for white and blue. The page snaps each to whole display frames and decodes at the delivered values. A 60 Hz screen gives 10 Hz @ 0° and 7.5 Hz @ 180°. The same frequency with different phases, e.g. `12:0,12:180`, also works. |
+| `--bwb-target` | `bands` (default), `checker`, `text:X`, `pix:X` (white on blue with black rows), or an image file snapped to the three colours |
+| `--bwb-fg`, `--bwb-bg` | Glyph and background colour for `text:`/`pix:` targets, with a one-cell background margin. For example `--bwb-target pix:N --bwb-fg blue --bwb-bg white` is a blue N on white, 7×6 cells. |
+| `--bwb-grid-w/-h`, `--bwb-spc`, `--bwb-passes` | Scan size, seconds per cell, repeat passes |
+| `--bwb-reps`, `--bwb-on` | Calibration blocks per colour, seconds per block |
+| `--bwb-channels` | Channels to decode, e.g. `TP9,TP10,AUX`. Default: all |
+
+The result is `reconstruction_bwb.png`, plus `bwb_result.json` with the
+calibration CV accuracy, the scan accuracy and the confusion matrix.
+
+Tested offline only:
+
+- **Synthetic phase-locked EEG**, 6×4 bands, 3 seeds: 90 % of cells right at
+  moderate noise and about 70 % at high noise (chance 33 %).
+- **Which score helps.** FBCCA alone got 42–45 %. The phase template carried
+  most of the accuracy. Synthetic responses are perfectly phase-locked, which
+  flatters the template; with real timing jitter FBCCA matters more, and the
+  LDA weights the two from your own calibration.
+- **Phantom subject**, whole session through the browser page: 83 % of 24 cells
+  with 2 calibration blocks per colour.
+- **Not yet run on a real headset.**
+- **Blue is the weak class.** Blue is dim, so it drives a smaller SSVEP than
+  white, and blue cells are the ones that drift to "black" first. Longer cells
+  (`--bwb-spc`), more calibration blocks and the Oz electrode all help.
+
+### Running in a Quest headset
+
+```
+adb shell setprop debug.oculus.refreshRate 72     # 12 Hz = 3 frames on / 3 off
+adb shell setprop debug.oculus.guardian_pause 1   # the boundary dialog hides the browser
+python xr_session.py --mode full --page-token vr1 ...
+adb shell am start -a android.intent.action.VIEW -d "http://<PC-IP>:8082/?k=vr1" com.oculus.browser
+```
+
+Push the page after the headset is on the head; a sleeping Quest does not load
+it. Pick tag frequencies that are a whole number of frames at the panel rate:
+at 72 Hz that is 7.2, 9 and 12 Hz; at 90 Hz it is 7.5, 9, 11.25 and 15 Hz. The
+page measures the panel rate and reports the frequency it actually delivers,
+and scoring uses that.
+
+## How a result is decided
+
+- **Pixel value (the paper's ratio).** For each scan position, one Hann
+  periodogram over the whole dwell; the pixel is the power at the flicker
+  frequency plus its first harmonic, divided by the power from 14 to 50 Hz
+  with the signal bins and the mains line left out.
+- **Line detector.** For each calibration block, one Hann periodogram over
+  the whole window; the score is the power at the delivered flicker frequency
+  divided by the power 0.5 to 2 Hz either side.
+- **Calibration gate.** Flicker-ON blocks against black OFF blocks, statistic is
+  the best channel's mean log-ratio difference, significance by enumerating
+  every relabelling of the blocks. With 6 + 6 blocks the smallest possible p is
+  0.0011; the gate is p < 0.01. The per-channel differences become the channel
+  weights for the image.
+- **Delivery gate.** If the page logged fewer than 20 frames per second or too
+  few flicker edges, the run is void, not negative. A hidden browser tab is
+  throttled to one frame per second and looks exactly like "no response".
+- **Image null.** Every reconstruction is repeated with the EEG circularly
+  shifted by several offsets. The image counts only if it beats those.
+- **Decoder comparison.** `analysis/decoders_compare.py` scores the same scan
+  with the paper's band-power ratio, the line detector and CCA, each against
+  its own nulls.
+
+## Results so far (one subject)
+
+| finding | evidence |
+|---|---|
+| The Oz cup sees occipital cortex | eyes-closed alpha peak at 10.5 Hz, 8.4 times the eyes-open power on Oz, 2.5 times behind the ear |
+| This subject responds at 7.5 to 12 Hz, not at 15 or 20 Hz | laptop sweep: Oz line ratio 9.0 at 10.4 Hz and 5.9 at 11.4 Hz against 1.0 with the screen off; nothing at 20 Hz |
+| The response is reproducible in the Quest browser | 12 Hz calibration gate passed at p = 0.0011 in three of three runs on 2026-09-29 |
+| Frequency-tagged colour works | flag planes correlate at R 0.75, G 0.86, B 0.90; 24 of 24 cells with the right hue; shifted nulls reach at most 58% |
+| Grey images are weakly above chance with a scalable-font target | 8 by 6 positions at 6 s: r = 0.41 to 0.49, nulls up to 0.48. Not legible, and the target itself was a blob at that resolution |
+| A pixel-font "NO" is legible (2026-10-01) | 9 by 5 positions, 8 s each: r = 0.91 after three passes (0.79, 0.88, 0.91 by pass; nulls up to 0.23) and r = 0.87 after two passes with a square 4.6 times larger (nulls up to 0.35). 43 of 45 positions right after an automatic black/white threshold in both runs |
+| A larger square did not help | at two passes each: 0.87 large against 0.88 paper-sized. Electrode contact differed between the runs, so this is not a clean comparison |
+| The image survives a bad calibration | with Oz off the scalp for the first two calibration blocks its weight fell to 0.26; re-weighting (Oz 0.49, Oz only, all equal) moves r between 0.91 and 0.92. Ear electrodes alone give 0.36 |
+| The paper's scoring beats the line detector and ACT here | on three earlier scans the whole-dwell ratio gave the best or tied-best per-position accuracy; chirplet fits and a classifier trained on the other runs were no better |
+| Only the fixated square counts | with three tagged squares on screen, the one under fixation responds and the two a third of the panel away do not |
+| Smaller squares are not higher resolution | 12 by 8 cell-sized squares at 8 s give a line below the noise flanks; the response scales with flickering area |
+| Colour on 2026-10-01, an hour into the session | 15 of 24 cells with the right hue (planes R 0.38, G 0.28, B 0.70); Oz response had dropped from 192 to 5.5 at 12 Hz |
+| 40 Hz tagged music | not detected through headset speakers (p = 0.13 to 0.69), nor with the cup at the vertex and headphones (19 tagged and 19 plain blocks, p = 0.32; any response is below about 0.3 uV) |
+
+![Response curve and spectrum](docs/figures/fig3_response_curve.png)
+
+![Calibration blocks in VR](docs/figures/fig6_run2_calibration_blocks.png)
+
+!["NO" read from the EEG, per pass](docs/figures/fig11_pix_NO.png)
+
+The practical consequence: Mann's choice of 15 Hz is right for staying clear of
+alpha but is on the weak side of this subject's response curve, and a stock
+Muse without the Oz electrode showed no detectable response at all. Measure the
+subject first. Shrinking the square does not buy resolution, and on the one
+day it was tried a larger square did not buy signal either; what moved the
+grey image from weakly above chance to legible was a target that survives the
+scan grid, the paper's scoring, no vertical blend, and repeat passes. Nearly
+all of the image comes from the Oz electrode: on its own it gives r = 0.92,
+the ear electrodes alone give 0.36.
+
+Raw EEG recordings are not in the repository. Figures are in `docs/figures`
+and the small result files for each session are in `docs/results`.
+
+## Things that will waste your evening
+
+- A browser tab that is not in front draws one frame per second. Keep the page
+  visible; the driver follows whichever tab is visible and ignores the rest.
+- An orphaned recorder holding UDP 5000 silently eats the stream.
+- Counting frames drifts when frames drop. The flicker phase is taken from the
+  vsync timestamp with a whole-frame half period instead.
+- A refresh rate measured as a mean over a few frames read 208 Hz on a 240 Hz
+  panel. The page uses the median frame interval after a warm-up.
+- Full screen must be requested inside the click handler or the browser
+  refuses it. A controller button seen through the Gamepad API starts the run
+  but cannot request full screen.
+- Text targets are thresholded so every lit square flickers at full contrast;
+  the grey edge cells of an anti-aliased glyph give weaker lines.
+- Neck tension puts broadband muscle noise on the Oz channel. Support the head.
+- For audio the cup belongs at Cz, the top of the head, with earbuds.
+- A word rendered in a scalable font and downsampled to a few dozen positions
+  is not a word any more. Use the `pix:` targets.
+- A phone that dozes with its screen off firewalls the streaming app. On
+  Android: `adb shell dumpsys deviceidle whitelist +<package>` and keep it on
+  a charger with the screen awake.
+- `adb shell am start -d` loses everything after `?` unless the whole command
+  is one quoted string: `adb shell "am start ... -d 'http://host:8082/?k=tok' ..."`.
+- If the PC changes Wi-Fi network mid-session its address changes, and both the
+  headset page and the EEG sender have to follow.
 
 ## Files
 
+| file | role |
+|---|---|
+| `xr_session.py` | browser-path driver: recorder, gates, all modes, scoring, reconstruction, WebSocket and HTTP server |
+| `xr_stimulus.html` | the stimulus page: frame-exact flicker, scans, colour and multiplexed scans, tagged music, arm gate |
+| `reconstruct.py` | per-position scoring (band power or line detector), grey, colour and multiplexed reconstruction, shifted nulls |
+| `run_session.py` | the original laptop orchestrator in pygame; also the permutation gate and legacy calibration score |
+| `osc_acquire.py` | records `/muse/eeg` on UDP to CSV, 4 to 8 channels |
+| `nofigure.py` | the four-panel "shown / from EEG / interpolated / thresholded" figure for a grey scan |
+| `blinkmask.py` | blink (AF7/AF8) and eye-closure (Oz alpha) detection; valid-sample mask for scoring |
+| `blink_gate.py` | gate: masked image with blinks no worse than without blinks; masked nulls at chance |
+| `analysis/envelope.py` | SSVEP envelope over time with blocks, scan cells and masked stretches |
+| `analysis/rescore_blinks.py` | rescore recorded sessions with / without masking |
+| `diagnose.py` | per-channel SSVEP, noise, artifacts and Oz check against the published runs, with a verdict |
+| `bwb.py` | black / white / blue decoder: frequency-phase codes, FBCCA + phase templates, shrinkage LDA |
+| `muse_stream.py`, `lsl_to_osc.py` | Muse over this PC's Bluetooth via muselsl (`--muse`), and an LSL-to-OSC bridge |
+| `phantom_subject.py` | synthetic subject for end-to-end tests, including colour tags and audio |
+| `targets.py` | text, pixel-font, image and colour targets |
+| `pc_audio.py` | the 40 Hz tagged music played on the PC's audio output |
+| `analysis/run_both.py` | runs two scan variants back to back and pushes the page to the Quest |
+| `analysis/rescore_paper.py`, `decoder_bakeoff.py`, `pix_runs_figure.py` | re-scoring of past scans, decoder comparison, and the per-pass figure |
+| `config.py` | shared parameters |
+| `spectator_bridge.py`, `spectator.html` | live mirror of a session for a second screen or headset |
+| `analysis/decoders_compare.py` | band power vs line detector vs CCA with nulls |
+| `analysis/g1_diag.py`, `g1_fine.py`, `g1_line.py` | calibration diagnostics |
+| `analysis/make_result_figures.py`, `make_run2_figures.py` | the figures in `docs/figures` |
+| `analysis/cca.py`, `act_chirplet.py`, `lock_in.py`, `baseline_preproc.py` | the earlier decoder campaign on stock-Muse recordings |
+| `analysis/patches/` | one-shot patch scripts, kept as a record of how the code changed |
+| `claim_gates.py`, `gate_test.py`, `osc_gate.py`, `full_gate.py`, `webgate.py` | pass/fail gates for the maths, the UDP ingest and the full stack |
+| `PLAN_NEXT.md` | research plan, campaign verdicts and the dated status log |
+| `EYECAMXR_CHECKLIST.md` | checklist for the native Quest app, which lives in a separate Unity project |
+
+## The laptop path without a browser
+
+`run_session.py` is the original six-stage flow in one pygame window: recorder,
+signal check, calibration, guided-cursor scan, reconstruction, result.
+
 ```
-server.py                  static server + LSL/Tobii → WebSocket bridge (+ muselsl supervisor)
-firmware/eyecam_io/        Arduino sketch for LED / lamp / shutter glasses
-web/index.html             the app
-web/flicker.html           standalone flicker source (phone / 2nd screen)
-web/tests.html             DSP, decoder, masking, spatial-filter and reconstruction self-tests
-web/bench.html             SSVEP metric benchmark; web/noisebench.html: calibration + noise-handling benchmark
-web/js/artifacts.js        0.25 s artifact masking (auto or calibrated thresholds)
-web/js/kalman.js           Kalman/RTS tracking of the SSVEP amplitude (metric 'kalman')
-web/js/calib.js            calibration analysis: SSVEP d′, cross-validated spatial filter, thresholds, scan plan
-web/smoke.html             drives the whole UI with the simulator (every mode, live)
-web/js/dsp.js              FFT, Welch/periodogram, SSVEP metrics, Butterworth, filtfilt
-web/js/recon.js            eq. (1), scan-line / gaze / chunk / timeline / field reconstruction
-web/js/interp.js           Delaunay, interpolation, colormaps
-web/js/sources.js          Muse Web Bluetooth, Python bridge client, simulator
-web/js/stage.js            fullscreen stimulus stage + frame-locked flicker clock
-web/js/modes/*.js          one file per experiment
+python run_session.py --source osc --preset quick --target "text:NO"     # Mind Monitor / MuseLog over Wi-Fi
+python run_session.py --source lsl --preset quick --target "text:NO"     # muselsl over PC Bluetooth
+python run_session.py --source phantom --preset quick                    # no hardware
 ```
 
-## Tested / not tested
+Presets: `quick` 12 by 8 at 4 s, `standard` 16 by 12 at 5 s, `fine` 24 by 18
+at 6 s. This path still uses 15 Hz and the band-power score by default; for a
+new subject use the browser path's sweep first.
 
-- `tests.html` passes 19/19. It checks the FFT/PSD scaling, the Butterworth response
-  (−3 dB at 1.5 Hz), filtfilt, Delaunay and the eq. (1) weights. It also runs end-to-end
-  reconstructions from synthetic EEG: raster r = 0.80, free-gaze r = 0.76 and chunks
-  r = 0.74 against ground truth, a VMP hit rate of 100 %, and the field-profile peak.
-  The Kalman tracker is checked on an amplitude step through a muscle burst (0.31 / 2.35 /
-  1.74 µV for true 0 / 2 / 2).
-- `smoke.html` runs every mode live against the simulator with no errors.
-- The Python bridge was tested with a fake LSL Muse stream.
-- **Not yet tested with a real headset.** The Web Bluetooth path follows muselsl's protocol
-  exactly. If it will not pair, use `python server.py --muse`, the same muselsl route that
-  `mind2motor` already uses on this machine.
+## Where this is going
 
-Practical notes:
-- LCD pixel timing makes the flicker less pure; the paper points this out too.
-  Frequencies that divide your refresh rate evenly give exact square waves. Signal monitor
-  lists them (at 60 Hz: 6, 7.5, 10, 12, 15, 20, 30 Hz).
-- A dry-electrode Muse without Oz gives a weaker SSVEP than the paper's Oz setup. If
-  images look noisy, use slower cursors or longer windows, and try the tuner.
+- Repeat the legible "NO" on another day and another subject, then scale it:
+  more letters, more positions, grey levels (`pixgrad:`), and a real
+  photograph.
+- The inverse geometry: the whole panel flickers through the image as a mask
+  while the subject fixates position by position.
+- Chirp-coded flicker matched with the adaptive chirplet transform, the
+  direction the paper itself points to.
+- Audio with a continuous 40 Hz modulated tone or click train; tagged music
+  through headphones with a vertex electrode gave nothing.
+- A note for the paper on security: every gate here is a public function of the
+  stimulus log, and the phantom subject passes all of them. Anything a verifier
+  can check from the stimulus alone, a forger who knows the stimulus can
+  synthesize, so a brain response is a liveness signal only when the sensor
+  itself is attested.
+
+## Citing
+
+S. Mann et al., "The Human Eye as a Camera," IEEE HealthCom 2019.
+S. Mann et al., "Eye itself as a camera: Sensors, integrity, and trust,"
+WearSys 2019, doi 10.1145/3325424.3330210.

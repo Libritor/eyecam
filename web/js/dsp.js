@@ -123,7 +123,6 @@ export const METRICS = {
   fbcca: 'FBCCA: filter-bank CCA, all analysis channels',
   lockin: 'Lock-in power vs. the logged flicker phase',
   coherent: 'Coherent lock-in (phase-tracked; best for short windows)',
-  kalman: 'Kalman-tracked amplitude (RTS-smoothed; soft artifact weighting)',
 };
 
 // SSVEP magnitude from a spectrum, per the paper's definitions.

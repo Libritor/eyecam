@@ -19,6 +19,13 @@ is unreliable. Samples are sent in 4-packet bursts on a 64 Hz absolute
 schedule — which also mimics real Wi-Fi aggregation of the phone stream.
 
 Spawned by run_session.py --source phantom; can also run standalone.
+
+Optional, for testing blink / eye-closure masking (all off by default):
+  --aux        a 5th channel, Oz: the strongest SSVEP and the alpha that rises
+               when the eyes close
+  --blinks N   N blinks per minute: a ~0.3 s frontal deflection (AF7/AF8 large,
+               TP9/TP10 small) and no SSVEP while the lids are down
+  --closures N N eye closures per minute, 2-4 s: no SSVEP, alpha x6 on Oz
 """
 
 import argparse
@@ -43,8 +50,49 @@ DC_OFFSET = 800.0  # Muse-like raw baseline (robust stats must absorb it)
 
 def osc_eeg_packet(vals):
     addr = b"/muse/eeg\x00\x00\x00"
-    tags = b",ffff\x00\x00\x00"
+    tags = b"," + b"f" * len(vals)
+    tags += b"\x00" * (4 - len(tags) % 4)   # OSC strings: NUL-padded to 4 bytes
     return addr + tags + b"".join(struct.pack(">f", float(v)) for v in vals)
+
+
+BLINK_S = 0.3
+BLINK_GAIN = [40.0, 150.0, 150.0, 40.0, 5.0]   # TP9 AF7 AF8 TP10 AUX
+
+
+class Eyes:
+    """Random blinks and closures: open() is 0 while the eyes are shut."""
+
+    def __init__(self, rng, fs, blinks_per_min, closures_per_min):
+        self.rng, self.fs = rng, fs
+        self.b_rate = blinks_per_min / 60.0
+        self.c_rate = closures_per_min / 60.0
+        self.next_b = self._gap(self.b_rate)
+        self.next_c = self._gap(self.c_rate)
+        self.blink_end = self.closure_end = -1.0
+        self.blink_t0 = 0.0
+
+    def _gap(self, rate):
+        return self.rng.exponential(1 / rate) + 3.0 if rate > 0 else float("inf")
+
+    def step(self, t):
+        if t >= self.next_b:
+            self.blink_t0, self.blink_end = t, t + BLINK_S
+            self.next_b = t + self._gap(self.b_rate)
+        if t >= self.next_c and t > self.blink_end:
+            self.closure_end = t + self.rng.uniform(2.0, 4.0)
+            self.next_c = self.closure_end + self._gap(self.c_rate)
+
+    def blink(self, t):
+        """Frontal deflection shape (0..1) at time t."""
+        if t < self.blink_end:
+            return math.sin(math.pi * (t - self.blink_t0) / BLINK_S)
+        return 0.0
+
+    def closed(self, t):
+        return t < self.closure_end
+
+    def open(self, t):
+        return 0.0 if (t < self.blink_end or t < self.closure_end) else 1.0
 
 
 def main():
@@ -55,14 +103,23 @@ def main():
     ap.add_argument("--stop-file", default="")
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--max-seconds", type=float, default=3600)
+    ap.add_argument("--aux", action="store_true",
+                    help="add an Oz channel (5th column, AUX)")
+    ap.add_argument("--blinks", type=float, default=0.0,
+                    help="blinks per minute (frontal spikes + SSVEP dropout)")
+    ap.add_argument("--closures", type=float, default=0.0,
+                    help="eye closures per minute (2-4 s, alpha up, no SSVEP)")
     args = ap.parse_args()
+    nch = 5 if args.aux else 4
+    snr = CH_SNR + ([1.2] if args.aux else [])
 
     if sys.platform == "win32":
         ctypes.windll.winmm.timeBeginPeriod(1)
 
     tails = [CsvTail(os.path.join(args.session, n)) for n in
              ("calib_log.csv", "cursor_log.csv", "sweep_log.csv",
-              "ccal_log.csv", "color_log.csv", "assr_log.csv", "mux_log.csv")]
+              "ccal_log.csv", "color_log.csv", "assr_log.csv", "mux_log.csv",
+              "bwb_cal_log.csv", "bwb_log.csv")]
 
     rng = np.random.default_rng(args.seed)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -78,8 +135,9 @@ def main():
 
     lum = 0.0
     env = 0.0
-    pink = np.zeros(4)
-    drift = np.zeros(4)
+    pink = np.zeros(nch)
+    drift = np.zeros(nch)
+    eyes = Eyes(rng, fs, args.blinks, args.closures)
     n = 0
     sent = 0
 
@@ -129,7 +187,10 @@ def main():
     next_t = t_start
 
     print(f"phantom subject -> {args.host}:{args.port} "
-          f"(TP9/TP10 snr {CH_SNR[0]}, AF7/AF8 snr {CH_SNR[1]})")
+          f"(TP9/TP10 snr {CH_SNR[0]}, AF7/AF8 snr {CH_SNR[1]}"
+          + (", Oz snr 1.2" if args.aux else "")
+          + (f"; {args.blinks:g} blinks/min" if args.blinks else "")
+          + (f"; {args.closures:g} closures/min" if args.closures else "") + ")")
     try:
         while True:
             if args.stop_file and os.path.exists(args.stop_file):
@@ -185,11 +246,16 @@ def main():
                     audio_phase += 2 * math.pi * audio_hz / fs
                     ssvep += 0.6 * audio_env * math.sin(audio_phase)
                 alpha = 0.6 * math.sin(2 * math.pi * 10.0 * t)
-                pink = a_pink * pink + pink_gain * rng.standard_normal(4)
-                drift = a_drift * drift + drift_gain * rng.standard_normal(4)
-                white = 0.45 * rng.standard_normal(4)
-                vals = [DC_OFFSET + drift[c] + pink[c] + white[c] + alpha
-                        + CH_SNR[c] * ssvep for c in range(4)]
+                pink = a_pink * pink + pink_gain * rng.standard_normal(nch)
+                drift = a_drift * drift + drift_gain * rng.standard_normal(nch)
+                white = 0.45 * rng.standard_normal(nch)
+                eyes.step(t)
+                ssvep *= eyes.open(t)           # no visual input, no SSVEP
+                blink = eyes.blink(t)
+                a_oz = 6.0 if eyes.closed(t) else 1.0
+                vals = [DC_OFFSET + drift[c] + pink[c] + white[c]
+                        + alpha * (a_oz if c == 4 else 1.0)
+                        + snr[c] * ssvep + BLINK_GAIN[c] * blink for c in range(nch)]
                 sock.sendto(osc_eeg_packet(vals), (args.host, args.port))
                 sent += 1
                 n += 1

@@ -138,6 +138,10 @@ def paper_score(seg, fs, f0):
     if len(seg) < fs * 0.9:
         return np.nan
     f, p = periodogram(seg - np.median(seg), fs=fs, window="hann")
+    return _upstream_ratio(f, p, fs, f0)
+
+
+def _upstream_ratio(f, p, fs, f0):
     h = max(0.3, f[1] - f[0])
     sig = p[np.abs(f - f0) <= h].sum()
     if 2 * f0 < fs / 2 - 1:
@@ -147,6 +151,85 @@ def paper_score(seg, fs, f0):
             & (np.abs(f - 2 * f0) > h) & (np.abs(f - 60.0) > 2.0))
     den = p[band].sum()
     return sig / den if den > 0 else np.nan
+
+
+def paper_strict_score(seg, fs, f0):
+    """Mann et al. 2019, Sec. III, steps 1-2, nothing added: one power
+    spectrum of the window (1700 samples at 256 Hz), power at f0 plus its
+    first harmonic 2*f0, divided by ALL the power from 14 to 50 Hz. No
+    artifact clipping and no bins left out of the denominator (the repo's
+    own variant, paper_score, does both)."""
+    seg = np.asarray(seg, dtype=float)
+    if len(seg) < fs * 0.9:
+        return np.nan
+    f, p = periodogram(seg - seg.mean(), fs=fs, window="hann")
+    return _strict_ratio(f, p, fs, f0)
+
+
+def _strict_ratio(f, p, fs, f0):
+    h = max(0.3, f[1] - f[0])
+    sig = p[np.abs(f - f0) <= h].sum()
+    if 2 * f0 < fs / 2 - 1:
+        sig += p[np.abs(f - 2 * f0) <= h].sum()
+    lo, hi = config.NOISE_BAND
+    den = p[(f >= lo) & (f <= min(hi, fs / 2 - 1))].sum()
+    return sig / den if den > 0 else np.nan
+
+
+def masked_paper_score(seg, valid, fs, f0, kind, sigma_floor, min_len):
+    """Paper ratio from the valid samples only (blinks / closed eyes are
+    missing data, not zeros): one Hann periodogram per valid piece, every
+    piece zero-padded to the window length so the bins line up, averaged
+    weighted by piece length (Welch-style), then the unchanged ratio. (Counting
+    each short piece's line over its own wider main lobe was tried and scored
+    worse on the blink gate: the wider lobe adds noise to dark positions.)
+    kind 'paper' = paper_strict_score's ratio; 'upstream' = paper_score's,
+    with cell_score's artifact clipping applied to the valid samples."""
+    import blinkmask
+    seg = np.asarray(seg, dtype=float)
+    valid = np.asarray(valid, bool)
+    if valid.all():                       # nothing masked: the plain score
+        if kind == "paper":
+            return paper_strict_score(seg, fs, f0)
+        return cell_score(seg, fs, sigma_floor, f0, "paper")
+    pieces = blinkmask.segments(valid, min_len)
+    if not pieces:
+        return np.nan
+    if kind == "upstream":
+        v = seg[valid]
+        baseline = np.median(v)
+        sigma = max(robust_sigma(v - baseline), sigma_floor)
+        if (np.abs(v - baseline) > config.ARTIFACT_Z * sigma).mean() > config.ARTIFACT_DROP_FRAC:
+            return np.nan
+        lim = config.ARTIFACT_Z * sigma
+        seg = baseline + np.clip(seg - baseline, -lim, lim)
+    n = len(seg)
+    acc, wsum, f = None, 0.0, None
+    for a, b in pieces:
+        x = seg[a:b]
+        x = x - (np.median(x) if kind == "upstream" else x.mean())
+        f, p = periodogram(x, fs=fs, window="hann", nfft=n)
+        acc = p * (b - a) if acc is None else acc + p * (b - a)
+        wsum += b - a
+    if wsum < fs * 0.9:
+        return np.nan
+    return (_strict_ratio if kind == "paper" else _upstream_ratio)(f, acc / wsum, fs, f0)
+
+
+def eq1(grid):
+    """Step 3, Eq. 1: f(x) = 2x + x1 + x-1 + (x2 + x-2)/2 over the rows above
+    and below. Rows missing at the image edges are left out and the weights
+    renormalised (no invented rows)."""
+    grid = np.asarray(grid, float)
+    w = {-2: 0.5, -1: 1.0, 0: 2.0, 1: 1.0, 2: 0.5}
+    out = np.zeros_like(grid)
+    norm = np.zeros(grid.shape[0])
+    for d, wd in w.items():
+        for r in range(grid.shape[0]):
+            if 0 <= r + d < grid.shape[0]:
+                out[r] += wd * grid[r + d]
+                norm[r] += wd
+    return out / norm[:, None]
 
 
 def robust_sigma(x):
@@ -188,8 +271,24 @@ def cell_score(seg, fs, sigma_floor, stim_freq=None, method="welch"):
 
 
 def reconstruct(eeg_t, data, cur_t, gx, gy, fs=None, weights=None,
-                stim_freq=None, method="welch"):
-    """data: (n_samples, n_channels). weights: per-channel array or None."""
+                stim_freq=None, method="welch", vblend=None, valid=None,
+                mask_limit=0.35, min_segment_s=1.0, info=None):
+    """data: (n_samples, n_channels). weights: per-channel array or None.
+
+    method 'paper'    = the paper exactly: 1700-sample window centred on each
+                        visit, paper_strict_score, then Eq. 1 (vblend default on)
+    method 'upstream' = this repo's own version as published: the whole dwell,
+                        artifact clipping, signal bins out of the denominator,
+                        no Eq. 1 unless config.VERTICAL_KERNEL says so
+    'line' / 'welch'  = the line detector / 1 Hz Welch ratio (unchanged)
+
+    valid: optional bool per EEG sample (blinkmask.compute). Masked samples are
+    left out of each position's spectrum; a visit whose dwell is more than
+    mask_limit masked is dropped (it is redone live). info (dict) receives the
+    masked fraction of every visit."""
+    if valid is not None and method not in ("paper", "upstream"):
+        raise ValueError("blink masking applies to the paper ratio "
+                         "(--recon-method paper or upstream)")
     if data.ndim == 1:
         data = data[:, None]
     n_ch = data.shape[1]
@@ -221,18 +320,44 @@ def reconstruct(eeg_t, data, cur_t, gx, gy, fs=None, weights=None,
             continue  # pause marker, not a position
         if t1 - t0 > 1.0 and (i1 - i0) < 0.6 * (t1 - t0) * fs:
             continue  # the stream dropped during this visit (it is redone)
-        # Pad the window so short dwells still give >= one PSD segment.
-        need = nperseg - (i1 - i0)
-        if need > 0:
-            i0 = max(0, i0 - need // 2)
-            i1 = min(len(data), i0 + nperseg)
+        if valid is not None:
+            frac = float(1.0 - valid[i0:i1].mean()) if i1 > i0 else 1.0
+            if info is not None:
+                info.setdefault("visits", []).append(
+                    dict(gx=int(gx[s]), gy=int(gy[s]), t0=float(t0),
+                         masked=round(frac, 4), kept=bool(frac <= mask_limit)))
+            if frac > mask_limit:
+                continue  # mostly blinks / closed eyes: not this position's data
+        if method == "paper":
+            # step 1: 1700 samples (at 256 Hz) centred on the visit - the paper's
+            # "time it takes the cursor to pass over a point" - or the visit
+            # itself when it is shorter (a longer window would mix neighbours)
+            n = min(int(round(config.PAPER_WINDOW * fs / config.FS)), max(i1 - i0, nperseg))
+            mid = (i0 + i1) // 2
+            i0 = max(0, mid - n // 2)
+            i1 = min(len(data), i0 + n)
+        else:
+            # Pad the window so short dwells still give >= one PSD segment.
+            need = nperseg - (i1 - i0)
+            if need > 0:
+                i0 = max(0, i0 - need // 2)
+                i1 = min(len(data), i0 + nperseg)
 
         num = den = 0.0
         for c in range(n_ch):
             if weights[c] <= 0:
                 continue
-            sc = cell_score(data[i0:i1, c], fs, ch_sigma[c], stim_freq,
-                            method)
+            if valid is not None:
+                f0 = config.STIM_FREQ_HZ if stim_freq is None else stim_freq
+                sc = masked_paper_score(data[i0:i1, c], valid[i0:i1], fs, f0,
+                                        method, ch_sigma[c],
+                                        int(round(min_segment_s * fs)))
+            elif method == "paper":
+                f0 = config.STIM_FREQ_HZ if stim_freq is None else stim_freq
+                sc = paper_strict_score(data[i0:i1, c], fs, f0)
+            else:
+                sc = cell_score(data[i0:i1, c], fs, ch_sigma[c], stim_freq,
+                                "paper" if method == "upstream" else method)
             if not np.isnan(sc):
                 num += weights[c] * sc
                 den += weights[c]
@@ -247,7 +372,10 @@ def reconstruct(eeg_t, data, cur_t, gx, gy, fs=None, weights=None,
     if np.isnan(grid).any():
         grid = np.where(np.isnan(grid), np.nanmedian(grid), grid)
 
-    # Eq. 1 vertical blend of overlapping scan lines.
+    if method == "paper":
+        # step 3: Eq. 1 (the paper's own weights), unless switched off
+        return eq1(grid) if vblend is not False else grid
+    # Eq. 1 vertical blend of overlapping scan lines (repo behaviour).
     k = np.array(config.VERTICAL_KERNEL)
     grid = convolve1d(grid, k / k.sum(), axis=0, mode="nearest")
     return grid
@@ -275,9 +403,12 @@ def weights_from_calibration(calib_path, names):
 
 def run(session_dir, channels="", calibration="", out="", stim_freq=None,
         method="welch", shift_s=0.0, cursor_log="cursor_log.csv",
-        weights=None, save=True):
+        weights=None, save=True, vblend=None, mask_blinks=False,
+        mask_opts=None, info=None):
     """shift_s != 0: circularly shift the EEG by that many seconds relative
-    to the cursor log = a negative control (same data, wrong alignment)."""
+    to the cursor log = a negative control (same data, wrong alignment).
+    mask_blinks: leave blinks / closed eyes out (blinkmask.py); the mask is
+    rolled together with the EEG for the shifted nulls."""
     out = out or os.path.join(session_dir, "reconstruction.png")
     eeg_t, data, names, cur_t, gx, gy = load_session(session_dir, channels,
                                                      cursor_log)
@@ -287,10 +418,31 @@ def run(session_dir, channels="", calibration="", out="", stim_freq=None,
             print("channel weights:",
                   {n: round(float(w), 3) for n, w in zip(names, weights)})
     fs = infer_fs(eeg_t)
+    valid, minfo = None, None
+    vinfo = info if info is not None else {}
+    if mask_blinks:
+        valid, minfo = session_mask(session_dir, fs, stim_freq, mask_opts)
     if shift_s:
         data = np.roll(data, int(round(shift_s * fs)), axis=0)
+        if valid is not None:
+            valid = np.roll(valid, int(round(shift_s * fs)))
+    o = mask_opts or {}
     grid = reconstruct(eeg_t, data, cur_t, gx, gy, fs=fs, weights=weights,
-                       stim_freq=stim_freq, method=method)
+                       stim_freq=stim_freq, method=method, vblend=vblend,
+                       valid=valid, mask_limit=o.get("limit", 0.35),
+                       min_segment_s=o.get("min_segment_s", 1.0), info=vinfo)
+    if valid is not None:
+        vinfo["mask"] = minfo
+    if save and valid is not None:
+        visits = vinfo.get("visits", [])
+        with open(os.path.join(session_dir, "masking.json"), "w") as f:
+            json.dump(dict(summary=minfo, options=o, visits=visits,
+                           dropped=sum(not v["kept"] for v in visits)), f, indent=1)
+        print(f"blink mask: {minfo['masked_frac'] * 100:.1f}% of the recording masked "
+              f"(blinks {minfo['blink_frac'] * 100:.1f}%, closed eyes "
+              f"{minfo['closure_frac'] * 100:.1f}%); "
+              f"{sum(not v['kept'] for v in visits)} of {len(visits)} visits dropped"
+              + (f"; {minfo['note']}" if minfo.get("note") else ""))
     if save:
         np.save(os.path.join(session_dir, "reconstruction_grid.npy"), grid)
         save_image(grid, out)
@@ -305,6 +457,29 @@ def run(session_dir, channels="", calibration="", out="", stim_freq=None,
             if save:
                 print(f"correlation with ground-truth target: r = {r:.3f}")
     return grid, r
+
+
+_MASKS = {}
+
+
+def session_mask(session_dir, fs, stim_freq=None, opts=None):
+    """(valid per sample, summary) for the session's eeg.csv, from ALL its
+    channels (the frontal and Oz channels may not be in the scored set).
+    Cached per session and options: the shifted nulls reuse it."""
+    import blinkmask
+    o = blinkmask.options(**(opts or {}))
+    f0 = config.STIM_FREQ_HZ if stim_freq is None else stim_freq
+    path = os.path.join(session_dir, "eeg.csv")
+    key = (os.path.abspath(path), os.path.getmtime(path), round(f0, 3),
+           tuple(sorted(o.items())))
+    if key not in _MASKS:
+        header, rows = read_csv(path)
+        t = np.array([float(r[0]) for r in rows])
+        data = np.array([[float(v) for v in r[1:]] for r in rows])
+        _MASKS.clear()
+        _MASKS[key] = blinkmask.compute(t, data, header[1:], fs, f0, o,
+                                        blinkmask.calibration_off_spans(session_dir))
+    return _MASKS[key]
 
 
 def null_r(session_dir, n_shifts=12, **kw):
@@ -480,8 +655,11 @@ def main():
     ap.add_argument("--calibration", default="",
                     help="calibration.json with per-channel weights")
     ap.add_argument("--out", default="")
-    ap.add_argument("--method", choices=["welch", "line", "paper"],
-                    default="welch")
+    ap.add_argument("--method", choices=["welch", "line", "paper", "upstream"],
+                    default="welch",
+                    help="paper = Mann 2019 exactly (1700-sample window, "
+                         "(f + 2f) / 14-50 Hz, Eq. 1); upstream = this repo's "
+                         "published variant")
     ap.add_argument("--freq", type=float, default=None)
     args = ap.parse_args()
     run(args.session, args.channels, args.calibration, args.out,

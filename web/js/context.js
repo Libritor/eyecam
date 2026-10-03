@@ -67,11 +67,7 @@ export function setCalibration(report, { apply = true } = {}) {
   app.calib = report;
   try { localStorage.setItem(CALIB_KEY, JSON.stringify(report)); } catch { /* private mode */ }
   if (apply && report) {
-    // Kalman tracking with soft per-cycle noise weighting beat the calibrated hard mask in
-    // noisebench (24 of 27 scans); the mask on top of it only throws data away. The
-    // calibrated thresholds stay available under Artifact masking -> Calibrated.
-    app.settings.metric = 'kalman';
-    app.settings.mask = 'off';
+    app.settings.mask = 'calib';
     app.settings.spatial = report.filter?.use ? 'calib' : 'off';
     app.settings.calibApplied = report.created;
     app.settings.chans = report.pipeline === 'single' && report.bestChannel ? report.bestChannel : 'auto';

@@ -45,7 +45,7 @@ function black() { ctx.fillStyle = "#000"; ctx.fillRect(0, 0, cv.width, cv.heigh
 
 // The driver pauses the scan when the EEG stream goes silent. The position
 // in progress is abandoned and done again from the start after the resume.
-let paused = false;
+let paused = false, redoNow = false;
 async function holdWhilePaused() {
   if (!paused) return false;
   black();
@@ -120,6 +120,13 @@ let flickerT0 = 0;
 function phaseOn(ts, k) {                            // k = half period in frames
   const half = k / refreshHz;                        // seconds
   return Math.floor((ts / 1000 - flickerT0 + 0.5 / refreshHz) / half) % 2 === 0;
+}
+// same, delayed by `shift` half periods (phase code phi = shift * pi): the
+// fundamental of the displayed square wave is sin(2*pi*f*x - phi)
+function phaseOnShift(ts, k, shift) {
+  const half = k / refreshHz;
+  const n = Math.floor((ts / 1000 - flickerT0 + 0.5 / refreshHz) / half - shift);
+  return ((n % 2) + 2) % 2 === 0;
 }
 const flickerOnAt = ts => phaseOn(ts, halfFrames);
 const flickerOn = () => flickerOnAt(lastTs);
@@ -312,7 +319,104 @@ function showSweepResult(m) {
   sub.textContent = m.verdict + "   —   " + m.table;
 }
 
+// ---- black / white / blue (hybrid frequency-phase codes) ----
+// White cells flicker white/black with code 0 (f0, phi0), blue cells flicker
+// blue/black with code 1 (f1, phi1), black cells stay black. Each code is a
+// frame-exact frequency plus a phase offset snapped to whole frames, both
+// reported back (bwb_plan) so the decoder builds its references from what was
+// actually shown. The phase restarts at every cell / block onset.
+const BWB_COLORS = ["#000000", "#ffffff", "#0000ff"];
+async function planBwb(codes) {
+  const plans = [];
+  for (const c of codes) {
+    await planFlicker(c.hz, plans.map(p => p.hz));
+    const shift = Math.round((c.phaseDeg / 180) * halfFrames) / halfFrames;  // half periods
+    plans.push({ hz: actualHz, k: halfFrames, shift, phaseDeg: shift * 180 });
+  }
+  send({ type: "bwb_plan", codes: plans.map(p => ({ hz: p.hz, phaseDeg: p.phaseDeg })), refresh: refreshHz });
+  return plans;
+}
+function bwbGeom(m) {
+  const gw = m.gridW, gh = m.gridH;
+  const bw = Math.min(cv.width, cv.height * gw / gh) * (m.board || 0.84), bh = bw * gh / gw;
+  const x0 = (cv.width - bw) / 2, y0 = (cv.height - bh) / 2, cwid = bw / gw, chgt = bh / gh;
+  const pw = m.patch ? bw / 6 * m.patch : cwid, ph = m.patch ? bh / 4 * m.patch : chgt;
+  return { x0, y0, cwid, chgt, pw, ph };
+}
+// draw class cls (0 black, 1 white, 2 blue) centred at (cx, cy); returns the
+// two flicker states for the log
+function drawBwb(ts, plans, cls, cx, cy, pw, ph) {
+  const fW = cls === 1 && phaseOnShift(ts, plans[0].k, plans[0].shift);
+  const fB = cls === 2 && phaseOnShift(ts, plans[1].k, plans[1].shift);
+  black();
+  if (fW || fB) { ctx.fillStyle = BWB_COLORS[cls]; ctx.fillRect(cx - pw / 2, cy - ph / 2, pw, ph); }
+  dot(cx, cy);
+  return [fW, fB];
+}
+async function runBwbCalib(m) {
+  hideResult(); title.textContent = "COLOUR CALIBRATION"; title.className = "";
+  const tok = running = {};
+  sub.textContent = "measuring display refresh…";
+  const plans = await planBwb(m.codes);
+  const g = bwbGeom(m), cx = cv.width / 2, cy = cv.height / 2;
+  const order = m.order;                       // class per block, shuffled by the driver
+  for (let b = 0; b < order.length && running === tok; b++) {
+    const cls = order[b];
+    if (await holdWhilePaused()) { b--; continue; }
+    send({ type: "block", b, on: cls !== 0, phase: "start", hz: cls ? plans[cls - 1].hz : 0, cls });
+    sub.textContent = `block ${b + 1}/${order.length}: ${["black", "white", "blue"][cls]} — look at the dot`;
+    const t0 = now();
+    flickerT0 = (await frameTs()) / 1000;
+    while (now() - t0 < m.onS && running === tok && !paused) {
+      const ts = await frameTs(); frameCount++;
+      const [fW, fB] = drawBwb(ts, plans, cls, cx, cy, g.pw, g.ph);
+      send({ type: "frame", stage: "bwbcal", pt: now(), gx: -1, gy: -1, lum: cls === 1 ? 1 : 0,
+             fl: fW ? 1 : 0, flG: 0, flB: fB ? 1 : 0, r: cls === 1 ? 1 : 0, g: cls === 1 ? 1 : 0, b: cls ? 1 : 0 });
+    }
+    send({ type: "block", b, on: cls !== 0, phase: "end", hz: cls ? plans[cls - 1].hz : 0, cls });
+    if (paused) { b--; continue; }
+    black(); dot(cx, cy);
+    const tr = now(); while (now() - tr < (m.restS || 1.0) && running === tok) await frameTs();
+  }
+  black();
+  send({ type: "bwb_calib_done" });
+}
+async function runBwbScan(m) {
+  hideResult(); title.textContent = ""; sub.textContent = "";
+  const tok = running = {};
+  const plans = await planBwb(m.codes);
+  const g = bwbGeom(m), gw = m.gridW, gh = m.gridH, target = m.target;   // target[y][x] = class
+  const passes = Math.max(1, m.passes || 1);
+  for (let ps = 0; ps < passes && running === tok; ps++)
+  for (let ry = 0; ry < gh && running === tok; ry++) {
+    const gy = ps % 2 === 1 ? gh - 1 - ry : ry;
+    const xs = [...Array(gw).keys()];
+    if ((ry + ps) % 2 === 1) xs.reverse();
+    if (passes > 1) sub.textContent = `pass ${ps + 1}/${passes}`;
+    for (let xi = 0; xi < xs.length; xi++) {
+      const gx = xs[xi];
+      if (await holdWhilePaused()) { xi--; continue; }
+      const cls = target[gy][gx];
+      const cx = g.x0 + (gx + 0.5) * g.cwid, cy = g.y0 + (gy + 0.5) * g.chgt;
+      const t0 = now();
+      flickerT0 = (await frameTs()) / 1000;
+      while (now() - t0 < m.spc && running === tok && !paused) {
+        const ts = await frameTs(); frameCount++;
+        const [fW, fB] = drawBwb(ts, plans, cls, cx, cy, g.pw, g.ph);
+        send({ type: "frame", stage: "bwb", pt: now(), gx, gy, lum: cls === 1 ? 1 : 0,
+               fl: fW ? 1 : 0, flG: 0, flB: fB ? 1 : 0, r: cls === 1 ? 1 : 0, g: cls === 1 ? 1 : 0, b: cls ? 1 : 0 });
+      }
+      if (paused) { xi--; continue; }
+      if (running !== tok) break;
+    }
+    send({ type: "row", y: gy });
+  }
+  black();
+  send({ type: "scan_done" });
+}
+
 async function runScan(m) {
+  if (m.bwb) return runBwbScan(m);
   if (m.color) return runColorScan(m);
   if (m.mux) return runMuxScan(m);
   hideResult(); title.textContent = ""; sub.textContent = "";
@@ -343,7 +447,8 @@ async function runScan(m) {
       const bwc = m.bw ? ["#ffffff", "#000000"] : null;
       const t0 = now();
       flickerT0 = (await frameTs()) / 1000;
-      while (now() - t0 < m.spc && running === tok && !paused) {
+      redoNow = false;
+      while (now() - t0 < m.spc && running === tok && !paused && !redoNow) {
         await frameTs(); frameCount++;
         const t = now();
         const fl = lum > 0.05 && flickerOn();
@@ -361,6 +466,16 @@ async function runScan(m) {
         send({ type: "frame", stage: "scan", pt: t, gx, gy,
                lum, fl: fl ? 1 : 0 });
       }
+      if (redoNow) {     // --mask-blinks: mostly blinks / closed eyes - show it again
+        redoNow = false;
+        send({ type: "frame", stage: "redo", pt: now(), gx: -1, gy: -1, lum: 0, fl: 0 });
+        const keep = sub.textContent;
+        sub.textContent = "blink / eyes closed - showing this position again";
+        black(); dot(x0 + (gx + 0.5) * cwid, y0 + (gy + 0.5) * chgt);
+        await sleep(1000);
+        sub.textContent = keep;
+        xi--; continue;
+      }
       if (paused) { xi--; continue; }
       if (running !== tok) break;
     }
@@ -376,8 +491,11 @@ function showSignal(m) {
   title.className = (m.stable && m.earsOk) ? "ok" : "warn";
   if (m.ready) { sub.textContent = "starting…"; return; }
   if (!m.stable) {
-    sub.innerHTML = `EEG ${m.rate.toFixed(0)} Hz — stream /muse/eeg to ` +
-      `<b>${m.oscTarget}</b> (Mind Monitor or MuseLog)`;
+    sub.innerHTML = /:\d+/.test(m.oscTarget || "")
+      ? `EEG ${m.rate.toFixed(0)} Hz — stream /muse/eeg to ` +
+        `<b>${m.oscTarget}</b> (Mind Monitor or MuseLog)`
+      : `EEG ${m.rate.toFixed(0)} Hz — waiting for <b>${m.oscTarget}</b> ` +
+        `(turn the Muse on; close the Muse phone app)`;
   } else if (!m.earsOk) {
     sub.innerHTML = `data flowing, but the <b>behind-ear electrodes ` +
       `(TP9/TP10) are not making contact</b> — press the band firmly ` +
@@ -410,14 +528,47 @@ function showResult(m) {
   running = null; black();
   title.textContent = "RESULT"; title.className = "";
   sub.textContent = "";
-  document.getElementById("rimg").src = m.png;
+  const ri = document.getElementById("rimg");
+  ri.src = m.png;
+  // the four-panel figure (shown | from EEG | interpolated | threshold) is wide
+  ri.style.width = m.wide ? "min(94vw, 260vh)" : "";
+  ri.style.imageRendering = m.wide ? "auto" : "";
   const rt = document.getElementById("rtext");
-  rt.textContent = `r = ${m.r.toFixed(3)}   flicker ${m.flickerHz.toFixed(2)} Hz`;
+  rt.textContent = m.text || `r = ${m.r.toFixed(3)}   flicker ${m.flickerHz.toFixed(2)} Hz`;
   rt.className = m.r >= 0.6 ? "ok" : "warn";
   resultBox.style.display = "flex";
 }
 
 function hideResult() { resultBox.style.display = "none"; }
+
+// ---- after calibration: which picture to scan? (click a button, or key 1 / 2)
+function showChoice(m) {
+  running = null; black(); hideResult();
+  title.textContent = "CHOOSE THE PICTURE"; title.className = m.passed ? "ok" : "warn";
+  sub.textContent = m.note || "";
+  document.getElementById("choice")?.remove();
+  const box = document.createElement("div");
+  box.id = "choice";
+  box.style.cssText = "position:fixed;inset:0;display:flex;align-items:center;justify-content:center;" +
+                      "gap:4vw;z-index:20;pointer-events:none";
+  const pick = v => {
+    removeEventListener("keydown", onKey);
+    box.remove(); sub.textContent = "starting…";
+    send({ type: "choice", value: v });
+  };
+  const onKey = e => { const i = "12".indexOf(e.key); if (i >= 0) pick(m.options[i].value); };
+  m.options.forEach((o, i) => {
+    const b = document.createElement("button");
+    b.innerHTML = `<div style="font-size:4vh;font-weight:700">${i + 1}. ${o.label}</div>` +
+                  `<div style="font-size:2vh;opacity:.75;margin-top:1vh">${o.detail}</div>`;
+    b.style.cssText = "pointer-events:auto;padding:4vh 3vw;min-width:28vw;border-radius:18px;cursor:pointer;" +
+                      "border:2px solid #555;color:#eee;background:" + (o.value === "bwb" ? "#0b1d4d" : "#1c1c1c");
+    b.onclick = () => pick(o.value);
+    box.append(b);
+  });
+  document.body.append(box);
+  addEventListener("keydown", onKey);
+}
 
 // ---- arm gate: nothing flickers until the subject pulls the trigger ----
 async function armStart() {
@@ -617,7 +768,11 @@ function showColorResult(m) {
   running = null; black();
   title.textContent = "COLOUR RESULT"; title.className = "";
   sub.textContent = m.text || "";
-  document.getElementById("rimg").src = m.png;
+  const ri = document.getElementById("rimg");
+  ri.src = m.png;
+  // shown | decoded comparison: wider, smooth edges for the labels
+  ri.style.width = m.wide ? "min(92vw, 150vh)" : "";
+  ri.style.imageRendering = m.wide ? "auto" : "";
   const rt = document.getElementById("rtext");
   rt.textContent = m.text || ""; rt.className = m.good ? "ok" : "warn";
   resultBox.style.display = "flex";
@@ -646,6 +801,7 @@ function connect() {
       case "calib_result": showCalibResult(m); break;
       case "start_scan": runScan(m); break;
       case "start_sweep": runSweep(m); break;
+      case "start_bwb_calib": runBwbCalib(m); break;
       case "color_result": showColorResult(m); break;
       case "sweep_result": showSweepResult(m); break;
       case "start_alpha": runAlpha(m); break;
@@ -653,9 +809,11 @@ function connect() {
       case "start_assr": runAssr(m); break;
       case "assr_result": showAssrResult(m); break;
       case "result": showResult(m); break;
+      case "choose": showChoice(m); break;
       case "msg": sub.textContent = m.text; break;
       case "pause": paused = true; break;
       case "resume": paused = false; break;
+      case "redo": redoNow = true; break;
     }
   };
 }

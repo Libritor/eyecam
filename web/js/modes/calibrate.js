@@ -98,7 +98,7 @@ export default {
     // A channel whose contact flickers between good and bad must not restart the countdown
     // every time: each channel is judged by the share of the last 10 s it was not 'bad'.
     // Calibration can start when TP9 or TP10 is stable — the analysis then finds the best
-    // channel (one ear is enough) and the Kalman metric down-weights the noisy one.
+    // channel (one ear is enough) and the artifact mask handles the noisy one.
     const HIST = 20, STABLE = 0.85; // 20 ticks × 0.5 s
     const hist = new Map();
     let alive = true;
@@ -138,7 +138,7 @@ export default {
       report.innerHTML = '';
       report.append(h('h3', {}, 'Calibration report'), reportView(rep),
         h('div', { class: 'btns' },
-          h('button', { class: 'primary', onclick: () => { setCalibration(rep); toast('Applied: Kalman-tracked SSVEP' + (rep.filter.use ? ' + spatial filter' : '') + `; imaging at ${rep.freq} Hz`); } }, 'Apply to analysis'),
+          h('button', { class: 'primary', onclick: () => { setCalibration(rep); toast('Applied: calibrated artifact masking' + (rep.filter.use ? ' + spatial filter' : '') + `; imaging at ${rep.freq} Hz`); } }, 'Apply to analysis'),
           h('button', { onclick: () => download(`eyecam-calibration-${stamp()}.json`, JSON.stringify(rep, null, 1), 'application/json') }, 'Save calibration'),
           h('a', { href: '#raster' }, h('button', {}, 'Go to imaging →'))));
     }

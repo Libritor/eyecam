@@ -6,7 +6,6 @@ import { delaunay, correlation, resize } from './interp.js';
 import { synthesize, decodeAthena } from './sources.js';
 import { maskInfo, maskedFraction } from './artifacts.js';
 import { lockin } from './ssvep.js';
-import { kalmanAt } from './kalman.js';
 import { analyzeCalibration } from './calib.js';
 import { renderScan, gazeSamples, renderGaze, renderChunks, timeline, detectEvents, scoreEvents, combineRows, pathSamples, profile, fwhm } from './recon.js';
 
@@ -222,25 +221,6 @@ const blurTruth = (outW, outH, r) => { // box-blurred truth at output res (what 
   check('spatial filter cancels reference noise (cross-validated)', rep.filter.use && rep.filter.gainD1 > 1.2,
     `held-out d′ ${rep.pipelines.base.d1.toFixed(2)} → ${rep.pipelines.filter.d1.toFixed(2)} (×${rep.filter.gainD1.toFixed(2)}), weights ${Object.entries(rep.filter.weights).map(([n, w]) => n + ' ' + w.toFixed(2)).join(', ')}`);
 }
-{
-  // 4. Kalman track: amplitude step 0 -> 2 µV at 20 s in 10 µV white noise with a 1 s, 150 µV
-  // muscle burst at 30 s. The smoothed track must find both levels and shrug off the burst.
-  const fs = 256, T = 40, n = fs * T;
-  let s = 3; const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
-  const gauss = () => Math.sqrt(-2 * Math.log(rnd() + 1e-12)) * Math.cos(2 * Math.PI * rnd());
-  const eeg = { fs, channels: ['TP9'], n, times: new Float64Array(n), data: [new Float32Array(n)] };
-  for (let i = 0; i < n; i++) {
-    const t = i / fs; eeg.times[i] = t;
-    eeg.data[0][i] = (t >= 20 ? 2 : 0) * Math.sin(2 * Math.PI * 15 * t + 0.4) + 10 * gauss() + (t > 30 && t < 31 ? 150 * gauss() : 0);
-  }
-  const p = { chans: [0], freq: 15, harmonics: 1, winSec: 4 };
-  const amp = t => { const m = kalmanAt(eeg, t, p); return Math.hypot(m.z.re[0][0], m.z.im[0][0]); };
-  const mean = (a, b) => { let x = 0, k = 0; for (let t = a; t <= b; t += 0.25) { x += amp(t); k++; } return x / k; };
-  const off = mean(4, 17), on = mean(23, 28), burst = mean(29.5, 31.5);
-  check('Kalman track: amplitude step and burst rejection', off < 0.8 && Math.abs(on - 2) < 0.5 && Math.abs(burst - 2) < 0.8,
-    `off ${off.toFixed(2)} µV, on ${on.toFixed(2)} µV, through the burst ${burst.toFixed(2)} µV (true 0 / 2 / 2)`);
-}
-
 const pass = results.filter(r => r.ok).length;
 document.getElementById('out').textContent =
   results.map(r => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}  —  ${r.detail}`).join('\n') + `\n\n${pass}/${results.length} passed`;

@@ -4,7 +4,6 @@
 import { spectrum, ssvepMetric, peakToPeak, percentile, butterLowpass, filtfilt, resampleUniform } from './dsp.js';
 import { windowAt, indexAt } from './eeg-store.js';
 import { fbcca, lockin, coherentProject } from './ssvep.js';
-import { kalmanAt } from './kalman.js';
 import { windowWeights } from './artifacts.js';
 import { detrend } from './dsp.js';
 import { correlation } from './interp.js';
@@ -30,14 +29,6 @@ export function metricAt(eeg, t, p) {
   const len = Math.max(32, Math.round(p.winSec * eeg.fs));
   const tc = t + (p.latency ?? DEFAULTS.latency);
   const chans = p.spatialW ? p.spatialChans : p.chans;
-  // Kalman track: no window — the smoothed state at tc; masked data is bridged, so only a
-  // stretch with almost nothing observed around it counts as bad
-  if (p.metric === 'kalman') {
-    const m = kalmanAt(eeg, tc, p);
-    if (!m) return null;
-    if (m.valid < (p.minValid ?? 0.4) / 2) return { v: NaN, z: m.z, bad: true, valid: m.valid };
-    return { ...m, bad: false };
-  }
   const w = windowAt(eeg, tc, len, chans);
   if (!w) return null;
   const i0 = indexAt(eeg, tc) - (len >> 1);
@@ -118,7 +109,7 @@ export function scanRow(eeg, run, L, p, g) {
     if (m.bad) g.bad[r * cols + c] = 1;
   }
   // coherent: project this line's lock-in amplitudes onto its own response phase
-  if ((p.metric === 'coherent' || (p.metric === 'kalman' && p.kalmanProject)) && g.z) {
+  if (p.metric === 'coherent' && g.z) {
     const zs = [];
     for (let c = 0; c < cols; c++) zs.push(g.bad[r * cols + c] && p.reject !== false ? null : g.z[r * cols + c]);
     const v = coherentProject(zs, p.harmonics ?? 2, (p.phaseSpan ?? 8) / (step / run.speed));
@@ -131,7 +122,7 @@ export function scanRow(eeg, run, L, p, g) {
 // no-flicker patch (refOff). Rescale the line so off -> 0 and on -> 1, cancelling slow drift
 // of the SSVEP gain (drying electrodes, fatigue) between lines.
 function applyLineRef(eeg, L, p, g) {
-  if (!L.refOn || !L.refOff || p.metric === 'coherent' || p.kalmanProject || p.deconv) return;
+  if (!L.refOn || !L.refOff || p.metric === 'coherent' || p.deconv) return;
   const at = ([a, b]) => {
     const win = Math.max(1, b - a - 1);
     const m = metricAt(eeg, (a + 1 + b) / 2 - (p.latency ?? DEFAULTS.latency), { ...p, winSec: win });

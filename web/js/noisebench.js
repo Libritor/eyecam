@@ -80,19 +80,6 @@ const variants = [
   ['FBCCA + calib mask', { metric: 'fbcca', mask: { mode: 'calib', thr: cal.thresholds } }],
   ['FBCCA + calib mask + spatial filter', { metric: 'fbcca', mask: { mode: 'calib', thr: cal.thresholds }, ...spatial }],
   ['coherent + calib mask + spatial filter', { metric: 'coherent', mask: { mode: 'calib', thr: cal.thresholds }, ...spatial }],
-  ['Kalman (order 2), no mask', { metric: 'kalman' }],
-  ['Kalman (order 2) + calib mask', { metric: 'kalman', mask: { mode: 'calib', thr: cal.thresholds } }],
-  ['Kalman (order 2) + calib mask + spatial filter', { metric: 'kalman', mask: { mode: 'calib', thr: cal.thresholds }, ...spatial }],
-  ['Kalman (order 1) + calib mask + spatial filter', { metric: 'kalman', kalmanOrder: 1, mask: { mode: 'calib', thr: cal.thresholds }, ...spatial }],
-  ['Kalman (order 2) + mask + spatial, projected', { metric: 'kalman', kalmanProject: true, mask: { mode: 'calib', thr: cal.thresholds }, ...spatial }],
-  ['Kalman (order 2) + calib mask, not robust', { metric: 'kalman', kalmanRobust: 0, mask: { mode: 'calib', thr: cal.thresholds } }],
-  ['Kalman (order 2), no mask, not robust', { metric: 'kalman', kalmanRobust: 0 }],
-  ['Kalman (order 2), no mask + spatial filter', { metric: 'kalman', ...spatial }],
-  ['Kalman (order 2), no mask, projected', { metric: 'kalman', kalmanProject: true }],
-  ['Kalman (order 1), no mask', { metric: 'kalman', kalmanOrder: 1 }],
-  ['Kalman (order 2), no mask, tau x0.6', { metric: 'kalman', tauMul: 0.6 }],
-  ['Kalman (order 2), no mask, tau x1.5', { metric: 'kalman', tauMul: 1.5 }],
-  ['Kalman (order 2), no mask, tau x2.2', { metric: 'kalman', tauMul: 2.2 }],
 ];
 
 const CFGS = [{ label: '1 pass, 8 px/s (4 s window)', speed: 8, passes: 1 }, { label: '2 passes, 16 px/s (same total time)', speed: 16, passes: 2 }, { label: '2 passes, 8 px/s (double time)', speed: 8, passes: 2 }];
@@ -102,7 +89,7 @@ for (const cfg of pick(CFGS, 'cfg')) {
   log(`\n== Scan: ${cfg.label}, ${sc.minutes.toFixed(1)} min ==   validity (vs. ideal) | split-half reliability`);
   for (const [label, v] of pick(variants, 'v')) {
     const tv = performance.now();
-    const p = { ...base, ...v, ...(v.tauMul ? { kalmanTau: v.tauMul * 0.3 * sc.run.winSec } : {}), winSec: sc.run.winSec, segSec: Math.min(2, sc.run.winSec), cycles: makeCycles(sc.run, 15) };
+    const p = { ...base, ...v, winSec: sc.run.winSec, segSec: Math.min(2, sc.run.winSec), cycles: makeCycles(sc.run, 15) };
     const g = scanGrid(sc.eeg, sc.run, p);
     const val = validity(sc.eeg, sc.run, p, g), rel = reliability(sc.eeg, sc.run, p);
     const mf = p.mask ? ` (${(maskedFraction(sc.eeg, { ...p, maskChans: p.chans }) * 100).toFixed(0)}% masked)` : '';

@@ -92,7 +92,7 @@ class EEGTail:
 
 
 class Recorder:
-    def __init__(self, source, session, port):
+    def __init__(self, source, session, port, extra=()):
         self.session = session
         self.stop_file = os.path.join(session, "stop_recorder")
         self.err_path = os.path.join(session, "recorder.stderr.log")
@@ -103,7 +103,7 @@ class Recorder:
                         "--port", str(port), "--stop-file", self.stop_file]
         else:
             self.cmd = [PY, "acquire.py", "--session", session,
-                        "--stop-file", self.stop_file]
+                        "--stop-file", self.stop_file, *extra]
         self.proc = None
 
     def start(self, append=False):

@@ -22,9 +22,12 @@ NOISE_BAND = (14.0, 50.0)  # denominator band for relative SSVEP power (paper)
 PSD_NPERSEG = 256          # Welch segment: 1 s -> 1 Hz bins, 15 Hz on-bin
 
 # --- Reconstruction ---
-VERTICAL_KERNEL = [0.5, 0.5, 1.0, 0.5, 0.5]  # Eq. 1 of the paper: overlapping
+VERTICAL_KERNEL = [0.5, 1.0, 2.0, 1.0, 0.5]  # Eq. 1 of the paper: overlapping
                                              # scan lines blended as
-                                             # f(x) = (2x + x+-1 + x+-2)/2
+                                             # f(x) = 2x + x1 + x-1 + (x2 + x-2)/2
+                                             # (rows -2..+2; was [.5,.5,1,.5,.5],
+                                             # which doubled the +-2 rows)
+PAPER_WINDOW = 1700        # samples per position at 256 Hz (paper: 6.67 s pass)
 UPSCALE = 12               # bicubic upscale factor for the output image
 ARTIFACT_Z = 4.0           # clip samples beyond this many robust sigmas;
 ARTIFACT_DROP_FRAC = 0.2   # drop a cell-channel if > this fraction clipped
