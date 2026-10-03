@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>EyeCam Flicker</title>
+<meta name="description" content="Standalone SSVEP flicker source for a phone or second screen (the moving display of Fig. 4, or a light source for the real-world rig).">
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #000; color: #ccc; font: 16px system-ui, sans-serif; overflow: hidden; }
+  canvas { display: block; }
+  #ui { position: fixed; inset: 0; display: flex; flex-direction: column; gap: 12px; align-items: center; justify-content: center; padding: 16px; text-align: center; }
+  #ui label { display: flex; gap: 8px; align-items: center; }
+  input, select, button { font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid #444; background: #111; color: #eee; }
+  button { background: #fb923c; color: #111; font-weight: 700; border: none; padding: 12px 24px; }
+  small { color: #777; max-width: 420px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+  <h2 style="margin:0">EyeCam flicker source</h2>
+  <label>Frequency <input id="f" type="number" value="12" min="1" max="40" step="0.5"> Hz</label>
+  <label>Pattern <select id="pat">
+    <option value="quad">Four squares (Fig. 4 phone)</option>
+    <option value="full">Full screen</option>
+    <option value="yb">Yellow / blue full screen</option>
+  </select></label>
+  <button id="go">Start (tap to stop)</button>
+  <small id="info">Mount the phone on the plotter facing the observer. Brightness to maximum; auto-lock off.</small>
+</div>
+<script type="module">
+import { FlickerClock, measureRefresh } from './js/stage.js';
+const q = new URLSearchParams(location.search);
+const $ = id => document.getElementById(id);
+if (q.get('f')) $('f').value = q.get('f');
+if (q.get('pattern')) $('pat').value = q.get('pattern');
+const cv = $('c'), ctx = cv.getContext('2d', { alpha: false });
+const LIGHTS = ['#ffffff', '#fff27a', '#8ff7ff', '#ffa3f2'];
+let running = false, lock = null;
+const fit = () => { cv.width = innerWidth * devicePixelRatio; cv.height = innerHeight * devicePixelRatio; ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0); };
+addEventListener('resize', fit); fit();
+measureRefresh().then(r => { $('info').textContent += ` Display ${r.toFixed(1)} Hz.`; window.__refresh = r; });
+$('go').onclick = async () => {
+  try { await document.documentElement.requestFullscreen(); } catch {}
+  try { lock = await navigator.wakeLock?.request('screen'); } catch {}
+  $('ui').style.display = 'none'; running = true; fit();
+  const clock = new FlickerClock(+$('f').value, window.__refresh || await measureRefresh());
+  const pat = $('pat').value;
+  const step = ts => {
+    if (!running) return;
+    const A = clock.advance(ts), w = innerWidth, h = innerHeight;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
+    if (pat === 'full') { ctx.fillStyle = A ? '#fff' : '#000'; ctx.fillRect(0, 0, w, h); }
+    else if (pat === 'yb') { ctx.fillStyle = A ? '#ffff00' : '#0000ff'; ctx.fillRect(0, 0, w, h); }
+    else if (A) {
+      const s = Math.min(w, h) * 0.46, x0 = w / 2 - s, y0 = h / 2 - s;
+      [[0, 0], [1, 0], [0, 1], [1, 1]].forEach(([i, j], k) => { ctx.fillStyle = LIGHTS[k]; ctx.fillRect(x0 + i * s + 3, y0 + j * s + 3, s - 6, s - 6); });
+    }
+    requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+};
+cv.onclick = () => { running = false; lock?.release?.(); $('ui').style.display = 'flex'; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, innerWidth, innerHeight); };
+</script>
+</body>
+</html>

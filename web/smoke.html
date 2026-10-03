@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EyeCam smoke test</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<!-- Same shell as index.html; the script below drives it like a user would. -->
+<header class="top">
+  <div class="conn">
+    <span id="dot" class="dot"></span><span id="conn-status"></span><span id="conn-info"></span>
+    <input type="checkbox" id="aux" checked>
+    <button id="btn-muse">m</button><button id="btn-bridge">b</button><button id="btn-sim">s</button><button id="btn-disc">d</button>
+    <button id="btn-settings">a</button><button id="btn-hw">h</button>
+  </div>
+</header>
+<section id="settings-panel" class="drawer"><div id="settings-body"></div></section>
+<section id="hw-panel" class="drawer"><div id="hw-body"></div></section>
+<div class="layout"><nav id="nav"></nav><main id="main"></main></div>
+<pre id="smoke-out" style="position:fixed;bottom:0;left:0;right:0;max-height:40vh;overflow:auto;background:#000;color:#0f0;z-index:1000;margin:0;padding:8px">running…</pre>
+<script>
+  window.__errors = [];
+  addEventListener('error', e => __errors.push('error: ' + (e.message || e) + ' @ ' + (e.filename || '') + ':' + (e.lineno || '')));
+  addEventListener('unhandledrejection', e => __errors.push('rejection: ' + (e.reason?.stack || e.reason)));
+</script>
+<script type="module">
+const log = [];
+const out = m => { log.push(m); document.getElementById('smoke-out').textContent = log.join('\n'); };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const waitFor = async (fn, ms) => { const t = Date.now(); while (Date.now() - t < ms) { const v = fn(); if (v) return v; await sleep(200); } return null; };
+const setField = (label, value) => {
+  const row = [...document.querySelectorAll('#main .form-row')].find(r => r.querySelector('.lbl')?.textContent === label);
+  if (!row) throw new Error('no field ' + label);
+  const inp = row.querySelector('input,select');
+  if (inp.type === 'checkbox') inp.checked = !!value; else inp.value = value;
+  inp.dispatchEvent(new Event(inp.type === 'number' || inp.type === 'text' ? 'change' : 'input'));
+};
+const only = new URLSearchParams(location.search).get('only');
+if (only) {
+  // ?only=<mode>: open one result view full size for a screenshot
+  document.getElementById('smoke-out').style.display = 'none';
+  await import('./js/app.js');
+  document.getElementById('btn-sim').click();
+  location.hash = 'review'; await sleep(600);
+  [...document.querySelectorAll('#main button')].find(b => b.textContent.startsWith('Build a synthetic')).click();
+  await waitFor(() => document.querySelector('#main .result .stats')?.textContent, 60000);
+  await sleep(800);
+  document.querySelector('#main .result').scrollIntoView();
+  document.title = 'SMOKE DONE';
+  throw 'stop';
+}
+try {
+  await import('./js/app.js');
+  await sleep(500);
+  const ids = [...document.querySelectorAll('#nav button')].map(b => b.dataset.id);
+  out(`modes: ${ids.join(', ')}`);
+  for (const id of ids) {
+    location.hash = id; await sleep(600);
+    const n = document.querySelectorAll('#main *').length;
+    out(`  mount ${id}: ${n} elements${n < 10 ? '  <-- suspicious' : ''}`);
+  }
+  document.getElementById('btn-sim').click();
+  await sleep(1500);
+  out(`simulator: ${eyecam.store.n} samples after 1.5 s`);
+
+  // live raster run: 3 short lines, automatic pauses
+  location.hash = 'raster'; await sleep(600);
+  setField('Scan lines', 3); setField('Cursor speed', 400); setField('Between lines', 'auto'); setField('Automatic pause', 0.2);
+  [...document.querySelectorAll('#main button')].find(b => b.textContent === 'Start imaging').click();
+  const res = await waitFor(() => document.querySelector('#main .result .stats')?.textContent, 90000);
+  out(`raster live run: ${res || 'NO RESULT'}`);
+  await sleep(1500);
+  out(`raster canvases in result: ${document.querySelectorAll('#main .result canvas').length}`);
+
+  // monitor with flicker on: SSVEP should be visible in the simulator
+  location.hash = 'monitor'; await sleep(600);
+  setField('Flicker on', true);
+  await sleep(6000);
+  out(`monitor SSVEP meter: ${document.querySelector('.meter b')?.textContent} ... ${[...document.querySelectorAll('.meter b')].pop()?.textContent}`);
+
+  // calibration (simulator): 4 on/off cycles + artifact prompts, then apply
+  location.hash = 'review'; await sleep(300); location.hash = 'calibrate'; await sleep(800);
+  setField('On/off cycles', 4);
+  document.querySelector('#main label.small input').checked = true;
+  document.querySelector('#main label.small input').dispatchEvent(new Event('change'));
+  [...document.querySelectorAll('#main button')].find(b => b.textContent === 'Start calibration').click();
+  await sleep(2500); window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }));
+  const verdict = await waitFor(() => document.querySelector('#main .card h3[style]')?.textContent, 150000);
+  out(`calibration: ${verdict || 'NO REPORT'} — ${document.querySelector('#main .card .stats')?.textContent || ''} | toast: ${document.getElementById('toast')?.textContent || ''} | startBtn disabled=${[...document.querySelectorAll('#main button')].find(b => b.textContent === 'Start calibration')?.disabled}`);
+  [...document.querySelectorAll('#main button')].find(b => b.textContent === 'Apply to analysis')?.click();
+  await sleep(300);
+  out(`  applied: mask=${eyecam.settings.mask} spatial=${eyecam.settings.spatial}`);
+
+  // raster with 2 passes + line reference patches, calibrated masking
+  location.hash = 'review'; await sleep(300); location.hash = 'raster'; await sleep(700);
+  setField('Scan lines', 2); setField('Cursor speed', 500); setField('Passes', 2); setField('Reference patches before each line', true); setField('Reference duration', 1.5);
+  setField('Between lines', 'auto'); setField('Automatic pause', 0.2);
+  [...document.querySelectorAll('#main button')].find(b => b.textContent === 'Start imaging').click();
+  const r2 = await waitFor(() => document.querySelector('#main .result .stats')?.textContent, 120000);
+  out(`raster 2 passes + refs: ${r2 || 'NO RESULT'}`);
+  const tune = [...document.querySelectorAll('#main button')].find(b => b.textContent.startsWith('Auto-tune'));
+  tune?.click();
+  const tuned = await waitFor(() => document.querySelector('#main .info p.small')?.textContent, 120000);
+  out(`auto-tune: ${tuned ? tuned.slice(0, 80) : 'NO RESULT'}`);
+
+  // short live runs of every other experiment
+  const key = k => window.dispatchEvent(new KeyboardEvent('keydown', { key: k }));
+  const runMode = async (id, fields, startLabel, pressSpace, ms = 90000) => {
+    location.hash = 'review'; await sleep(300); location.hash = id; await sleep(700);
+    for (const [k, v] of fields) setField(k, v);
+    [...document.querySelectorAll('#main button')].find(b => b.textContent === startLabel).click();
+    if (pressSpace) { await sleep(1500); key(' '); }
+    const r = await waitFor(() => document.querySelector('#main .result .stats')?.textContent, ms);
+    out(`${id}: ${r || 'NO RESULT'}`);
+  };
+  await runMode('freegaze', [['Raster rows', 2], ['Cursor speed', 900], ['FFT window', 1]], 'Start', true);
+  await runMode('field', [['Passes', 2], ['Speed', 900], ['FFT window', 1]], 'Start', true);
+  await runMode('field', [['Rig', 'plotter'], ['FFT window', 1], ['Start distance', 40], ['End distance', 60], ['Lowest', -10], ['Highest', 10], ['Vertical speed', 20], ['Retreat speed', 5]], 'Start', false);
+  await runMode('chunks', [['Columns', 3], ['Rows', 2], ['Fixation per chunk', 1.5], ['Move time', 0.2], ['Spoken cues', false]], 'Start', true);
+  await runMode('tuner', [['Frequencies', '12, 15'], ['Colour pairs', 'white/black'], ['Block', 3], ['Rest', 0.5], ['Repeats', 1]], 'Start', true);
+  await runMode('rig', [['Scan lines', 2], ['Metronome', 240], ['Beats per line', 8], ['Count-in beats', 1], ['Between lines', 'auto'], ['Automatic pause', 0.2], ['Drive Arduino lamp (pin 6)', false], ['Spoken cues', false]], 'Start', false);
+  await runMode('vmp', [['World flicker', 'none'], ['Camera snapshot on detection', false], ['Duration', 0.6]], 'Start', false);
+
+  // review: synthetic demo session
+  location.hash = 'review'; await sleep(600);
+  [...document.querySelectorAll('#main button')].find(b => b.textContent.startsWith('Build a synthetic')).click();
+  const demo = await waitFor(() => document.querySelector('#main .result .stats')?.textContent, 60000);
+  out(`review demo: ${demo}`);
+} catch (e) { out('EXCEPTION ' + e.stack); }
+out(`errors: ${__errors.length ? '\n  ' + __errors.join('\n  ') : 'none'}`);
+document.title = 'SMOKE DONE';
+</script>
+</body>
+</html>

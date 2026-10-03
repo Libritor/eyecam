@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EyeCam self-tests</title>
+<style>
+  body { font: 14px/1.5 ui-monospace, Consolas, monospace; background: #111; color: #ddd; padding: 16px; }
+  canvas { image-rendering: pixelated; width: 320px; background: #000; margin-right: 8px; }
+</style>
+</head>
+<body>
+<h3>EyeCam self-tests (synthetic EEG → reconstructed images)</h3>
+<pre id="out">running…</pre>
+<canvas id="c1"></canvas><canvas id="c2"></canvas><canvas id="c3"></canvas>
+<script type="module" src="js/tests.js"></script>
+</body>
+</html>

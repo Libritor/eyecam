@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EyeCam benchmark</title>
+<style>
+  body { font: 13px/1.45 ui-monospace, Consolas, monospace; background: #111; color: #ddd; padding: 16px; }
+  #imgs canvas { width: 240px; image-rendering: pixelated; margin: 0 6px 6px 0; background: #000; }
+</style>
+</head>
+<body>
+<h3>Noise-handling benchmark (calibration + N scan)</h3>
+<p>?cfg=quick,paper &amp; uv=1.5,3 — images below are the first SSVEP level, in method order, per config.</p>
+<pre id="out"></pre>
+<div id="imgs"></div>
+<script type="module" src="js/noisebench.js"></script>
+</body>
+</html>

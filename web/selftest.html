@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EyeCam self-run</title>
+<link rel="stylesheet" href="css/app.css">
+<style>
+  #summary { position: fixed; inset: 0; background: #111; color: #ddd; z-index: 500; padding: 16px; display: none; overflow: auto; font: 13px/1.45 system-ui, sans-serif; }
+  #summary img { height: 300px; background: #000; margin-right: 10px; image-rendering: pixelated; }
+  #summary pre { white-space: pre-wrap; font: 12px ui-monospace, Consolas, monospace; }
+</style>
+</head>
+<body>
+<!-- Drives the real app end to end with the simulator, like a user would:
+     Simulator -> Calibration (fullscreen flicker + artifact prompts) -> Apply ->
+     Eye camera (raster) with the calibrated plan -> result + auto-tune.
+     ?scenario=oz   SSVEP 4 µV at Oz (AUX), 2.4 µV at TP9/TP10
+     ?scenario=you  matched to a real NO-GO calibration: TP9 none, TP10 1.4 µV -->
+<header class="top">
+  <div class="conn">
+    <span id="dot" class="dot"></span><span id="conn-status"></span><span id="conn-info"></span>
+    <input type="checkbox" id="aux" checked>
+    <button id="btn-muse">m</button><button id="btn-bridge">b</button><button id="btn-sim">s</button><button id="btn-disc">d</button>
+    <button id="btn-settings">a</button><button id="btn-hw">h</button>
+  </div>
+</header>
+<section id="settings-panel" class="drawer"><div id="settings-body"></div></section>
+<section id="hw-panel" class="drawer"><div id="hw-body"></div></section>
+<div class="layout"><nav id="nav"></nav><main id="main"></main></div>
+<div id="summary"></div>
+<script type="module">
+const scenario = new URLSearchParams(location.search).get('scenario') || 'oz';
+const log = [];
+const note = m => { log.push(`[${(performance.now() / 1000).toFixed(0)} s] ${m}`); document.title = 'running: ' + m.slice(0, 40); };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const waitFor = async (fn, ms) => { const t = Date.now(); while (Date.now() - t < ms) { const v = fn(); if (v) return v; await sleep(500); } return null; };
+const btn = text => [...document.querySelectorAll('#main button')].find(b => b.textContent.trim().startsWith(text));
+const setField = (label, value) => {
+  const row = [...document.querySelectorAll('#main .form-row')].find(r => r.querySelector('.lbl')?.textContent === label);
+  const inp = row.querySelector('input,select');
+  if (inp.type === 'checkbox') inp.checked = !!value; else inp.value = value;
+  inp.dispatchEvent(new Event(inp.type === 'number' || inp.type === 'text' ? 'change' : 'input'));
+};
+const key = k => window.dispatchEvent(new KeyboardEvent('keydown', { key: k }));
+const go = async id => { location.hash = 'review'; await sleep(300); location.hash = id; await sleep(900); };
+// keep the user's real calibration safe: back it up, run on a clean slate, restore at the end
+let savedCalib = null;
+try { savedCalib = localStorage.getItem('eyecam.calib.v1'); localStorage.removeItem('eyecam.calib.v1'); } catch {}
+const restoreCalib = () => { try { if (savedCalib) localStorage.setItem('eyecam.calib.v1', savedCalib); else localStorage.removeItem('eyecam.calib.v1'); } catch {} };
+
+const summary = { scenario };
+try {
+  await import('./js/app.js');
+  await sleep(500);
+  document.getElementById('btn-sim').click();
+  await sleep(1500);
+  const gen = eyecam.source.gen;
+  if (scenario === 'you') {
+    // TP9 no response, TP10 1.4 µV (fundamental), AUX disconnected
+    gen.ssvepUV = 1.4; gen.gain = gen.channels.map(n => ({ TP9: 0, AF7: 0.05, AF8: 0.15, TP10: 1.0, AUX: 0 }[n] ?? 0));
+  } else {
+    gen.ssvepUV = 4; gen.gain = gen.channels.map(n => ({ TP9: 0.6, AF7: 0.15, AF8: 0.15, TP10: 0.6, AUX: 1.0 }[n] ?? 0.5));
+  }
+  note(`simulator: ${scenario}, channels ${gen.channels.join(' ')}`);
+
+  // ---- calibration
+  await go('calibrate');
+  const anyway = document.querySelector('#main label.small input'); anyway.checked = true; anyway.dispatchEvent(new Event('change'));
+  await sleep(3000);
+  btn('Start calibration').click();
+  await sleep(3000); key(' ');
+  note('calibration running (fullscreen flicker + prompts)');
+  await waitFor(() => document.querySelector('#main .card h3[style]'), 300000);
+  const rep = eyecam.calib;
+  summary.calibration = `${rep.verdict.toUpperCase()} · d′/s ${rep.d1.toFixed(2)} (${rep.pipeline}${rep.bestChannel ? ' ' + rep.bestChannel : ''}) · ` +
+    rep.perChannel.map(c => `${c.name} ${c.ampUV.toFixed(2)} µV`).join(', ') + ` · plan: ${rep.plan.passes} pass × ${rep.plan.winSec} s, ${rep.plan.speed} px/s`;
+  note('calibration: ' + summary.calibration);
+  btn('Apply to analysis').click();
+  await sleep(500);
+
+  // ---- imaging
+  await go('raster');
+  if (rep.verdict !== 'nogo') btn('Use calibrated scan plan').click();
+  else btn('Letter N').click(); // what you'd get by ignoring the NO-GO
+  await sleep(800);
+  setField('Between lines', 'auto'); setField('Automatic pause', 0.5);
+  const plan = ['Flicker', 'Cursor size', 'Cursor speed', 'Scan lines', 'Passes'].map(l => {
+    const row = [...document.querySelectorAll('#main .form-row')].find(r => r.querySelector('.lbl')?.textContent === l);
+    return `${l} ${row.querySelector('input').value}`;
+  }).join(', ');
+  summary.scan = plan + ` · ${document.querySelector('#main .info')?.textContent.match(/total ≈ [^·]*/)?.[0] || ''}`;
+  note('scanning: ' + summary.scan);
+  btn('Start imaging').click();
+  const stats = await waitFor(() => document.querySelector('#main .result .stats')?.textContent, 45 * 60000);
+  summary.result = stats || 'NO RESULT';
+  note('result: ' + summary.result);
+  await sleep(1500);
+  const out = document.querySelector('#main .result canvas.out');
+  const ref = document.querySelector('#main .result img.out');
+  summary.outImg = out?.toDataURL(); summary.refImg = ref?.src;
+
+  // ---- auto-tune
+  btn('Auto-tune').click();
+  await waitFor(() => document.querySelector('#main .result .info p.small'), 600000);
+  summary.autotune = [...document.querySelectorAll('#main .result .info table tr')].map(tr => [...tr.children].map(td => td.textContent).join(' | ')).join('\n');
+  await sleep(2500);
+  summary.tunedImg = document.querySelector('#main .result canvas.out')?.toDataURL();
+  summary.tunedStats = document.querySelector('#main .result .stats')?.textContent;
+} catch (e) { note('EXCEPTION ' + e.stack); }
+
+const s = document.getElementById('summary');
+s.style.display = 'block';
+s.innerHTML = `<h3>Self-run: ${scenario === 'oz' ? 'A — with Oz electrode (4 µV at Oz)' : 'B — matched to your NO-GO calibration (TP9 none, TP10 1.4 µV)'}</h3>
+  <div>${summary.refImg ? `<img src="${summary.refImg}">` : ''}${summary.outImg ? `<img src="${summary.outImg}">` : ''}${summary.tunedImg ? `<img src="${summary.tunedImg}">` : ''}</div>
+  <div class="muted">left: letter shown · middle: reconstructed from simulated EEG (calibrated settings) · right: after auto-tune</div>
+  <pre>Calibration: ${summary.calibration}\nScan: ${summary.scan}\nResult: ${summary.result}\nAfter auto-tune: ${summary.tunedStats}\n\nAuto-tune:\n${summary.autotune}\n\nLog:\n${log.join('\n')}</pre>`;
+restoreCalib();
+window.__summary = s.innerText;
+document.title = 'SELFTEST DONE';
+</script>
+</body>
+</html>
