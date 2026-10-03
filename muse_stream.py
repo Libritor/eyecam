@@ -24,8 +24,9 @@ class MuseStream:
         self.cmd = [sys.executable, "-m", "muselsl", "stream", "--lsltime", "--model", model]
         if address:
             self.cmd += ["--address", address]
-        if preset:          # e.g. p20: classic Muse with the aux (Oz) input ON
-            self.cmd += ["--preset", str(preset)]
+        if preset:          # e.g. 20 (or "p20"): classic Muse with the aux (Oz) input ON
+            # muselsl's command line takes the preset as a plain number
+            self.cmd += ["--preset", str(preset).lower().lstrip("p")]
         self.log = log
         self.stop_event = threading.Event()
         self.proc = None
@@ -37,14 +38,29 @@ class MuseStream:
         return self
 
     def _run(self):
+        import tempfile
         while not self.stop_event.is_set():
             self.log("muse: connecting over Bluetooth (headset on; Muse phone app closed)...")
-            self.proc = subprocess.Popen(self.cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # keep muselsl's own messages: when it fails, say WHY instead of looping blind
+            out = tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace")
+            t0 = time.monotonic()
+            self.proc = subprocess.Popen(self.cmd, stdout=out, stderr=subprocess.STDOUT)
             while self.proc.poll() is None and not self.stop_event.is_set():
                 time.sleep(0.5)
             if self.stop_event.is_set():
+                out.close()
                 break
-            self.log("muse: connection dropped; reconnecting in 2 s")
+            out.seek(0)
+            lines = [l.strip() for l in out.read().splitlines()
+                     if l.strip() and "netif" not in l and "ifindex" not in l
+                     and "INFO|" not in l]
+            out.close()
+            why = " | ".join(lines[-3:]) if lines else "no message"
+            if time.monotonic() - t0 < 15:
+                self.log(f"muse: muselsl stopped after {time.monotonic() - t0:.0f} s: {why}")
+            else:
+                self.log("muse: connection dropped")
+            self.log("muse: reconnecting in 2 s")
             self.stop_event.wait(2)
 
     def stop(self):

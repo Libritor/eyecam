@@ -62,7 +62,7 @@ def main():
     sys.stdout.reconfigure(line_buffering=True)  # status lines visible at once in any terminal
 
     stop = threading.Event()
-    preset = None if args.no_aux or args.model == "athena" else "p20"   # aux (Oz) ON
+    preset = None if args.no_aux or args.model == "athena" else "20"   # aux (Oz) ON
     muse = MuseStream(args.address, args.model, preset=preset).start() if args.start_muselsl else None
 
     osc = SimpleUDPClient(args.host, args.port)

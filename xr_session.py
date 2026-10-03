@@ -1797,7 +1797,7 @@ async def main():
             from muse_stream import MuseStream
             preset = args.muse_preset
             if preset is None and not args.no_aux and args.muse_model != "athena":
-                preset = "p20"          # classic Muse: aux (Oz) input ON
+                preset = "20"           # classic Muse: aux (Oz) input ON
             muse = MuseStream(args.muse_address, args.muse_model, preset=preset).start()
             print("EEG in:         Muse over this PC's Bluetooth (muselsl -> LSL)"
                   + (f", preset {preset}" if preset else "")
