@@ -41,6 +41,7 @@ WHAT = {
     "image": ["--mode", "visual", "--target", "pix:NO", "--spc", "8", "--passes", "3"],
     "full": ["--mode", "full", "--target", "pix:NO", "--spc", "8", "--passes", "2",
              "--color-reps", "3", "--color-on", "6", "--color-spc", "6",
+             "--color-passes", "3",
              "--music-blocks", "6"],
     "alpha": ["--mode", "alpha", "--calib-blocks", "4", "--calib-on", "20",
               "--calib-off", "20"],

@@ -365,6 +365,7 @@ class Driver:
         self.blocks = []
         self.block_hz = []          # per-block flicker frequency (sweep)
         self.color_hzs = []         # page's frame-exact plan for the colour scan
+        self.color_passes = []      # per pass: which frequency each colour used
         self.frames = 0
         self.spec = None
         if args.spectator:
@@ -449,6 +450,16 @@ class Driver:
         elif typ == "color_plan":
             self.color_hzs = [float(v) for v in m.get("hzs", [])]
             print("colour flicker plan:", self.color_hzs, "@", m.get("refresh"), "fps")
+        elif typ == "color_pass":
+            # which tag frequency each of R, G, B uses from now on
+            entry = dict(t=t, pass_index=int(m.get("pass", 0)),
+                         plan=[int(v) for v in m.get("plan", [0, 1, 2])],
+                         hz=[float(v) for v in m.get("hz", [])])
+            self.color_passes.append(entry)
+            with open(os.path.join(self.session, "color_passes.json"), "w") as f:
+                json.dump(self.color_passes, f, indent=1)
+            print(f"colour pass {entry['pass_index'] + 1}: R/G/B at "
+                  + "/".join(f"{v:.2f}" for v in entry["hz"]) + " Hz")
         elif typ == "visibility":
             print(f"page visibility: {m.get('state')}")
             self.spectate(type="log", msg=f"page {m.get('state')}")
@@ -807,8 +818,12 @@ class Driver:
             await self.send(cmd="start_scan", gridW=a.grid_w, gridH=a.grid_h,
                             spc=a.spc, freq=a.freq, target=target.tolist(),
                             patch=a.patch, bw=(a.calib_style == "bw"),
-                            passes=a.passes, board=a.board)
+                            passes=a.passes, board=a.board,
+                            restEvery=a.rest_every)
             scan_s = a.grid_w * a.grid_h * a.spc * max(1, a.passes)
+            if a.rest_every > 0:   # rest breaks are as long as the subject likes
+                scan_s += 600 * (a.grid_w * a.grid_h * max(1, a.passes)
+                                 // a.rest_every)
             await self.wait_for("scan_done", timeout=scan_s * 2 + 120)
             self.close_log()
             await asyncio.sleep(0.7)
@@ -1032,22 +1047,26 @@ class Driver:
         np.save(os.path.join(self.session, "target_color.npy"), ctarget)
         self.spectate(type="stage", stage="color_scan", detail="")
         self.color_hzs = []
+        self.color_passes = []
         self.open_log("color_log.csv")
         await self.send(cmd="start_scan", color=True, gridW=gw, gridH=gh,
-                        spc=a.color_spc, freqs=freqs, target=ctarget.tolist())
-        scan_s = gw * gh * a.color_spc
+                        spc=a.color_spc, freqs=freqs, target=ctarget.tolist(),
+                        passes=a.color_passes)
+        scan_s = gw * gh * a.color_spc * max(1, a.color_passes)
         await self.wait_for("scan_done", timeout=scan_s * 2 + 120)
         self.close_log()
         await asyncio.sleep(0.7)
-        hz_del = self.measured_cols("color_log.csv")
-        for k in range(3):
-            if not np.isfinite(hz_del[k]):
-                hz_del[k] = (self.color_hzs[k] if k < len(self.color_hzs)
-                             else freqs[k])
-        print("colour scan delivered:", ["%.2f" % v for v in hz_del])
+        # the three tag frequencies as the page delivered them; which colour
+        # used which one in each pass is in color_passes.json
+        hz_del = [self.color_hzs[k] if k < len(self.color_hzs) else freqs[k]
+                  for k in range(3)]
+        print("colour tags:", ["%.2f" % v for v in hz_del],
+              f"over {max(1, a.color_passes)} pass(es)")
         try:
+            # gains=None: the colour-calibration gains are reported but not
+            # applied (they lowered every run's correlation)
             grid, rgb, cres = reconstruct.reconstruct_color(
-                self.session, hz_del, weights=weights, gains=gains,
+                self.session, hz_del, weights=weights, gains=None,
                 cursor_log="color_log.csv", target=ctarget)
         except Exception as exc:  # keep the session alive for the music stage
             print("colour reconstruction failed:", repr(exc))
@@ -1370,6 +1389,9 @@ async def main():
                     help="grey scan: board size as a fraction of the screen; "
                          "shrink it (0.6) with a large --patch so the square "
                          "is never clipped at the edge positions")
+    ap.add_argument("--rest-every", type=int, default=0,
+                    help="grey scan: stop for a rest after this many positions "
+                         "and wait for the trigger (0 = no breaks)")
     ap.add_argument("--vblend", action="store_true",
                     help="apply the paper's Eq. 1 vertical blend. It is for "
                          "overlapping scan lines; on discrete positions it "
@@ -1382,6 +1404,9 @@ async def main():
                     help="--mode full: R,G,B tag frequencies (frame-exact at "
                          "72 fps: 7.2/9/12; at 240 fps: 8/10/12)")
     ap.add_argument("--color-reps", type=int, default=3)
+    ap.add_argument("--color-passes", type=int, default=3,
+                    help="colour scan passes; the colour-to-frequency "
+                         "assignment rotates every pass")
     ap.add_argument("--color-on", type=float, default=6.0,
                     help="colour calibration ON = OFF seconds per block")
     ap.add_argument("--color-grid-w", type=int, default=6)
@@ -1419,6 +1444,11 @@ async def main():
     args = ap.parse_args()
     if not args.vblend:
         config.VERTICAL_KERNEL = [1.0]
+    if os.path.isfile(args.target):
+        # a drawing that is already at scan resolution: one position per pixel
+        _w, _h = Image.open(args.target).size
+        if _w <= 48 and _h <= 48:
+            args.grid_w, args.grid_h = _w, _h
     if args.target.startswith("pix"):
         import targets as _t
         _g = _t.load_target(args.target)

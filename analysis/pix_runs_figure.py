@@ -24,12 +24,17 @@ def analyse(session, shift_s=0.0):
     cal = json.load(open(os.path.join(session, "calibration.json")))
     w = np.array([float(cal["weights"].get(n, 0.0)) for n in names])
     w = w / w.sum()
+    # score at the flicker frequency this session actually delivered
+    f0 = float((cal.get("line") or {}).get("delivered") or F0)
     seen = {}
     passes = []
+    # a visit cut short (pause, rest break, end of run) is not a measurement:
+    # keep visits of at least 60 % of the typical dwell
+    typical = np.median([len(segs[0]) for gx, gy, segs in vis if gx >= 0])
     for gx, gy, segs in vis:
-        if gx < 0 or len(segs[0]) < fs * 4:
+        if gx < 0 or len(segs[0]) < 0.6 * typical:
             continue
-        sc = np.array([R.paper_score(x, fs, F0) for x in segs])
+        sc = np.array([R.paper_score(x, fs, f0) for x in segs])
         v = float(np.nansum(np.nan_to_num(sc) * w))
         k = seen.get((gx, gy), 0)
         seen[(gx, gy)] = k + 1

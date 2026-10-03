@@ -43,6 +43,25 @@ addEventListener("resize", fit); fit();
 
 function black() { ctx.fillStyle = "#000"; ctx.fillRect(0, 0, cv.width, cv.height); }
 
+// Wait for a trigger pull, click, key or controller button. In unattended
+// runs (?auto=1) it returns after a second.
+async function waitForPress() {
+  if (location.search.includes("auto=1")) { await sleep(1000); return; }
+  await sleep(600);   // ignore the press that may still be held
+  await new Promise(res => {
+    const done = () => { clearInterval(gp); res(); };
+    addEventListener("pointerdown", done, { once: true });
+    addEventListener("keydown", done, { once: true });
+    const gp = setInterval(() => {
+      try {
+        for (const g of navigator.getGamepads ? navigator.getGamepads() : []) {
+          if (g && g.buttons.some(b => b && (b.pressed || b.value > 0.5))) return done();
+        }
+      } catch {}
+    }, 100);
+  });
+}
+
 // The driver pauses the scan when the EEG stream goes silent. The position
 // in progress is abandoned and done again from the start after the resume.
 let paused = false;
@@ -176,9 +195,20 @@ async function runColorScan(m) {
   const bh = bw * gh / gw;
   const x0 = (cv.width - bw) / 2, y0 = (cv.height - bh) / 2;
   const cwid = bw / gw, chgt = bh / gh;
-  for (let gy = 0; gy < gh && running === tok; gy++) {
+  // Several passes; pass p gives colour c the tag plan (c + p) mod 3, so
+  // over three passes every colour has been on every frequency once and the
+  // subject's frequency preference cancels out of the colour image.
+  const passes = Math.max(1, m.passes || 1);
+  for (let ps = 0; ps < passes && running === tok; ps++) {
+  const plan = [0, 1, 2].map(c => plans[(c + ps) % plans.length]);
+  send({ type: "color_pass", pass: ps, plan: [0, 1, 2].map(c => (c + ps) % plans.length),
+         hz: plan.map(p => p.hz) });
+  await sleep(300);   // let the driver stamp the pass before the first frame
+  for (let ry = 0; ry < gh && running === tok; ry++) {
+    const gy = ps % 2 === 1 ? gh - 1 - ry : ry;
     const xs = [...Array(gw).keys()];
-    if (gy % 2 === 1) xs.reverse();
+    if ((ry + ps) % 2 === 1) xs.reverse();
+    if (passes > 1) sub.textContent = `colour pass ${ps + 1}/${passes}`;
     for (let xi = 0; xi < xs.length; xi++) {
       const gx = xs[xi];
       if (await holdWhilePaused()) { xi--; continue; }
@@ -188,9 +218,9 @@ async function runColorScan(m) {
       while (now() - t0 < m.spc && running === tok && !paused) {
         const ts = await frameTs(); frameCount++;
         const t = now();
-        const sR = r > 0.05 && phaseOn(ts, plans[0].k);
-        const sG = g > 0.05 && phaseOn(ts, plans[1].k);
-        const sB = b > 0.05 && phaseOn(ts, plans[2].k);
+        const sR = r > 0.05 && phaseOn(ts, plan[0].k);
+        const sG = g > 0.05 && phaseOn(ts, plan[1].k);
+        const sB = b > 0.05 && phaseOn(ts, plan[2].k);
         black();
         if (r > 0.05 || g > 0.05 || b > 0.05) {
           ctx.fillStyle = `rgb(${sR ? Math.round(255 * r) : 0},${sG ? Math.round(255 * g) : 0},${sB ? Math.round(255 * b) : 0})`;
@@ -204,6 +234,7 @@ async function runColorScan(m) {
       if (running !== tok) break;
     }
     send({ type: "row", y: gy });
+  }
   }
   black();
   send({ type: "scan_done" });
@@ -327,6 +358,8 @@ async function runScan(m) {
   // several passes over the board; odd passes run bottom-to-top so slow
   // drift does not line up with the image the same way twice
   const passes = Math.max(1, m.passes || 1);
+  const total = passes * gw * gh, restEvery = m.restEvery || 0;
+  let nDone = 0;
   for (let ps = 0; ps < passes && running === tok; ps++)
   for (let ry = 0; ry < gh && running === tok; ry++) {
     const gy = ps % 2 === 1 ? gh - 1 - ry : ry;
@@ -363,6 +396,23 @@ async function runScan(m) {
       }
       if (paused) { xi--; continue; }
       if (running !== tok) break;
+      nDone++;
+      if (restEvery > 0 && nDone % restEvery === 0 && nDone < total) {
+        // a rest break: mark it in the log so it is not scored as a position
+        black();
+        send({ type: "frame", stage: "rest", pt: now(), gx: -1, gy: -1, lum: 0, fl: 0 });
+        title.textContent = "REST"; title.className = "ok";
+        sub.textContent = `${nDone} of ${total} positions done. Blink, relax, ` +
+                          `then pull the trigger to continue.`;
+        await waitForPress();
+        title.textContent = "";
+        for (let n = 3; n > 0 && running === tok; n--) {
+          sub.textContent = `continuing in ${n}`;
+          black(); dot(x0 + (gx + 0.5) * cwid, y0 + (gy + 0.5) * chgt);
+          await sleep(1000);
+        }
+        sub.textContent = passes > 1 ? `pass ${ps + 1}/${passes}` : "";
+      }
     }
     send({ type: "row", y: gy });
   }

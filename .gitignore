@@ -5,3 +5,8 @@ __pycache__/
 *.err
 analysis/campaign_results.json
 analysis/*_run.log
+targets_src/
+targets_img/paper_reference.png
+targets_img/mann_highcontrast_720.png
+targets_img/mann_photo_*.png
+targets_img/mann_preview.png
