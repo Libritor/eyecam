@@ -341,6 +341,7 @@ not yet tested on real recordings.
 | `mux` | three squares per dwell, each with its own tag frequency |
 | `music` / `assr` | the 40 Hz auditory stage on its own |
 | `bwb` | black / white / blue: frequency-phase coded colour, decoded with FBCCA (see below) |
+| `smooth` | smooth-flicker colour: R, G, B on three close tags placed by a sweep; mixtures and shades (see below) |
 
 Useful options: `--freq` flicker frequency, `--grid-w/--grid-h` positions,
 `--spc` seconds per position, `--patch` square size independent of the grid
@@ -416,6 +417,75 @@ Tested offline only:
 - **Blue is the weak class.** Blue is dim, so it drives a smaller SSVEP than
   white, and blue cells are the ones that drift to "black" first. Longer cells
   (`--bwb-spc`), more calibration blocks and the Oz electrode all help.
+
+### Smooth-flicker colour (`--mode smooth`)
+
+The frequency-tagged colour scan (`--mode full`) flickers each colour on and
+off in whole frames, so at 72 fps the tags can only be 7.2, 9 and 12 Hz. In the
+three recorded runs the plane on 12 Hz held (r = 0.68 to 0.90) while the planes
+on 7.2 and 9 Hz fell to chance in two of them.
+
+Here the brightness of each colour channel follows a sine wave sampled at
+every frame, so a tag can be any frequency and all three fit in the band the
+subject responds in. R, G and B still flicker together in the cell, and the
+strength of the line at each tag is how much of that colour is there, so
+mixtures (yellow = the red and the green line) and shades (a weaker line)
+come through without extra coding.
+
+1. **Sweep.** Full-field white smooth flicker at `--smooth-sweep` (default
+   9 to 14 Hz in 1 Hz steps, `--color-reps` blocks of `--color-on` s), scored
+   like `--mode sweep`. About 3.6 minutes at the defaults.
+2. **Tags.** Three frequencies inside the swept band where the response is
+   strong, at least 0.8 Hz apart, spaced unevenly so that no mixing product of
+   the visual system (2a - b, a + b - c) lands on another tag, and at least
+   0.6 Hz from the alpha peak found in the OFF blocks. The strongest tag goes
+   to blue, the dimmest colour, then red, then green. If the sweep finds no
+   clear response, the default tags (R 11.2, G 13.2, B 12 Hz) are kept.
+   `--smooth-tags 11.2,13.2,12` sets them by hand and skips the sweep.
+3. **Scan.** `--color-target`, `--color-grid-w/-h`, `--smooth-spc` (default
+   8 s) and `--smooth-passes`. `--color-target mix` is a test picture of
+   mixtures and shades: red, yellow, green, cyan, blue, magenta across, darker
+   row by row, with a white-to-black row at the bottom.
+4. **Decode.** Per cell and tag, the line over the power 0.5 to 2 Hz either
+   side (other tags and alpha left out), as an amplitude; each plane is then
+   scaled to its own range. `python smoothcolor.py --session runs/<name>`
+   decodes a recorded session again.
+
+```
+python xr_session.py --muse --mode smooth --color-target mix
+python smooth_gate.py                      # the whole chain on the phantom
+```
+
+Two labelled multipliers sit at the top of `smoothcolor.py`, both 1 by default:
+
+| Constant | Option | What it does |
+|---|---|---|
+| `COLOR_BALANCE` | `--color-balance R,G,B` | Multiplies each finished plane. It changes the balance of the picture; it does not make a weak plane less noisy, because the noise is multiplied too. |
+| `SHADE_EXPONENT` | `--shade-exponent` | shade = response ^ exponent. The response grows less than in proportion to brightness, so mid shades come out too bright; a value above 1 darkens them. |
+
+A sine drives 21 % less response than on/off flicker over the same brightness
+range (pi/4). That is the same for every colour, so no multiplier restores it;
+1.6 times the dwell does, which is why `--smooth-spc` defaults to 8 s where
+`--color-spc` is 5 s.
+
+Tested on the phantom only:
+
+- **`smooth_gate.py`** (phantom peaked at 11.5 Hz, blue response 0.4 of green,
+  4 s per cell, 60 fps headless browser): the sweep put the tags at 10.8, 12.8
+  and 11.6 Hz with blue on the strongest; r = 0.89 (R 0.93, G 0.95, B 0.81),
+  9 of 10 pure-colour cells right, time-shifted EEG at most 0.28.
+- **At the default dwell with two passes** (`--smooth-spc 8 --smooth-passes 2`,
+  same phantom): r = 0.98 (R 0.98, G 0.98, B 0.97), 10 of 10 pure-colour
+  cells right, time-shifted EEG at most 0.13, mean error on shaded cells 0.08.
+  The grey row comes back in the right order, with white at about 0.8.
+- **Delivered frequency**, from the logged on/off state: 10.81, 12.82 and
+  11.61 Hz for 10.8, 12.8 and 11.6 requested.
+- **The brightness curve did not help in simulation.** With a synthetic
+  response of brightness ^ 0.5, exponent 2 raised the mean error on shaded
+  cells from 0.12 to 0.21: it squares the noise along with the signal. It
+  stays at 1 until real grey-level data says otherwise.
+- **Not yet run on a real headset.** The phantom has no mixing products and a
+  perfectly steady response, so the real test of close tags is still to come.
 
 ### Running in a Quest headset
 
@@ -534,6 +604,8 @@ and the small result files for each session are in `docs/results`.
 | `analysis/rescore_blinks.py` | rescore recorded sessions with / without masking |
 | `diagnose.py` | per-channel SSVEP, noise, artifacts and Oz check against the published runs, with a verdict |
 | `bwb.py` | black / white / blue decoder: frequency-phase codes, FBCCA + phase templates, shrinkage LDA |
+| `smoothcolor.py` | smooth-flicker colour: tag placement from a sweep, decoder, the labelled balance and brightness-curve constants |
+| `smooth_gate.py` | gate: `--mode smooth` end to end on the phantom in a headless browser |
 | `muse_stream.py`, `lsl_to_osc.py` | Muse over this PC's Bluetooth via muselsl (`--muse`), and an LSL-to-OSC bridge |
 | `phantom_subject.py` | synthetic subject for end-to-end tests, including colour tags and audio |
 | `targets.py` | text, pixel-font, image and colour targets |

@@ -51,6 +51,8 @@ def color_target(spec, grid_w=None, grid_h=None):
     'quad'  = quadrants R, G, B, white
     'text:X'= glyph X in yellow (R+G) on black  (tests two-plane cells)
     'ring'  = red disc, green ring, blue corners
+    'mix'   = mixtures and shades: red, yellow, green, cyan, blue, magenta
+              across, darker row by row, and a white-to-black row at the bottom
     or an image path (RGB)."""
     grid_w = grid_w or config.GRID_W
     grid_h = grid_h or config.GRID_H
@@ -69,6 +71,14 @@ def color_target(spec, grid_w=None, grid_h=None):
         gl = text_target(spec[5:], grid_w, grid_h)
         g[:, :, 0] = gl
         g[:, :, 1] = gl
+    elif spec == "mix":
+        hues = [(1, 0, 0), (1, 1, 0), (0, 1, 0), (0, 1, 1), (0, 0, 1), (1, 0, 1)]
+        rows = max(grid_h - 1, 1)
+        for yg in range(rows):
+            for xg in range(grid_w):
+                g[yg, xg] = np.array(hues[xg * 6 // grid_w]) * (1 - yg / rows)
+        if grid_h > 1:
+            g[-1] = np.linspace(1, 0, grid_w)[:, None]
     elif spec == "ring":
         yy, xx = np.mgrid[0:grid_h, 0:grid_w]
         cy, cx = (grid_h - 1) / 2, (grid_w - 1) / 2

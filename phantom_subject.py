@@ -26,6 +26,13 @@ Optional, for testing blink / eye-closure masking (all off by default):
   --blinks N   N blinks per minute: a ~0.3 s frontal deflection (AF7/AF8 large,
                TP9/TP10 small) and no SSVEP while the lids are down
   --closures N N eye closures per minute, 2-4 s: no SSVEP, alpha x6 on Oz
+
+Smooth flicker (--mode smooth) is a sine, so its on/off edges are too coarse to
+measure its frequency: the phantom takes it from the hz_r/hz_g/hz_b columns
+and responds pi/4 as strongly as to on/off flicker. For testing that mode:
+  --tuning PEAK:WIDTH   response falls off away from PEAK Hz (Gaussian, Hz)
+  --color-gain R,G,B    response to each colour of a smooth colour scan
+  --response-gamma G    response = brightness ** G (below 1: shades crowd up)
 """
 
 import argparse
@@ -109,8 +116,20 @@ def main():
                     help="blinks per minute (frontal spikes + SSVEP dropout)")
     ap.add_argument("--closures", type=float, default=0.0,
                     help="eye closures per minute (2-4 s, alpha up, no SSVEP)")
+    ap.add_argument("--tuning", default="",
+                    help="PEAK:WIDTH in Hz: response curve over flicker frequency")
+    ap.add_argument("--color-gain", default="1,1,1",
+                    help="response to R,G,B in a smooth colour scan")
+    ap.add_argument("--response-gamma", type=float, default=1.0,
+                    help="response = brightness ** gamma")
     args = ap.parse_args()
     nch = 5 if args.aux else 4
+    peak, width = ([float(v) for v in args.tuning.split(":")] if args.tuning
+                   else (0.0, 0.0))
+    color_gain = [float(v) for v in args.color_gain.split(",")]
+
+    def tuning(f):
+        return math.exp(-0.5 * ((f - peak) / width) ** 2) if width > 0 and f > 0 else 1.0
     snr = CH_SNR + ([1.2] if args.aux else [])
 
     if sys.platform == "win32":
@@ -119,7 +138,7 @@ def main():
     tails = [CsvTail(os.path.join(args.session, n)) for n in
              ("calib_log.csv", "cursor_log.csv", "sweep_log.csv",
               "ccal_log.csv", "color_log.csv", "assr_log.csv", "mux_log.csv",
-              "bwb_cal_log.csv", "bwb_log.csv")]
+              "bwb_cal_log.csv", "bwb_log.csv", "smooth_log.csv")]
 
     rng = np.random.default_rng(args.seed)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -175,6 +194,8 @@ def main():
 
     trk = [Tracker(), Tracker(), Tracker()]
     comp = [0.0, 0.0, 0.0]          # r, g, b of the current cell
+    hz_s = [0.0, 0.0, 0.0]          # smooth-flicker frequency per colour (0 = on/off)
+    in_cell = False
     audio_hz, audio_lum, audio_pc = 0.0, 0.0, -1e9
     audio_phase, audio_env = 0.0, 0.0
     last_fl = 0
@@ -219,14 +240,23 @@ def main():
                             audio_pc = time.perf_counter()
                     else:
                         comp = [lum, 0.0, 0.0]
+                    try:
+                        hz_s = [float(v) for v in row[12:15]] if len(row) >= 15 \
+                            else [0.0, 0.0, 0.0]
+                        in_cell = int(row[1]) >= 0
+                    except ValueError:
+                        hz_s = [0.0, 0.0, 0.0]
 
             # primary drive = luminance column gated by a live primary toggle
-            trk[0].drive = lum if trk[0].live() else 0.0
-            trk[1].drive = comp[1] if trk[1].live() else 0.0
-            trk[2].drive = comp[2] if trk[2].live() else 0.0
-            f_meas = trk[0].freq(config.STIM_FREQ_HZ)
-            f_g = trk[1].freq(0.0)
-            f_b = trk[2].freq(0.0)
+            f_meas = hz_s[0] or trk[0].freq(config.STIM_FREQ_HZ)
+            f_g = hz_s[1] or trk[1].freq(0.0)
+            f_b = hz_s[2] or trk[2].freq(0.0)
+            for k, (v, f_k) in enumerate(zip((lum, comp[1], comp[2]), (f_meas, f_g, f_b))):
+                gain = tuning(f_k) * (math.pi / 4 if hz_s[k] else 1.0)
+                if hz_s[k] and in_cell:
+                    gain *= color_gain[k]
+                trk[k].drive = gain * max(v, 0.0) ** args.response_gamma \
+                    if trk[k].live() else 0.0
             audio_live = time.perf_counter() - audio_pc < 0.3
             a_drive = audio_lum if audio_live else 0.0
 

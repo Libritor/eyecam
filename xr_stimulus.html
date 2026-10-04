@@ -133,6 +133,16 @@ const flickerOn = () => flickerOnAt(lastTs);
 let lastTs = 0;
 const frameTs = async () => { lastTs = await frame(); return lastTs; };
 
+// ---- smooth flicker (sampled sinusoid) ----
+// The brightness follows a sine wave sampled at every frame, so the flicker
+// can be ANY frequency, not only refresh / (2 * whole frames). The sine is in
+// linear light (the display gamma is undone), starts dark at the cell onset
+// and is exact on the vsync timestamp, like phaseOn above.
+const DISPLAY_GAMMA = 2.2;
+const smoothLevel = (ts, hz) => 0.5 - 0.5 * Math.cos(2 * Math.PI * hz * (ts / 1000 - flickerT0));
+// 8-bit value of a channel whose full brightness is v (0..1) at sine level lvl
+const smoothByte = (v, lvl) => Math.round(255 * v * Math.pow(lvl, 1 / DISPLAY_GAMMA));
+
 // ---- stages (each is an async rAF loop; `running` token cancels) ----
 
 async function runCalib(m) {
@@ -216,6 +226,54 @@ async function runColorScan(m) {
   send({ type: "scan_done" });
 }
 
+// ---- smooth colour scan: R, G and B of the cell follow three sine waves at
+// three close frequencies (m.freqs), all inside the band the subject responds
+// in. The line at each frequency in the EEG is how much of that colour the
+// cell holds, so mixtures and shades come through as they are.
+async function runSmoothScan(m) {
+  hideResult(); title.textContent = ""; sub.textContent = "";
+  const tok = running = {};
+  if (!refreshMeasured) { await measureRefresh(); refreshMeasured = true; }
+  const hz = m.freqs;
+  send({ type: "color_plan", hzs: hz, refresh: refreshHz, smooth: 1 });
+  const g = bwbGeom(m), gw = m.gridW, gh = m.gridH, target = m.target;   // target[y][x] = [r,g,b]
+  const passes = Math.max(1, m.passes || 1);
+  for (let ps = 0; ps < passes && running === tok; ps++)
+  for (let ry = 0; ry < gh && running === tok; ry++) {
+    const gy = ps % 2 === 1 ? gh - 1 - ry : ry;
+    const xs = [...Array(gw).keys()];
+    if ((ry + ps) % 2 === 1) xs.reverse();
+    if (passes > 1) sub.textContent = `pass ${ps + 1}/${passes}`;
+    for (let xi = 0; xi < xs.length; xi++) {
+      const gx = xs[xi];
+      if (await holdWhilePaused()) { xi--; continue; }
+      const rgb = target[gy][gx], lit = rgb.map(v => v > 0.02);
+      const cx = g.x0 + (gx + 0.5) * g.cwid, cy = g.y0 + (gy + 0.5) * g.chgt;
+      const t0 = now();
+      flickerT0 = (await frameTs()) / 1000;
+      while (now() - t0 < m.spc && running === tok && !paused) {
+        const ts = await frameTs(); frameCount++;
+        const lvl = hz.map(f => smoothLevel(ts, f));
+        black();
+        if (lit.some(v => v)) {
+          ctx.fillStyle = `rgb(${rgb.map((v, k) => lit[k] ? smoothByte(v, lvl[k]) : 0).join(",")})`;
+          ctx.fillRect(cx - g.pw / 2, cy - g.ph / 2, g.pw, g.ph);
+        }
+        dot(cx, cy);
+        const fl = lvl.map((v, k) => lit[k] && v > 0.5 ? 1 : 0);
+        send({ type: "frame", stage: "color", pt: now(), gx, gy, lum: rgb[0], fl: fl[0],
+               flG: fl[1], flB: fl[2], r: rgb[0], g: rgb[1], b: rgb[2],
+               hzR: hz[0], hzG: hz[1], hzB: hz[2] });
+      }
+      if (paused) { xi--; continue; }
+      if (running !== tok) break;
+    }
+    send({ type: "row", y: gy });
+  }
+  black();
+  send({ type: "scan_done" });
+}
+
 // ---- multiplexed grey scan: N neighbouring cells flicker at once, each
 // with its own tag frequency; the line at tag k in the EEG is cell k ----
 async function runMuxScan(m) {
@@ -277,7 +335,11 @@ async function runSweep(m) {
   const frac = m.size || 0.38, full = frac >= 1;
   const size = Math.min(cv.width, cv.height) * Math.min(frac, 1);
   const plan = {};
-  for (const f of m.freqs) { await planFlicker(f); plan[f] = { hz: actualHz, k: halfFrames }; }
+  if (m.smooth && !refreshMeasured) { await measureRefresh(); refreshMeasured = true; }
+  for (const f of m.freqs) {
+    if (m.smooth) { plan[f] = { hz: f, k: 0 }; continue; }   // any frequency, shown as a sine
+    await planFlicker(f); plan[f] = { hz: actualHz, k: halfFrames };
+  }
   let b = 0;
   const nBlocks = m.repeats * m.freqs.length;
   for (let r = 0; r < m.repeats && running === tok; r++) {
@@ -288,21 +350,24 @@ async function runSweep(m) {
       for (const on of [true, false]) {
         frameCount = 0;
         send({ type: "block", b, on, phase: "start", hz: plan[f].hz });
-        sub.textContent = `${on ? "ON" : "off"} ${plan[f].hz.toFixed(2)} Hz  (${b + 1}/${nBlocks}, ${halfFrames} frames on/off @ ${refreshHz} fps)`;
+        sub.textContent = `${on ? "ON" : "off"} ${plan[f].hz.toFixed(2)} Hz  (${b + 1}/${nBlocks}, ` +
+          (m.smooth ? "smooth" : `${halfFrames} frames on/off`) + ` @ ${refreshHz} fps)`;
         const t0 = now(), dur = on ? m.onS : m.offS;
         flickerT0 = (await frameTs()) / 1000;
         while (now() - t0 < dur && running === tok) {
           await frameTs(); frameCount++;
           const t = now();
-          const fl = on && flickerOn();
+          const lvl = m.smooth ? smoothLevel(lastTs, plan[f].hz) : 0;
+          const fl = on && (m.smooth ? lvl > 0.5 : flickerOn());
           if (on) {
-            ctx.fillStyle = fl ? cOn : cOff;
+            const grey = smoothByte(1, lvl);
+            ctx.fillStyle = m.smooth ? `rgb(${grey},${grey},${grey})` : (fl ? cOn : cOff);
             if (full) ctx.fillRect(0, 0, cv.width, cv.height);
             else { black(); ctx.fillRect((cv.width - size) / 2, (cv.height - size) / 2, size, size); }
           } else black();
           dot(cv.width / 2, cv.height / 2);
           send({ type: "frame", stage: "sweep", pt: t, gx: -1, gy: -1,
-                 lum: on ? 1 : 0, fl: fl ? 1 : 0 });
+                 lum: on ? 1 : 0, fl: fl ? 1 : 0, hzR: m.smooth && on ? plan[f].hz : 0 });
         }
         send({ type: "block", b, on, phase: "end", hz: plan[f].hz });
       }
@@ -417,6 +482,7 @@ async function runBwbScan(m) {
 
 async function runScan(m) {
   if (m.bwb) return runBwbScan(m);
+  if (m.smooth) return runSmoothScan(m);
   if (m.color) return runColorScan(m);
   if (m.mux) return runMuxScan(m);
   hideResult(); title.textContent = ""; sub.textContent = "";

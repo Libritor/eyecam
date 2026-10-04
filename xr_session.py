@@ -173,11 +173,13 @@ def channel_quality(tail):
     return out
 
 
-def score_sweep(session, blocks, hzs, log_name="sweep_log.csv"):
+def score_sweep(session, blocks, hzs, log_name="sweep_log.csv", trust_hz=False):
     """Per frequency: exact-line SNR (f and 2f, whole-block periodogram) of
     the ON blocks at that frequency vs ALL OFF blocks scored at the same
     frequency; max-over-channels mean log-SNR difference, exact permutation.
-    All segments are cut to one common length so ON and OFF are exchangeable."""
+    All segments are cut to one common length so ON and OFF are exchangeable.
+    trust_hz: score at the requested frequency (smooth flicker follows the
+    frame timestamps, and its on/off edges are too coarse to measure it)."""
     from itertools import combinations
     from scipy.signal import periodogram
     path = os.path.join(session, "eeg.csv")
@@ -193,7 +195,7 @@ def score_sweep(session, blocks, hzs, log_name="sweep_log.csv"):
         lt = None
 
     def delivered(t0, t1, fallback):
-        if lt is None:
+        if lt is None or trust_hz:
             return float(fallback)
         s = (lt >= t0) & (lt <= t1)
         fl, pt = lfl[s], lpt[s]
@@ -411,7 +413,7 @@ class Driver:
                              buffering=1)
         self.log_file.write(
             "time,grid_x,grid_y,luminance,flicker_on,page_t,"
-            "flicker_g,flicker_b,r,g,b,audio_hz\n")
+            "flicker_g,flicker_b,r,g,b,audio_hz,hz_r,hz_g,hz_b\n")
 
     def close_log(self):
         if self.log_file:
@@ -436,7 +438,8 @@ class Driver:
                     f"{t:.6f},{m['gx']},{m['gy']},{m['lum']:.4f},"
                     f"{m['fl']},{m['pt']:.6f},{m.get('flG', 0)},"
                     f"{m.get('flB', 0)},{m.get('r', 0):.3f},{m.get('g', 0):.3f},"
-                    f"{m.get('b', 0):.3f},{m.get('hzA', 0):g}\n")
+                    f"{m.get('b', 0):.3f},{m.get('hzA', 0):g},"
+                    f"{m.get('hzR', 0):g},{m.get('hzG', 0):g},{m.get('hzB', 0):g}\n")
                 self.frames += 1
             if m["stage"] in ("scan", "color") and self.frames % 12 == 0:
                 self.spectate(type="cursor", gx=m["gx"], gy=m["gy"],
@@ -464,7 +467,8 @@ class Driver:
                   "@", m.get("refresh"), "fps")
         elif typ == "color_plan":
             self.color_hzs = [float(v) for v in m.get("hzs", [])]
-            print("colour flicker plan:", self.color_hzs, "@", m.get("refresh"), "fps")
+            print("colour flicker plan:", self.color_hzs, "@", m.get("refresh"), "fps"
+                  + (" (smooth)" if m.get("smooth") else ""))
         elif typ == "visibility":
             print(f"page visibility: {m.get('state')}")
             self.spectate(type="log", msg=f"page {m.get('state')}")
@@ -755,6 +759,8 @@ class Driver:
                 return await self.run_mux(result, recorder)
             if a.mode == "bwb":
                 return await self.run_bwb(result, recorder)
+            if a.mode == "smooth":
+                return await self.run_smooth(result, recorder)
             if a.mode == "music":
                 self.blocks, self.block_hz = [], []
                 self.open_log("assr_log.csv")
@@ -1344,6 +1350,115 @@ class Driver:
         await asyncio.sleep(a.linger)
         return 0
 
+    async def run_smooth(self, result, recorder):
+        """Smooth-flicker colour (smoothcolor.py): a white smooth-flicker sweep
+        picks three close tags in the band this subject responds in, then the
+        picture is scanned with R, G and B on those tags and decoded."""
+        import smoothcolor
+        a = self.args
+        names = csv_header(os.path.join(self.session, "eeg.csv")) or CH_NAMES
+        balance = [float(v) for v in str(a.color_balance).split(",")]
+        if len(balance) != 3:
+            raise ValueError("--color-balance needs three values: R,G,B")
+        weights, note, alpha = np.ones(len(names)) / len(names), "", None
+
+        # ---- tags: given, or from a sweep
+        if a.smooth_tags:
+            tags = [float(v) for v in a.smooth_tags.split(",")]
+            if len(tags) != 3:
+                raise ValueError("--smooth-tags needs three frequencies: R,G,B")
+            note = "tags as given (no sweep)"
+        else:
+            freqs = [float(v) for v in str(a.smooth_sweep).split(",") if v.strip()]
+            self.spectate(type="stage", stage="smooth_sweep",
+                          detail=",".join(f"{f:g}" for f in freqs))
+            self.blocks, self.block_hz = [], []
+            self.open_log("sweep_log.csv")
+            await self.send(cmd="start_sweep", smooth=True, freqs=freqs,
+                            repeats=a.color_reps, onS=a.color_on, offS=a.color_on,
+                            size=1.0)
+            total = a.color_reps * len(freqs) * 2 * a.color_on
+            await self.wait_for("sweep_done", timeout=total + 120)
+            self.close_log()
+            await asyncio.sleep(0.7)
+            g0 = self.delivery_check("sweep_log.csv", total)
+            result["g0"] = g0
+            if not g0["ok"]:
+                msg = "STIMULUS NOT DELIVERED: " + g0["reason"]
+                print(msg)
+                await self.send(cmd="msg", text=msg)
+                result.update(ok=False, error="G0 " + g0["reason"])
+                recorder.stop()
+                await asyncio.sleep(a.linger)
+                return 2
+            res = score_sweep(self.session, self.blocks, self.block_hz, trust_hz=True)
+            json.dump(res, open(os.path.join(self.session, "sweep.json"), "w"), indent=1)
+            best = names.index(res["best_channel"]) if res.get("best_channel") in names else None
+            alpha = smoothcolor.alpha_peak(self.session, self.blocks, best)
+            tags, weights, note = smoothcolor.tags_from_sweep(res, alpha)
+            table = "  ".join(f"{r['freq']:g}Hz {r['stat']:+.2f} p={r['p']:.3f}"
+                              for r in sorted(res["results"].values(), key=lambda r: r["freq"]))
+            print("smooth sweep:", table)
+            print("alpha peak:", "none found" if alpha is None else f"{alpha:.1f} Hz")
+            result["sweep"] = dict(passed=res["passed"], table=table, alpha=alpha)
+        bad = smoothcolor.tags_ok(tags, alpha)
+        if bad:
+            print("WARNING: tags not clean:", bad)
+        tag_text = "tags R %.1f, G %.1f, B %.1f Hz" % tuple(tags)
+        print(f"{tag_text} ({note})")
+        await self.send(cmd="msg", text=f"{tag_text} - {note}")
+        await asyncio.sleep(2.5)
+
+        # ---- scan
+        ctarget = targets.color_target(a.color_target, a.color_grid_w, a.color_grid_h)
+        gh, gw = ctarget.shape[:2]
+        np.save(os.path.join(self.session, "target_color.npy"), ctarget)
+        self.spectate(type="stage", stage="color_scan", detail="smooth")
+        self.open_log("smooth_log.csv")
+        await self.send(cmd="start_scan", smooth=True, gridW=gw, gridH=gh,
+                        spc=a.smooth_spc, passes=a.smooth_passes, freqs=tags,
+                        target=ctarget.tolist(), patch=a.patch, board=a.board)
+        scan_s = gw * gh * a.smooth_spc * a.smooth_passes
+        await self.wait_for("scan_done", timeout=scan_s * 2 + 120)
+        self.close_log()
+        await asyncio.sleep(0.7)
+        g0 = self.delivery_check("smooth_log.csv", scan_s)
+        result["g0_scan"] = g0
+        with open(os.path.join(self.session, "smooth_meta.json"), "w") as f:
+            json.dump(dict(tags=tags, weights=[float(v) for v in weights], names=names,
+                           spc=a.smooth_spc, passes=a.smooth_passes, balance=balance,
+                           exponent=a.shade_exponent, alpha=alpha, note=note),
+                      f, indent=1)
+
+        # ---- decode
+        try:
+            _, rgb, res = await asyncio.to_thread(
+                smoothcolor.run, self.session, tags, weights, a.smooth_spc, ctarget,
+                "", balance, a.shade_exponent, alpha)
+            text = smoothcolor.summary(res)
+            good = res["r_all"] >= 0.6 and res["r_all"] > max(res["r_null"] or [0])
+        except Exception as exc:
+            print("smooth colour decoding failed:", repr(exc))
+            res, rgb, text, good = dict(error=repr(exc)), None, f"decoding failed: {exc}", False
+        if not g0["ok"]:
+            text, good = "STIMULUS NOT DELIVERED: " + g0["reason"], False
+        print(text)
+        result["smooth"] = dict(note=note, **res)
+        comp = res.get("comparison")
+        if comp:                              # shown | decoded
+            with open(comp, "rb") as f:
+                png = "data:image/png;base64," + base64.b64encode(f.read()).decode()
+        else:
+            png = rgb_to_data_url(rgb) if rgb is not None else ""
+        await self.send(cmd="color_result", png=png, text=f"{text}   [{tag_text}]",
+                        good=bool(good), wide=bool(comp))
+        self.spectate(type="log", msg=text)
+        result["ok"] = bool(g0["ok"])
+        recorder.stop()
+        print(f"SMOOTH COLOUR DONE -> {self.session}")
+        await asyncio.sleep(a.linger)
+        return 0
+
     async def run_sweep(self, result, recorder):
         """Frequency sweep: which flicker frequency (if any) evokes an SSVEP
         in THIS subject with THIS electrode? Frame-exact ON blocks at each
@@ -1657,7 +1772,25 @@ async def main():
     ap.add_argument("--color-grid-h", type=int, default=4)
     ap.add_argument("--color-spc", type=float, default=5.0)
     ap.add_argument("--color-target", default="flag",
-                    help="flag | quad | ring | text:X | image path")
+                    help="flag | quad | ring | mix | text:X | image path")
+    ap.add_argument("--smooth-sweep", default="9,10,11,12,13,14",
+                    help="--mode smooth: frequencies of the white smooth-flicker "
+                         "sweep that places the three colour tags (--color-reps "
+                         "blocks of --color-on s each)")
+    ap.add_argument("--smooth-tags", default="",
+                    help="--mode smooth: R,G,B tag frequencies in Hz; skips the sweep "
+                         "(any frequencies, e.g. 11.2,13.2,12)")
+    ap.add_argument("--smooth-spc", type=float, default=8.0,
+                    help="--mode smooth: seconds per cell. A sine drives 21 %% less "
+                         "response than on/off flicker, which 1.6 times the dwell "
+                         "makes up for (5 s -> 8 s)")
+    ap.add_argument("--smooth-passes", type=int, default=1)
+    ap.add_argument("--color-balance", default="1,1,1",
+                    help="--mode smooth: R,G,B multipliers on the finished colour "
+                         "planes (smoothcolor.COLOR_BALANCE)")
+    ap.add_argument("--shade-exponent", type=float, default=1.0,
+                    help="--mode smooth: shade = response ** this; above 1 darkens "
+                         "the mid shades (smoothcolor.SHADE_EXPONENT)")
     ap.add_argument("--patch", type=float, default=1.0,
                     help="mux scan: flicker patch size in units of a 6x4-grid "
                          "cell, independent of the grid (0 = the grid cell)")
@@ -1666,7 +1799,7 @@ async def main():
     ap.add_argument("--music-off", type=float, default=10.0)
     ap.add_argument("--mode", choices=["visual", "assr", "calib", "alpha",
                                        "sweep", "full", "extras", "mux",
-                                       "music", "bwb"],
+                                       "music", "bwb", "smooth"],
                     default="visual",
                     help="calib = G1 only (calibration, no scan); "
                          "assr = 'ear as a microphone' 40 Hz tone blocks")
