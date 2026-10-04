@@ -31,7 +31,7 @@ Smooth flicker (--mode smooth) is a sine, so its on/off edges are too coarse to
 measure its frequency: the phantom takes it from the hz_r/hz_g/hz_b columns
 and responds pi/4 as strongly as to on/off flicker. For testing that mode:
   --tuning PEAK:WIDTH   response falls off away from PEAK Hz (Gaussian, Hz)
-  --color-gain R,G,B    response to each colour of a smooth colour scan
+  --color-gain R,G,B    response to each colour of a colour scan
   --response-gamma G    response = brightness ** G (below 1: shades crowd up)
 """
 
@@ -119,7 +119,7 @@ def main():
     ap.add_argument("--tuning", default="",
                     help="PEAK:WIDTH in Hz: response curve over flicker frequency")
     ap.add_argument("--color-gain", default="1,1,1",
-                    help="response to R,G,B in a smooth colour scan")
+                    help="response to R,G,B in a colour scan (color_log / smooth_log)")
     ap.add_argument("--response-gamma", type=float, default=1.0,
                     help="response = brightness ** gamma")
     args = ap.parse_args()
@@ -135,7 +135,7 @@ def main():
     if sys.platform == "win32":
         ctypes.windll.winmm.timeBeginPeriod(1)
 
-    tails = [CsvTail(os.path.join(args.session, n)) for n in
+    tails = [(n, CsvTail(os.path.join(args.session, n))) for n in
              ("calib_log.csv", "cursor_log.csv", "sweep_log.csv",
               "ccal_log.csv", "color_log.csv", "assr_log.csv", "mux_log.csv",
               "bwb_cal_log.csv", "bwb_log.csv", "smooth_log.csv")]
@@ -218,7 +218,7 @@ def main():
                 break
             if time.perf_counter() - t_start > args.max_seconds:
                 break
-            for tail in tails:
+            for log_name, tail in tails:
                 for row in tail.poll():
                     try:
                         t_row = float(row[0])
@@ -243,7 +243,8 @@ def main():
                     try:
                         hz_s = [float(v) for v in row[12:15]] if len(row) >= 15 \
                             else [0.0, 0.0, 0.0]
-                        in_cell = int(row[1]) >= 0
+                        in_cell = int(row[1]) >= 0 and log_name in (
+                            "color_log.csv", "smooth_log.csv")
                     except ValueError:
                         hz_s = [0.0, 0.0, 0.0]
 
@@ -253,7 +254,7 @@ def main():
             f_b = hz_s[2] or trk[2].freq(0.0)
             for k, (v, f_k) in enumerate(zip((lum, comp[1], comp[2]), (f_meas, f_g, f_b))):
                 gain = tuning(f_k) * (math.pi / 4 if hz_s[k] else 1.0)
-                if hz_s[k] and in_cell:
+                if in_cell:
                     gain *= color_gain[k]
                 trk[k].drive = gain * max(v, 0.0) ** args.response_gamma \
                     if trk[k].live() else 0.0
