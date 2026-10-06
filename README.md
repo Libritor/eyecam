@@ -50,6 +50,47 @@ each colour flickering at its own frequency, and the colour image rebuilt from
 three spectral lines in the EEG; all 24 cells come back with the right
 dominant colour.*
 
+## Everything on one computer (this branch)
+
+This branch needs no phone app. The computer connects to the Muse itself over
+Bluetooth, shows the flicker in its own browser, plays any sound from its own
+audio output, records, scores and draws the image.
+
+```
+pip install -r requirements.txt
+python eyecam.py                 # read "NO" from the EEG (about 20 minutes)
+python eyecam.py --what full     # image, then colour, then tagged music
+python eyecam.py --what alpha    # is the Oz electrode on the scalp?
+python eyecam.py --what sweep    # which flicker frequency suits this person?
+python eyecam.py --what music    # the 40 Hz tagged music on its own
+python eyecam.py --demo          # no hardware: a synthetic subject
+```
+
+Turn the headband on, make sure it is **not** connected to MuseLog, Mind
+Monitor or any other phone app (a Muse talks to one device at a time), and
+run the command. The page opens by itself; click it once and it goes full
+screen. `--headset` shows the stimulus in a Quest browser instead,
+`--muse Muse-1E3D` picks one headband when several are in range, and
+`--phone` falls back to the old path with EEG from a phone app over Wi-Fi.
+`python muse_ble.py --scan` lists the headbands the computer can see.
+
+How it works: `muse_ble.py` speaks the headband's Bluetooth LE protocol
+directly (one characteristic per electrode, twelve 12-bit samples per packet,
+256 samples per second, preset `p20` so the auxiliary Oz input is on) and
+writes the same `eeg.csv` the phone path produced, on the same scale. Sample
+times are rebuilt from the packet counter, so they are smoother than the
+arrival times of Wi-Fi packets.
+
+Status: the packet decoder reproduces MuseLog's logged values exactly, the
+sample clock is tested against simulated bursts, drift, lost packets and
+stalls, and `--demo` runs the whole chain to an image (r = 0.95 on the
+synthetic subject). The live Bluetooth link has **not yet been run against a
+real headband**; the results below were recorded through MuseLog.
+
+A 60 Hz screen cannot show 12 Hz exactly; the page picks the nearest
+frame-exact rate (10 Hz) and the scoring follows it. A 120, 144 or 240 Hz
+screen gives 12 Hz.
+
 ## The idea, and the paper behind it
 
 A light that flickers at a steady rate makes visual cortex oscillate at the
@@ -101,8 +142,8 @@ to a living observer.
 |---|---|
 | Muse 2 / Muse S / Muse Athena | any model that streams raw EEG |
 | **Oz auxiliary electrode** | the Interaxon aux cup on micro-USB (Muse 2/S) or USB-C (Athena). This matters: without it we never detected a response. Place it two finger-widths above the bump at the back of the skull, on the midline, hair parted |
-| Phone with **Mind Monitor** (or the lab's MuseLog app) | streams `/muse/eeg` over OSC/UDP, with the aux channel enabled |
-| PC with Python 3.10+ | runs the driver and the analysis |
+| PC with Python 3.10+ and Bluetooth | connects to the Muse, runs the driver and the analysis |
+| Phone with Mind Monitor or MuseLog | optional (`--phone`): streams `/muse/eeg` over OSC/UDP, with the aux channel enabled |
 | Display | a laptop screen, or a Quest headset on the same Wi-Fi |
 
 ```
@@ -141,11 +182,14 @@ python phantom_subject.py --session runs/demo --port 5001       # second termina
    trigger. The click also switches the page to full screen.
 
 **No phone? Connect the Muse to the PC directly.** Add `--muse` to any
-`xr_session.py` command. The session then connects to the headset over the PC's
-Bluetooth with `muselsl` (reconnecting after contact glitches) and records it
-straight from LSL, with no Mind Monitor and no OSC. Use `--muse-model athena` for a Muse S
-Gen 3, and `--no-aux` if nothing is plugged into the aux port. `--lsl` instead
-records an EEG stream another program already publishes, for example
+`xr_session.py` command. The session then connects to the headband over the PC's
+Bluetooth with `muse_ble.py` (the Muse 2016 / Muse 2 protocol, aux channel
+included) and records it with no Mind Monitor and no OSC; `--muse Muse-1E3D`
+picks one headband when several are in range. `--source muselsl` takes the
+same path through `muselsl` instead (reconnecting after contact glitches,
+recorded from LSL): use `--muse-model athena` for a Muse S Gen 3, and
+`--no-aux` if nothing is plugged into the aux port. `--source lsl` (or
+`--lsl`) records an EEG stream another program already publishes, for example
 `muselsl stream` or mind2motor's `run_muse.py --live`. `lsl_to_osc.py` turns
 such a stream into `/muse/eeg` OSC for tools that only listen for OSC.
 
@@ -206,7 +250,9 @@ exactly:
    below. Rows missing at the image edge are left out and the weights
    renormalised.
 
-`--no-eq1` skips step 3. `--recon-method upstream` is this repository's
+Step 3 is **off by default** on this branch (it is what cost the legible "NO"
+its rows: r 0.78 with it, 0.91 without); `--vblend` turns it on and
+`--no-eq1` forces it off. `--recon-method upstream` is this repository's
 scoring as published (the whole dwell, artifact clipping, signal bins out of
 the denominator, no Eq. 1). It gives exactly the published code's numbers:
 checked cell by cell against `origin/main`, with zero difference.
@@ -214,8 +260,10 @@ checked cell by cell against `origin/main`, with zero difference.
 The repository's `config.VERTICAL_KERNEL` was `[.5, .5, 1, .5, .5]`. That gives
 the ±2 rows twice the paper's weight, and it is now `[.5, 1, 2, 1, .5]`.
 
-Every black & white run prints and saves `r` for the chosen method, for
-"paper, no Eq. 1" and for "upstream", plus the time-shifted (chance) values.
+Every black & white run prints and saves `r` for the chosen method, for the
+paper method with step 3 the other way round ("paper + Eq. 1", or "paper, no
+Eq. 1" when `--vblend` is on) and for "upstream", plus the time-shifted
+(chance) values.
 Eq. 1 is meant for overlapping scan lines; on a 5-row pixel font it blurs the
 rows together. On the phantom, r was 0.46 with Eq. 1 against 0.57 without, so
 the comparison numbers show what step 3 costs.
@@ -341,7 +389,8 @@ not yet tested on real recordings.
 | `mux` | three squares per dwell, each with its own tag frequency |
 | `music` / `assr` | the 40 Hz auditory stage on its own |
 | `bwb` | black / white / blue: frequency-phase coded colour, decoded with FBCCA (see below) |
-| `smooth` | smooth-flicker colour: R, G, B on three close tags placed by a sweep; mixtures and shades (see below) |
+| `smooth` | smooth-flicker colour: R, G, B on three close tags placed by a sweep, tags rotating every pass; mixtures and shades (see below) |
+| `planes` | colour by planes: R, G and B scanned one after another at the calibrated frequency, scored like the "NO" (see below) |
 
 Useful options: `--freq` flicker frequency, `--grid-w/--grid-h` positions,
 `--spc` seconds per position, `--patch` square size independent of the grid
@@ -487,6 +536,91 @@ Tested on the phantom only:
 - **Not yet run on a real headset.** The phantom has no mixing products and a
   perfectly steady response, so the real test of close tags is still to come.
 
+### Colour beyond black, white and blue (branch `colour`)
+
+Three colour paths were built on three branches; this branch merges them and
+adds what each was missing, so a colour picture can be read with any of them
+and the results compared on the same headset:
+
+| path | how a cell's colour is coded | what it is good at | weak point |
+|---|---|---|---|
+| `--mode full` (`--color-passes 3`) | R, G, B on/off at three frame-exact tags (7.2 / 9 / 12 Hz at 72 fps), the colour-to-tag assignment rotating every pass | one pass measures all three colours | two of the three tags sit where the response is weak |
+| `--mode smooth` (`--smooth-passes 3`, rotation on) | R, G, B as three sine waves at close tags placed by a sweep inside the responsive band; **the assignment rotates every pass** | mixtures and shades without extra coding; every tag in the good band | the three tags share the cell, so each has a third of the drive |
+| `--mode planes` | the picture's R, G and B scanned one after another as black/colour flicker at the calibrated 12 Hz, each plane scored exactly like the "NO" | the strongest, best-tested scoring for every colour; no frequency bias at all | three scans instead of one (`--plane-spc 6,6,10` gives the dim blue a longer dwell) |
+| `--mode bwb` | black, white and blue as frequency-phase codes (12 Hz at 0 deg, 9 Hz at 180 deg), decoded with FBCCA and phase templates | three classes in one scan at one strong frequency | three classes only |
+
+**Why rotation.** A person responds more to some frequencies than others. With
+fixed tags that preference is printed onto the colour balance (a strong
+12 Hz tag makes everything blue-ish). When pass 1 puts red on tag A, pass 2 puts
+it on tag B and pass 3 on tag C, every colour has been on every tag once; the
+decoder then divides each tag's response by that tag's mean response over the
+whole scan, which is the subject's response to the frequency and not the
+picture, before averaging the passes. The per-pass tags are in the log
+(`hz_r, hz_g, hz_b` columns) and in `color_passes.json`, so a recorded session
+decodes with the right assignment whichever way it was run.
+
+**Test pictures with more colours.** `--color-target eight` shows the eight
+pure colours (black, red, green, yellow, blue, magenta, cyan, white) once per
+row, shuffled so no colour sits in one column; `hues` shows 12 hues around the
+colour wheel plus the eight pure colours and a shade row; `mix` shows six hues
+in three shades and a grey row. A result now reports, besides r per plane, how
+many of the coloured cells came back with the right **hue** (within 30
+degrees) and how many pure-colour cells came back as the right one of the
+eight.
+
+```
+python xr_session.py --muse --mode smooth --color-target eight --color-grid-w 8 --color-grid-h 4
+python xr_session.py --muse --mode planes --color-target eight --color-grid-w 8 --color-grid-h 4 \
+    --freq 12 --calib-blocks 6 --calib-on 8 --calib-off 8 --calib-style bw --calib-size 1 --plane-spc 6,6,10
+python colour_gate.py                      # both paths on the phantom, eight colours
+```
+
+![Eight pure colours shown to the phantom and decoded with rotating tags](docs/figures/fig15_colour_gate_smooth_phantom.png)
+
+*`colour_gate.py smooth` on the phantom (response peaked at 11.5 Hz, blue
+response 0.4 of green, 3 s per cell, three passes with rotating tags, 60 fps
+headless browser): shown | decoded. r = 0.95 (R 0.97, G 0.96, **B 0.93**),
+30 of 32 pure-colour cells and 23 of 24 hues right, time-shifted EEG at most
+0.29 (default tags 11.2 / 13.2 / 12 Hz; that run's short sweep found nothing).*
+
+Rotation against fixed tags, like for like (same phantom, the same sweep
+placing the same three tags 10.8 / 12.8 / 12.0 Hz with blue on the strongest,
+same target and dwell, three passes both):
+
+| | r | R | G | B | pure cells right | hues right | time-shifted EEG, max |
+|---|---|---|---|---|---|---|---|
+| fixed tags (`--smooth-rotate 0`) | 0.93 | 0.97 | 0.97 | 0.85 | 25 of 32 | 22 of 24 | 0.38 |
+| rotating tags (default) | 0.94 | 0.93 | 0.99 | **0.93** | **32 of 32** | 23 of 24 | 0.26 |
+
+The gain is where the mechanism says it should be: the weakest colour. The
+phantom's frequency preference is mild (its response at the three tags was
+6.9, 6.7 and 8.7); a person's is usually stronger, and so is the expected
+difference. A pure-colour cell counts as right when all three planes fall on
+the right side of their own automatic (Otsu) threshold, the rule the
+black/white picture uses; the hue is read from the linear picture.
+
+`colour_gate.py` runs both paths on one phantom (tuned to 13.5 Hz, blue 0.4
+of green; the planes flicker at 15 Hz because the 60 fps browser cannot show
+12 Hz):
+
+| path | time per cell | r | R | G | B | pure cells | hues | null, max |
+|---|---|---|---|---|---|---|---|---|
+| `planes` (5 / 5 / 8 s per plane, one pass) | 18 s | 0.99 | 1.00 | 1.00 | 0.99 | 32 of 32 | 24 of 24 | 0.29 |
+| `smooth`, rotating (4 s, three passes) | 12 s | 0.98 | 0.98 | 1.00 | 0.97 | 32 of 32 | 24 of 24 | 0.29 |
+
+![Eight pure colours shown to the phantom and decoded plane by plane](docs/figures/fig16_colour_gate_planes_phantom.png)
+
+Both read all eight colours from the phantom; it cannot separate them. What
+separates them on a person is how much weaker blue and red are than green at
+the chosen frequencies, and how much the three tags sharing one cell cost,
+which only the headset session can measure.
+
+The one thing a phantom cannot settle is which path wins on a person, because
+the phantom's response to blue is a number we chose. The plan is one session,
+same day, same electrode: `planes` first (the scoring we trust), then `smooth`
+with rotation, both on `eight`; the path with more right hues on the real EEG
+becomes the default.
+
 ### Running in a Quest headset
 
 ```
@@ -587,6 +721,11 @@ and the small result files for each session are in `docs/results`.
   is one quoted string: `adb shell "am start ... -d 'http://host:8082/?k=tok' ..."`.
 - If the PC changes Wi-Fi network mid-session its address changes, and both the
   headset page and the EEG sender have to follow.
+- On a 60 Hz screen `--freq 12` is not frame-exact and the page delivers
+  10 Hz, which sits on the alpha rhythm. The phantom's alpha is a steady 10 Hz
+  wave, so a 10 Hz scan on it comes out at random (the two waves add or cancel
+  per position); a person's alpha does much the same. On a 60 Hz panel use
+  15 Hz (`colour_gate.py` does), or 7.5 Hz; the Quest's 72 fps gives 12 Hz.
 
 ## Files
 
@@ -596,7 +735,9 @@ and the small result files for each session are in `docs/results`.
 | `xr_stimulus.html` | the stimulus page: frame-exact flicker, scans, colour and multiplexed scans, tagged music, arm gate |
 | `reconstruct.py` | per-position scoring (band power or line detector), grey, colour and multiplexed reconstruction, shifted nulls |
 | `run_session.py` | the original laptop orchestrator in pygame; also the permutation gate and legacy calibration score |
-| `osc_acquire.py` | records `/muse/eeg` on UDP to CSV, 4 to 8 channels |
+| `eyecam.py` | one command for the whole thing on one computer |
+| `muse_ble.py` | records the Muse straight over the computer's Bluetooth, aux channel included |
+| `osc_acquire.py` | records `/muse/eeg` on UDP to CSV, 4 to 8 channels (phone path) |
 | `nofigure.py` | the four-panel "shown / from EEG / interpolated / thresholded" figure for a grey scan |
 | `blinkmask.py` | blink (AF7/AF8) and eye-closure (Oz alpha) detection; valid-sample mask for scoring |
 | `blink_gate.py` | gate: masked image with blinks no worse than without blinks; masked nulls at chance |
@@ -606,6 +747,7 @@ and the small result files for each session are in `docs/results`.
 | `bwb.py` | black / white / blue decoder: frequency-phase codes, FBCCA + phase templates, shrinkage LDA |
 | `smoothcolor.py` | smooth-flicker colour: tag placement from a sweep, decoder, the labelled balance and brightness-curve constants |
 | `smooth_gate.py` | gate: `--mode smooth` end to end on the phantom in a headless browser |
+| `colour_gate.py` | gate: `--mode smooth` with rotating tags and `--mode planes` on the eight pure colours, phantom, headless browser |
 | `muse_stream.py`, `lsl_to_osc.py` | Muse over this PC's Bluetooth via muselsl (`--muse`), and an LSL-to-OSC bridge |
 | `phantom_subject.py` | synthetic subject for end-to-end tests, including colour tags and audio |
 | `targets.py` | text, pixel-font, image and colour targets |

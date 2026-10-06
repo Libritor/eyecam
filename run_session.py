@@ -92,7 +92,7 @@ class EEGTail:
 
 
 class Recorder:
-    def __init__(self, source, session, port, extra=()):
+    def __init__(self, source, session, port, extra=(), muse=""):
         self.session = session
         self.stop_file = os.path.join(session, "stop_recorder")
         self.err_path = os.path.join(session, "recorder.stderr.log")
@@ -101,6 +101,12 @@ class Recorder:
         if source in ("osc", "phantom"):
             self.cmd = [PY, "osc_acquire.py", "--session", session,
                         "--port", str(port), "--stop-file", self.stop_file]
+        elif source == "ble":
+            # the headband straight over this computer's Bluetooth
+            self.cmd = [PY, "muse_ble.py", "--session", session,
+                        "--stop-file", self.stop_file]
+            if muse:
+                self.cmd += ["--muse", muse]
         else:
             self.cmd = [PY, "acquire.py", "--session", session,
                         "--stop-file", self.stop_file, *extra]
@@ -532,8 +538,10 @@ def stage_show_result(screen, session, compare_path, r, args):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--source", choices=["osc", "lsl", "phantom"],
-                    default="osc")
+    ap.add_argument("--source", choices=["osc", "lsl", "ble", "phantom"],
+                    default="osc",
+                    help="ble = the Muse straight over this computer's "
+                         "Bluetooth (muse_ble.py), no phone app")
     ap.add_argument("--preset", choices=list(config.PRESETS), default="quick")
     ap.add_argument("--target", default="text:NO")
     ap.add_argument("--session", default="")

@@ -43,18 +43,42 @@ addEventListener("resize", fit); fit();
 
 function black() { ctx.fillStyle = "#000"; ctx.fillRect(0, 0, cv.width, cv.height); }
 
+// Wait for a trigger pull, click, key or controller button. In unattended
+// runs (?auto=1) it returns after a second.
+async function waitForPress() {
+  if (location.search.includes("auto=1")) { await sleep(1000); return; }
+  await sleep(600);   // ignore the press that may still be held
+  await new Promise(res => {
+    const done = () => { clearInterval(gp); res(); };
+    addEventListener("pointerdown", done, { once: true });
+    addEventListener("keydown", done, { once: true });
+    const gp = setInterval(() => {
+      try {
+        for (const g of navigator.getGamepads ? navigator.getGamepads() : []) {
+          if (g && g.buttons.some(b => b && (b.pressed || b.value > 0.5))) return done();
+        }
+      } catch {}
+    }, 100);
+  });
+}
+
 // The driver pauses the scan when the EEG stream goes silent. The position
 // in progress is abandoned and done again from the start after the resume.
-let paused = false, redoNow = false;
+let paused = false, linkLost = false, pauseReason = "", redoNow = false;
+const halted = () => paused || linkLost;
 async function holdWhilePaused() {
-  if (!paused) return false;
+  if (!halted()) return false;
   black();
   send({ type: "frame", stage: "paused", pt: now(), gx: -1, gy: -1, lum: 0, fl: 0 });
   const keep = sub.textContent;
-  while (paused) {
-    sub.textContent = "PAUSED - no EEG data from the Muse. Check MuseLog on the phone.";
+  title.textContent = "PAUSED"; title.className = "warn";
+  while (halted()) {
+    sub.textContent = linkLost
+      ? "CONNECTION TO THE COMPUTER LOST - keep the headset on; reconnecting. This position will be shown again."
+      : (pauseReason || "PAUSED - no EEG data from the Muse. Check MuseLog on the phone.");
     await sleep(200);
   }
+  title.textContent = "";
   sub.textContent = "resuming...";
   await sleep(2000);
   sub.textContent = keep;
@@ -193,21 +217,32 @@ async function runColorScan(m) {
   const bh = bw * gh / gw;
   const x0 = (cv.width - bw) / 2, y0 = (cv.height - bh) / 2;
   const cwid = bw / gw, chgt = bh / gh;
-  for (let gy = 0; gy < gh && running === tok; gy++) {
+  // Several passes; pass p gives colour c the tag plan (c + p) mod 3, so
+  // over three passes every colour has been on every frequency once and the
+  // subject's frequency preference cancels out of the colour image.
+  const passes = Math.max(1, m.passes || 1);
+  for (let ps = 0; ps < passes && running === tok; ps++) {
+  const plan = [0, 1, 2].map(c => plans[(c + ps) % plans.length]);
+  send({ type: "color_pass", pass: ps, plan: [0, 1, 2].map(c => (c + ps) % plans.length),
+         hz: plan.map(p => p.hz) });
+  await sleep(300);   // let the driver stamp the pass before the first frame
+  for (let ry = 0; ry < gh && running === tok; ry++) {
+    const gy = ps % 2 === 1 ? gh - 1 - ry : ry;
     const xs = [...Array(gw).keys()];
-    if (gy % 2 === 1) xs.reverse();
+    if ((ry + ps) % 2 === 1) xs.reverse();
+    if (passes > 1) sub.textContent = `colour pass ${ps + 1}/${passes}`;
     for (let xi = 0; xi < xs.length; xi++) {
       const gx = xs[xi];
       if (await holdWhilePaused()) { xi--; continue; }
       const [r, g, b] = target[gy][gx];
       const t0 = now();
       flickerT0 = (await frameTs()) / 1000;
-      while (now() - t0 < m.spc && running === tok && !paused) {
+      while (now() - t0 < m.spc && running === tok && !halted()) {
         const ts = await frameTs(); frameCount++;
         const t = now();
-        const sR = r > 0.05 && phaseOn(ts, plans[0].k);
-        const sG = g > 0.05 && phaseOn(ts, plans[1].k);
-        const sB = b > 0.05 && phaseOn(ts, plans[2].k);
+        const sR = r > 0.05 && phaseOn(ts, plan[0].k);
+        const sG = g > 0.05 && phaseOn(ts, plan[1].k);
+        const sB = b > 0.05 && phaseOn(ts, plan[2].k);
         black();
         if (r > 0.05 || g > 0.05 || b > 0.05) {
           ctx.fillStyle = `rgb(${sR ? Math.round(255 * r) : 0},${sG ? Math.round(255 * g) : 0},${sB ? Math.round(255 * b) : 0})`;
@@ -217,10 +252,11 @@ async function runColorScan(m) {
         send({ type: "frame", stage: "color", pt: t, gx, gy, lum: r, fl: sR ? 1 : 0,
                flG: sG ? 1 : 0, flB: sB ? 1 : 0, r, g, b });
       }
-      if (paused) { xi--; continue; }
+      if (halted()) { xi--; continue; }
       if (running !== tok) break;
     }
     send({ type: "row", y: gy });
+  }
   }
   black();
   send({ type: "scan_done" });
@@ -238,37 +274,46 @@ async function runSmoothScan(m) {
   send({ type: "color_plan", hzs: hz, refresh: refreshHz, smooth: 1 });
   const g = bwbGeom(m), gw = m.gridW, gh = m.gridH, target = m.target;   // target[y][x] = [r,g,b]
   const passes = Math.max(1, m.passes || 1);
-  for (let ps = 0; ps < passes && running === tok; ps++)
-  for (let ry = 0; ry < gh && running === tok; ry++) {
-    const gy = ps % 2 === 1 ? gh - 1 - ry : ry;
-    const xs = [...Array(gw).keys()];
-    if ((ry + ps) % 2 === 1) xs.reverse();
-    if (passes > 1) sub.textContent = `pass ${ps + 1}/${passes}`;
-    for (let xi = 0; xi < xs.length; xi++) {
-      const gx = xs[xi];
-      if (await holdWhilePaused()) { xi--; continue; }
-      const rgb = target[gy][gx], lit = rgb.map(v => v > 0.02);
-      const cx = g.x0 + (gx + 0.5) * g.cwid, cy = g.y0 + (gy + 0.5) * g.chgt;
-      const t0 = now();
-      flickerT0 = (await frameTs()) / 1000;
-      while (now() - t0 < m.spc && running === tok && !paused) {
-        const ts = await frameTs(); frameCount++;
-        const lvl = hz.map(f => smoothLevel(ts, f));
-        black();
-        if (lit.some(v => v)) {
-          ctx.fillStyle = `rgb(${rgb.map((v, k) => lit[k] ? smoothByte(v, lvl[k]) : 0).join(",")})`;
-          ctx.fillRect(cx - g.pw / 2, cy - g.ph / 2, g.pw, g.ph);
+  // rotation: pass p gives colour c the tag (c + p) mod 3, so over three
+  // passes every colour has been on every tag once and the subject's
+  // frequency preference cancels out of the colour balance
+  const rotate = !!m.rotate && hz.length === 3;
+  for (let ps = 0; ps < passes && running === tok; ps++) {
+    const plan = [0, 1, 2].map(c => rotate ? (c + ps) % 3 : c);
+    const tags = plan.map(k => hz[k]);
+    send({ type: "color_pass", pass: ps, plan, hz: tags });
+    await sleep(300);   // let the driver stamp the pass before the first frame
+    for (let ry = 0; ry < gh && running === tok; ry++) {
+      const gy = ps % 2 === 1 ? gh - 1 - ry : ry;
+      const xs = [...Array(gw).keys()];
+      if ((ry + ps) % 2 === 1) xs.reverse();
+      if (passes > 1) sub.textContent = `pass ${ps + 1}/${passes}`;
+      for (let xi = 0; xi < xs.length; xi++) {
+        const gx = xs[xi];
+        if (await holdWhilePaused()) { xi--; continue; }
+        const rgb = target[gy][gx], lit = rgb.map(v => v > 0.02);
+        const cx = g.x0 + (gx + 0.5) * g.cwid, cy = g.y0 + (gy + 0.5) * g.chgt;
+        const t0 = now();
+        flickerT0 = (await frameTs()) / 1000;
+        while (now() - t0 < m.spc && running === tok && !halted()) {
+          const ts = await frameTs(); frameCount++;
+          const lvl = tags.map(f => smoothLevel(ts, f));
+          black();
+          if (lit.some(v => v)) {
+            ctx.fillStyle = `rgb(${rgb.map((v, k) => lit[k] ? smoothByte(v, lvl[k]) : 0).join(",")})`;
+            ctx.fillRect(cx - g.pw / 2, cy - g.ph / 2, g.pw, g.ph);
+          }
+          dot(cx, cy);
+          const fl = lvl.map((v, k) => lit[k] && v > 0.5 ? 1 : 0);
+          send({ type: "frame", stage: "color", pt: now(), gx, gy, lum: rgb[0], fl: fl[0],
+                 flG: fl[1], flB: fl[2], r: rgb[0], g: rgb[1], b: rgb[2],
+                 hzR: tags[0], hzG: tags[1], hzB: tags[2] });
         }
-        dot(cx, cy);
-        const fl = lvl.map((v, k) => lit[k] && v > 0.5 ? 1 : 0);
-        send({ type: "frame", stage: "color", pt: now(), gx, gy, lum: rgb[0], fl: fl[0],
-               flG: fl[1], flB: fl[2], r: rgb[0], g: rgb[1], b: rgb[2],
-               hzR: hz[0], hzG: hz[1], hzB: hz[2] });
+        if (halted()) { xi--; continue; }
+        if (running !== tok) break;
       }
-      if (paused) { xi--; continue; }
-      if (running !== tok) break;
+      send({ type: "row", y: gy });
     }
-    send({ type: "row", y: gy });
   }
   black();
   send({ type: "scan_done" });
@@ -432,14 +477,14 @@ async function runBwbCalib(m) {
     sub.textContent = `block ${b + 1}/${order.length}: ${["black", "white", "blue"][cls]} — look at the dot`;
     const t0 = now();
     flickerT0 = (await frameTs()) / 1000;
-    while (now() - t0 < m.onS && running === tok && !paused) {
+    while (now() - t0 < m.onS && running === tok && !halted()) {
       const ts = await frameTs(); frameCount++;
       const [fW, fB] = drawBwb(ts, plans, cls, cx, cy, g.pw, g.ph);
       send({ type: "frame", stage: "bwbcal", pt: now(), gx: -1, gy: -1, lum: cls === 1 ? 1 : 0,
              fl: fW ? 1 : 0, flG: 0, flB: fB ? 1 : 0, r: cls === 1 ? 1 : 0, g: cls === 1 ? 1 : 0, b: cls ? 1 : 0 });
     }
     send({ type: "block", b, on: cls !== 0, phase: "end", hz: cls ? plans[cls - 1].hz : 0, cls });
-    if (paused) { b--; continue; }
+    if (halted()) { b--; continue; }
     black(); dot(cx, cy);
     const tr = now(); while (now() - tr < (m.restS || 1.0) && running === tok) await frameTs();
   }
@@ -465,13 +510,13 @@ async function runBwbScan(m) {
       const cx = g.x0 + (gx + 0.5) * g.cwid, cy = g.y0 + (gy + 0.5) * g.chgt;
       const t0 = now();
       flickerT0 = (await frameTs()) / 1000;
-      while (now() - t0 < m.spc && running === tok && !paused) {
+      while (now() - t0 < m.spc && running === tok && !halted()) {
         const ts = await frameTs(); frameCount++;
         const [fW, fB] = drawBwb(ts, plans, cls, cx, cy, g.pw, g.ph);
         send({ type: "frame", stage: "bwb", pt: now(), gx, gy, lum: cls === 1 ? 1 : 0,
                fl: fW ? 1 : 0, flG: 0, flB: fB ? 1 : 0, r: cls === 1 ? 1 : 0, g: cls === 1 ? 1 : 0, b: cls ? 1 : 0 });
       }
-      if (paused) { xi--; continue; }
+      if (halted()) { xi--; continue; }
       if (running !== tok) break;
     }
     send({ type: "row", y: gy });
@@ -497,6 +542,8 @@ async function runScan(m) {
   // several passes over the board; odd passes run bottom-to-top so slow
   // drift does not line up with the image the same way twice
   const passes = Math.max(1, m.passes || 1);
+  const total = passes * gw * gh, restEvery = m.restEvery || 0;
+  let nDone = 0;
   for (let ps = 0; ps < passes && running === tok; ps++)
   for (let ry = 0; ry < gh && running === tok; ry++) {
     const gy = ps % 2 === 1 ? gh - 1 - ry : ry;
@@ -511,10 +558,11 @@ async function runScan(m) {
       // adds positions (overlapping), never shrinks the flickering area
       const pw = m.patch ? bw / 6 * m.patch : cwid, ph = m.patch ? bh / 4 * m.patch : chgt;
       const bwc = m.bw ? ["#ffffff", "#000000"] : null;
+      const plane = m.plane || [1, 1, 1];   // --mode planes: this pass's colour
       const t0 = now();
       flickerT0 = (await frameTs()) / 1000;
       redoNow = false;
-      while (now() - t0 < m.spc && running === tok && !paused && !redoNow) {
+      while (now() - t0 < m.spc && running === tok && !halted() && !redoNow) {
         await frameTs(); frameCount++;
         const t = now();
         const fl = lum > 0.05 && flickerOn();
@@ -523,7 +571,7 @@ async function runScan(m) {
           // white/black: the flicker amplitude IS the grey level (a half-
           // grey position flickers at half the drive of a white one)
           const shade = Math.round(255 * (bwc ? lum : 0.3 + 0.7 * lum));
-          ctx.fillStyle = bwc ? (fl ? `rgb(${shade},${shade},${shade})` : "#000000")
+          ctx.fillStyle = bwc ? (fl ? `rgb(${plane.map(v => Math.round(v * shade)).join(",")})` : "#000000")
                               : (fl ? `rgb(${shade},${shade},0)` : `rgb(0,0,${shade})`);
           const cx = x0 + (gx + 0.5) * cwid, cy = y0 + (gy + 0.5) * chgt;
           ctx.fillRect(cx - pw / 2, cy - ph / 2, pw, ph);
@@ -542,8 +590,25 @@ async function runScan(m) {
         sub.textContent = keep;
         xi--; continue;
       }
-      if (paused) { xi--; continue; }
+      if (halted()) { xi--; continue; }
       if (running !== tok) break;
+      nDone++;
+      if (restEvery > 0 && nDone % restEvery === 0 && nDone < total) {
+        // a rest break: mark it in the log so it is not scored as a position
+        black();
+        send({ type: "frame", stage: "rest", pt: now(), gx: -1, gy: -1, lum: 0, fl: 0 });
+        title.textContent = "REST"; title.className = "ok";
+        sub.textContent = `${nDone} of ${total} positions done. Blink, relax, ` +
+                          `then pull the trigger to continue.`;
+        await waitForPress();
+        title.textContent = "";
+        for (let n = 3; n > 0 && running === tok; n--) {
+          sub.textContent = `continuing in ${n}`;
+          black(); dot(x0 + (gx + 0.5) * cwid, y0 + (gy + 0.5) * chgt);
+          await sleep(1000);
+        }
+        sub.textContent = passes > 1 ? `pass ${ps + 1}/${passes}` : "";
+      }
     }
     send({ type: "row", y: gy });
   }
@@ -582,6 +647,10 @@ function showMuse(m) {
     `${n} <span style="color:${m.q[i] ? "#6fd68b" : "#ff6666"}">` +
     `${m.q[i] ? "✓" : "✕"}</span>`).join("  ");
   badge.innerHTML = `MUSE ${m.rate.toFixed(0)} Hz   ${cells}`;
+  const oz = m.names.findIndex(n => /^AUX/i.test(n) || /^OZ$/i.test(n));
+  if (oz >= 0 && !m.q[oz]) {
+    badge.innerHTML += `<br><span style="color:#ff6666">Oz electrode: no contact — wet it and press it down</span>`;
+  }
 }
 
 function showCalibResult(m) {
@@ -855,8 +924,12 @@ function showAssrResult(m) {
 function connect() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.onopen = () => { sub.textContent = "connected — waiting for driver"; send({ type: "hello", ua: navigator.userAgent, vis: document.visibilityState, q: location.search, auto: location.search.includes("auto=1") ? 1 : 0 }); };
-  ws.onclose = () => { running = null; sub.textContent = "driver disconnected — retrying"; setTimeout(connect, 2000); };
+  ws.onopen = () => { linkLost = false; if (!running) sub.textContent = "connected — waiting for driver"; send({ type: "hello", ua: navigator.userAgent, vis: document.visibilityState, q: location.search, auto: location.search.includes("auto=1") ? 1 : 0 }); };
+  ws.onclose = () => {
+    linkLost = true;   // hold the run; holdWhilePaused() shows the message
+    if (!running) sub.textContent = "connection to the computer lost — reconnecting";
+    setTimeout(connect, 2000);
+  };
   ws.onmessage = ev => {
     let m; try { m = JSON.parse(ev.data); } catch { return; }
     switch (m.cmd) {
@@ -877,8 +950,8 @@ function connect() {
       case "result": showResult(m); break;
       case "choose": showChoice(m); break;
       case "msg": sub.textContent = m.text; break;
-      case "pause": paused = true; break;
-      case "resume": paused = false; break;
+      case "pause": paused = true; pauseReason = m.text || ""; break;
+      case "resume": paused = false; pauseReason = ""; break;
       case "redo": redoNow = true; break;
     }
   };

@@ -12,3 +12,6 @@ muselsl>=2.5
 # Web app: only needed for the Python bridge (server.py --muse / --lsl / --tobii);
 # `python server.py` with no flags uses the standard library only.
 # tobii-research   # optional, for --tobii (Fig. 6 with a Tobii eye tracker)
+bleak
+sounddevice
+scikit-learn

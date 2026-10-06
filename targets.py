@@ -53,6 +53,11 @@ def color_target(spec, grid_w=None, grid_h=None):
     'ring'  = red disc, green ring, blue corners
     'mix'   = mixtures and shades: red, yellow, green, cyan, blue, magenta
               across, darker row by row, and a white-to-black row at the bottom
+    'eight' = the 8 pure colours (black, red, green, yellow, blue, magenta,
+              cyan, white) as blocks, every colour once per row, shuffled by
+              row so no colour sits in one column
+    'hues'  = 12 hues around the colour wheel across the top rows, then the
+              8 pure colours, then a white-to-black shade row
     or an image path (RGB)."""
     grid_w = grid_w or config.GRID_W
     grid_h = grid_h or config.GRID_H
@@ -78,6 +83,25 @@ def color_target(spec, grid_w=None, grid_h=None):
             for xg in range(grid_w):
                 g[yg, xg] = np.array(hues[xg * 6 // grid_w]) * (1 - yg / rows)
         if grid_h > 1:
+            g[-1] = np.linspace(1, 0, grid_w)[:, None]
+    elif spec == "eight":
+        pure = [(0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 0),
+                (0, 0, 1), (1, 0, 1), (0, 1, 1), (1, 1, 1)]
+        for yg in range(grid_h):
+            for xg in range(grid_w):
+                g[yg, xg] = pure[(xg * 8 // grid_w + 3 * yg) % 8]
+    elif spec == "hues":
+        import colorsys
+        pure = [(0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 0),
+                (0, 0, 1), (1, 0, 1), (0, 1, 1), (1, 1, 1)]
+        rows = max(grid_h - 2, 1)
+        for yg in range(rows):
+            for xg in range(grid_w):
+                hue = ((xg + 0.5) / grid_w + yg / (2.0 * rows)) % 1.0
+                g[yg, xg] = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
+        if grid_h > 1:
+            for xg in range(grid_w):
+                g[-2, xg] = pure[xg * 8 // grid_w]
             g[-1] = np.linspace(1, 0, grid_w)[:, None]
     elif spec == "ring":
         yy, xx = np.mgrid[0:grid_h, 0:grid_w]

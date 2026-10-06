@@ -580,6 +580,20 @@ def reconstruct_color(session_dir, freqs, weights=None, gains=None,
     n_ch = data.shape[1]
     w = np.ones(n_ch) if weights is None else np.asarray(weights, float)
     gains = np.ones(3) if gains is None else np.asarray(gains, float)
+    # Per-pass colour-to-frequency assignment (tag rotation). Without the
+    # file, colour k used freqs[k] throughout.
+    passes = []
+    pfile = os.path.join(session_dir, "color_passes.json")
+    if os.path.exists(pfile):
+        with open(pfile) as f:
+            passes = sorted(json.load(f), key=lambda e: e["t"])
+
+    def hz_for(t_visit):
+        hz = list(freqs)
+        for e in passes:
+            if e["t"] <= t_visit + 0.05 and len(e.get("hz", [])) == 3:
+                hz = [float(v) for v in e["hz"]]
+        return hz
     ch_sigma = [hf_sigma(data[:, c]) for c in range(n_ch)]
     gw, gh = gx.max() + 1, gy.max() + 1
     acc = np.zeros((gh, gw, 3))
@@ -599,7 +613,7 @@ def reconstruct_color(session_dir, freqs, weights=None, gains=None,
         if need > 0:
             i0 = max(0, i0 - need // 2)
             i1 = min(len(data), i0 + nperseg)
-        for k, f0 in enumerate(freqs):
+        for k, f0 in enumerate(hz_for(t0)):
             num = den = 0.0
             for c in range(n_ch):
                 if w[c] <= 0:

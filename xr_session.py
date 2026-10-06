@@ -369,6 +369,7 @@ class Driver:
         self.color_hzs = []         # page's frame-exact plan for the colour scan
         self.block_cls = []         # black/white/blue class per calibration block
         self.bwb_codes = []         # page's delivered (Hz, phase) codes
+        self.color_passes = []      # per pass: which frequency each colour used
         self.frames = 0
         self.spec = None
         if args.spectator:
@@ -469,6 +470,16 @@ class Driver:
             self.color_hzs = [float(v) for v in m.get("hzs", [])]
             print("colour flicker plan:", self.color_hzs, "@", m.get("refresh"), "fps"
                   + (" (smooth)" if m.get("smooth") else ""))
+        elif typ == "color_pass":
+            # which tag frequency each of R, G, B uses from now on
+            entry = dict(t=t, pass_index=int(m.get("pass", 0)),
+                         plan=[int(v) for v in m.get("plan", [0, 1, 2])],
+                         hz=[float(v) for v in m.get("hz", [])])
+            self.color_passes.append(entry)
+            with open(os.path.join(self.session, "color_passes.json"), "w") as f:
+                json.dump(self.color_passes, f, indent=1)
+            print(f"colour pass {entry['pass_index'] + 1}: R/G/B at "
+                  + "/".join(f"{v:.2f}" for v in entry["hz"]) + " Hz")
         elif typ == "visibility":
             print(f"page visibility: {m.get('state')}")
             self.spectate(type="log", msg=f"page {m.get('state')}")
@@ -566,17 +577,18 @@ class Driver:
 
         merge_task = None
         ports = [int(p) for p in str(a.osc_port).split(",") if p.strip()]
-        if a.muse or a.lsl:
-            # Muse on this PC's Bluetooth (muselsl) or any LSL EEG stream:
-            # recorded straight from LSL, no phone app and no OSC
+        if a.source in ("lsl", "muselsl"):
+            # Muse on this PC's Bluetooth through muselsl, or any LSL EEG
+            # stream: recorded straight from LSL, no phone app and no OSC
             ports = []
             recorder = Recorder("lsl", self.session, 0,
                                 extra=["--no-aux"] if a.no_aux else [])
         elif len(ports) == 1:
-            recorder = Recorder("osc", self.session, ports[0])
+            recorder = Recorder(a.source, self.session, ports[0], muse=a.muse)
         else:
             recorder = MultiRecorder(self.session, ports)
-        eeg_src = "LSL" if (a.muse or a.lsl) else f"udp:{a.osc_port}"
+        eeg_src = "LSL" if a.source in ("lsl", "muselsl") else \
+            ("Bluetooth" if a.source == "ble" else f"udp:{a.osc_port}")
         recorder.start()
         await asyncio.sleep(1.5)
         if not recorder.alive():
@@ -592,7 +604,7 @@ class Driver:
                     + recorder.stderr_tail()[-200:])
         merged_path = os.path.join(self.session, "eeg.csv")
         tail = EEGTail(merged_path)
-        osc_target = ", ".join(f"{local_ip()}:{p}" for p in ports) or             ("the Muse over this PC's Bluetooth" if a.muse else "an LSL EEG stream")
+        osc_target = ", ".join(f"{local_ip()}:{p}" for p in ports) or             ("the Muse over this PC's Bluetooth" if a.source in ("ble", "muselsl") else "an LSL EEG stream")
         merge_task = None
         if len(ports) > 1:
             async def merge_loop():
@@ -624,9 +636,24 @@ class Driver:
 
             # persistent Muse status badge: rate + per-electrode contact,
             # pushed to the page once a second through EVERY stage
+            ip0 = local_ip()
+
             async def heartbeat():
+                nonlocal ip0
                 while True:
                     tail.poll()
+                    # this computer hopping to another Wi-Fi mid-run breaks
+                    # the phone's stream: say so, with the address to use
+                    ip_now = local_ip()
+                    if ip_now != ip0 and ip_now != "127.0.0.1":
+                        print(f"NETWORK CHANGED: this PC is now {ip_now} (was {ip0}); "
+                              f"the phone must stream to {ip_now}")
+                        await self.send(cmd="pause", text=f"PAUSED - the computer changed "
+                                        f"network: it is now {ip_now}. On the phone, set "
+                                        f"MuseLog's target to {ip_now} port 5000; the run "
+                                        "continues when EEG returns.")
+                        self.paused = True
+                        ip0 = ip_now
                     await self.send(cmd="eeg", rate=tail.rate(),
                                     q=channel_quality(tail), names=names())
                     self.spectate(type="eeg", rate=tail.rate(), rms=[])
@@ -649,7 +676,10 @@ class Driver:
                                 and self.eeg_silent >= 3):
                             self.paused = True
                             print("EEG STREAM SILENT: scan paused")
-                            await self.send(cmd="pause")
+                            await self.send(cmd="pause", text="PAUSED - no EEG for 3 s. On "
+                                            "the phone: is MuseLog still connected to the "
+                                            f"Muse and streaming to {local_ip()} port 5000? "
+                                            "The run continues when data returns.")
                         elif not self.scan_active and self.eeg_silent == 10:
                             print("EEG STREAM LOST (10 s without samples)")
                             self.eeg_lost = True
@@ -921,6 +951,8 @@ class Driver:
             print(f"picture: {result['choice']}")
             if choice == "bwb":
                 return await self.run_bwb(result, recorder)
+            if a.mode == "planes":
+                return await self.run_planes(result, recorder)
 
             # scan (page-driven serpentine)
             self.spectate(type="stage", stage="scan", detail="")
@@ -928,8 +960,12 @@ class Driver:
             await self.send(cmd="start_scan", gridW=a.grid_w, gridH=a.grid_h,
                             spc=a.spc, freq=a.freq, target=target.tolist(),
                             patch=a.patch, bw=(a.calib_style == "bw"),
-                            passes=a.passes, board=a.board)
+                            passes=a.passes, board=a.board,
+                            restEvery=a.rest_every)
             scan_s = a.grid_w * a.grid_h * a.spc * max(1, a.passes)
+            if a.rest_every > 0:   # rest breaks are as long as the subject likes
+                scan_s += 600 * (a.grid_w * a.grid_h * max(1, a.passes)
+                                 // a.rest_every)
             await self.wait_for("scan_done", timeout=scan_s * 2 + 120)
             self.close_log()
             await asyncio.sleep(0.7)
@@ -939,7 +975,9 @@ class Driver:
             # comparisons, so every run says what each choice costs
             print("reconstructing...")
             cal_path = os.path.join(self.session, "calibration.json")
-            vblend = not a.no_eq1
+            # Eq. 1 is for overlapping scan lines: off unless --vblend asks
+            # for it (--no-eq1 always wins)
+            vblend = bool(a.vblend) and not a.no_eq1
             mk = {}
             if a.mask_blinks:
                 import blinkmask
@@ -948,7 +986,8 @@ class Driver:
                                       stim_freq=self.stim_freq, method=a.recon_method,
                                       vblend=vblend, **mk)
             compare = {}
-            for label, kw in (("paper, no Eq. 1", dict(method="paper", vblend=False)),
+            other = "paper, no Eq. 1" if vblend else "paper + Eq. 1"
+            for label, kw in ((other, dict(method="paper", vblend=not vblend)),
                               ("upstream repo method", dict(method="upstream"))):
                 try:
                     compare[label] = reconstruct.run(self.session, calibration=cal_path,
@@ -1187,22 +1226,26 @@ class Driver:
         np.save(os.path.join(self.session, "target_color.npy"), ctarget)
         self.spectate(type="stage", stage="color_scan", detail="")
         self.color_hzs = []
+        self.color_passes = []
         self.open_log("color_log.csv")
         await self.send(cmd="start_scan", color=True, gridW=gw, gridH=gh,
-                        spc=a.color_spc, freqs=freqs, target=ctarget.tolist())
-        scan_s = gw * gh * a.color_spc
+                        spc=a.color_spc, freqs=freqs, target=ctarget.tolist(),
+                        passes=a.color_passes)
+        scan_s = gw * gh * a.color_spc * max(1, a.color_passes)
         await self.wait_for("scan_done", timeout=scan_s * 2 + 120)
         self.close_log()
         await asyncio.sleep(0.7)
-        hz_del = self.measured_cols("color_log.csv")
-        for k in range(3):
-            if not np.isfinite(hz_del[k]):
-                hz_del[k] = (self.color_hzs[k] if k < len(self.color_hzs)
-                             else freqs[k])
-        print("colour scan delivered:", ["%.2f" % v for v in hz_del])
+        # the three tag frequencies as the page delivered them; which colour
+        # used which one in each pass is in color_passes.json
+        hz_del = [self.color_hzs[k] if k < len(self.color_hzs) else freqs[k]
+                  for k in range(3)]
+        print("colour tags:", ["%.2f" % v for v in hz_del],
+              f"over {max(1, a.color_passes)} pass(es)")
         try:
+            # gains=None: the colour-calibration gains are reported but not
+            # applied (they lowered every run's correlation)
             grid, rgb, cres = reconstruct.reconstruct_color(
-                self.session, hz_del, weights=weights, gains=gains,
+                self.session, hz_del, weights=weights, gains=None,
                 cursor_log="color_log.csv", target=ctarget)
         except Exception as exc:  # keep the session alive for the music stage
             print("colour reconstruction failed:", repr(exc))
@@ -1350,6 +1393,116 @@ class Driver:
         await asyncio.sleep(a.linger)
         return 0
 
+    async def run_planes(self, result, recorder):
+        """Sequential colour planes: the picture's R, G and B are each
+        scanned as a black/<colour> scan at the calibrated frequency, one
+        after the other, and scored exactly like the "NO" (paper_score,
+        calibration weights), then assembled into RGB. Every colour gets the
+        one frequency this subject responds to best, so the colour balance
+        is the picture's and not a frequency preference; the price is three
+        scans instead of one."""
+        import smoothcolor
+        a = self.args
+        cal_path = os.path.join(self.session, "calibration.json")
+        ctarget = targets.color_target(a.color_target, a.color_grid_w, a.color_grid_h)
+        gh, gw = ctarget.shape[:2]
+        np.save(os.path.join(self.session, "target_color.npy"), ctarget)
+        order = [int(v) for v in str(a.plane_order).split(",")]
+        spcs = [float(v) for v in str(a.plane_spc).split(",")]
+        spcs = spcs * 3 if len(spcs) == 1 else spcs      # one dwell, or R,G,B
+        if len(spcs) != 3:
+            raise ValueError("--plane-spc takes one value or three: R,G,B")
+        unit = {0: [1, 0, 0], 1: [0, 1, 0], 2: [0, 0, 1]}
+        names = ["red", "green", "blue"]
+        logs = {}
+        for k in order:
+            plane = ctarget[:, :, k]
+            if plane.max() <= 0.02:
+                print(f"{names[k]} plane is empty in {a.color_target}: skipped")
+                continue
+            log = f"plane_{names[k]}_log.csv"
+            logs[k] = log
+            self.spectate(type="stage", stage="scan", detail=f"{names[k]} plane")
+            print(f"scanning the {names[k]} plane ({gw}x{gh}, {spcs[k]:g} s per "
+                  f"position, {a.plane_passes} pass(es)) at {self.stim_freq:.1f} Hz")
+            await self.send(cmd="msg", text=f"{names[k]} plane")
+            await asyncio.sleep(1.5)
+            self.open_log(log)
+            await self.send(cmd="start_scan", gridW=gw, gridH=gh, spc=spcs[k],
+                            freq=a.freq, target=plane.tolist(), patch=a.patch,
+                            bw=True, plane=unit[k], passes=a.plane_passes,
+                            board=a.board, restEvery=a.rest_every)
+            scan_s = gw * gh * spcs[k] * max(1, a.plane_passes)
+            if a.rest_every > 0:
+                scan_s += 600 * (gw * gh * max(1, a.plane_passes) // a.rest_every)
+            await self.wait_for("scan_done", timeout=scan_s * 2 + 120)
+            self.close_log()
+            await asyncio.sleep(0.7)
+        with open(os.path.join(self.session, "planes_meta.json"), "w") as f:
+            json.dump(dict(logs={names[k]: v for k, v in logs.items()}, spc=spcs,
+                           passes=a.plane_passes, freq=self.stim_freq,
+                           method=a.recon_method, target=a.color_target), f, indent=1)
+
+        # ---- decode: each plane like the grey picture, then RGB
+        print("reconstructing the colour planes...")
+
+        def planes_grid(shift_s=0.0):
+            grid = np.zeros((gh, gw, 3))
+            for k, log in logs.items():
+                g, _ = reconstruct.run(self.session, calibration=cal_path,
+                                       stim_freq=self.stim_freq, method=a.recon_method,
+                                       vblend=False, cursor_log=log, save=False,
+                                       shift_s=shift_s)
+                grid[:, :, k] = g
+            return grid
+
+        try:
+            grid = await asyncio.to_thread(planes_grid)
+            np.save(os.path.join(self.session, "reconstruction_planes_grid.npy"), grid)
+            # paper scores have no fixed scale: no range floor
+            rgb = smoothcolor.to_rgb(grid, floor=0.0)
+            res = smoothcolor.metrics(rgb, ctarget, grid)
+            res["r_plane_raw"] = [float(np.corrcoef(ctarget[:, :, k].ravel(),
+                                                    grid[:, :, k].ravel())[0, 1])
+                                  if k in logs and ctarget[:, :, k].std() > 0 else None
+                                  for k in range(3)]
+            nulls = []
+            for n in range(4):
+                try:
+                    nulls.append(smoothcolor.metrics(
+                        smoothcolor.to_rgb(await asyncio.to_thread(planes_grid, 31.0 + 29.0 * n),
+                                           floor=0.0), ctarget)["r_all"])
+                except Exception as exc:
+                    print("null", n, repr(exc))
+            res["r_null"] = nulls
+            comp = smoothcolor.save_images(self.session, rgb, ctarget)
+            os.replace(os.path.join(self.session, "reconstruction_smooth.png"),
+                       os.path.join(self.session, "reconstruction_planes.png"))
+            if comp:
+                os.replace(comp, os.path.join(self.session, "planes_comparison.png"))
+                comp = os.path.join(self.session, "planes_comparison.png")
+            res["comparison"] = comp
+            text = smoothcolor.summary(res)
+            good = res["r_all"] >= 0.6 and res["r_all"] > max(nulls or [0])
+        except Exception as exc:
+            print("colour plane decoding failed:", repr(exc))
+            res, rgb, comp, text, good = dict(error=repr(exc)), None, None, f"decoding failed: {exc}", False
+        print(text)
+        result["planes"] = res
+        if comp:
+            with open(comp, "rb") as f:
+                png = "data:image/png;base64," + base64.b64encode(f.read()).decode()
+        else:
+            png = rgb_to_data_url(rgb) if rgb is not None else ""
+        await self.send(cmd="color_result", png=png,
+                        text=f"{text}   [planes at {self.stim_freq:.1f} Hz]",
+                        passed=bool(good), wide=bool(comp))
+        result["ok"] = True
+        recorder.stop()
+        print(f"COLOUR PLANES DONE -> {self.session}")
+        await asyncio.sleep(a.linger)
+        return 0
+
     async def run_smooth(self, result, recorder):
         """Smooth-flicker colour (smoothcolor.py): a white smooth-flicker sweep
         picks three close tags in the band this subject responds in, then the
@@ -1415,9 +1568,14 @@ class Driver:
         np.save(os.path.join(self.session, "target_color.npy"), ctarget)
         self.spectate(type="stage", stage="color_scan", detail="smooth")
         self.open_log("smooth_log.csv")
+        rotate = bool(a.smooth_rotate) and a.smooth_passes >= 3
+        if a.smooth_rotate and not rotate:
+            print("NOTE: tag rotation needs --smooth-passes 3 (or 6, 9...); "
+                  "colours keep fixed tags this run")
         await self.send(cmd="start_scan", smooth=True, gridW=gw, gridH=gh,
                         spc=a.smooth_spc, passes=a.smooth_passes, freqs=tags,
-                        target=ctarget.tolist(), patch=a.patch, board=a.board)
+                        rotate=rotate, target=ctarget.tolist(), patch=a.patch,
+                        board=a.board)
         scan_s = gw * gh * a.smooth_spc * a.smooth_passes
         await self.wait_for("scan_done", timeout=scan_s * 2 + 120)
         self.close_log()
@@ -1427,7 +1585,8 @@ class Driver:
         with open(os.path.join(self.session, "smooth_meta.json"), "w") as f:
             json.dump(dict(tags=tags, weights=[float(v) for v in weights], names=names,
                            spc=a.smooth_spc, passes=a.smooth_passes, balance=balance,
-                           exponent=a.shade_exponent, alpha=alpha, note=note),
+                           rotate=rotate, exponent=a.shade_exponent, alpha=alpha,
+                           note=note),
                       f, indent=1)
 
         # ---- decode
@@ -1687,20 +1846,25 @@ async def main():
     ap.add_argument("--osc-port", default="5000",
                     help="UDP port, or comma list for several headbands "
                          "(e.g. 5000,5001 -> merged 8-channel eeg.csv)")
-    ap.add_argument("--muse", action="store_true",
-                    help="connect to the Muse over THIS PC's Bluetooth (muselsl) "
-                         "and record it directly; no phone app, no OSC")
-    ap.add_argument("--muse-model", default="auto", choices=["auto", "athena", "legacy"],
-                    help="Muse protocol for --muse (athena = Muse S Gen 3)")
-    ap.add_argument("--muse-address", default=None, help="Muse MAC address for --muse")
-    ap.add_argument("--muse-preset", default=None,
-                    help="--muse: muselsl preset (default p20 = aux/Oz ON on a classic "
-                         "Muse; none with --no-aux or --muse-model athena)")
-    ap.add_argument("--lsl", action="store_true",
-                    help="record an EEG stream another program already puts on LSL "
+    ap.add_argument("--source", choices=["osc", "ble", "muselsl", "lsl"], default="osc",
+                    help="osc = EEG from a phone app or the phantom over UDP; "
+                         "ble = the Muse straight over this computer's Bluetooth "
+                         "(muse_ble.py, no phone app); muselsl = the Muse over "
+                         "this computer's Bluetooth through muselsl -> LSL; "
+                         "lsl = an EEG stream another program already puts on LSL "
                          "(muselsl stream, mind2motor run_muse.py --live, Petal)")
+    ap.add_argument("--muse", nargs="?", const="*", default="",
+                    help="the Muse over this computer's Bluetooth, no phone app "
+                         "(same as --source ble); with a value, part of the "
+                         "headband's name or address (--source muselsl: its address)")
+    ap.add_argument("--lsl", action="store_true", help="same as --source lsl")
+    ap.add_argument("--muse-model", default="auto", choices=["auto", "athena", "legacy"],
+                    help="Muse protocol for --source muselsl (athena = Muse S Gen 3)")
+    ap.add_argument("--muse-preset", default=None,
+                    help="--source muselsl: muselsl preset (default p20 = aux/Oz ON on "
+                         "a classic Muse; none with --no-aux or --muse-model athena)")
     ap.add_argument("--no-aux", action="store_true",
-                    help="with --muse/--lsl: drop the aux column (no Oz electrode)")
+                    help="--source muselsl/lsl: drop the aux column (no Oz electrode)")
     ap.add_argument("--preset", choices=list(config.PRESETS), default="")
     ap.add_argument("--grid-w", type=int, default=12)
     ap.add_argument("--grid-h", type=int, default=8)
@@ -1754,6 +1918,9 @@ async def main():
                     help="grey scan: board size as a fraction of the screen; "
                          "shrink it (0.6) with a large --patch so the square "
                          "is never clipped at the edge positions")
+    ap.add_argument("--rest-every", type=int, default=0,
+                    help="grey scan: stop for a rest after this many positions "
+                         "and wait for the trigger (0 = no breaks)")
     ap.add_argument("--vblend", action="store_true",
                     help="apply the paper's Eq. 1 vertical blend. It is for "
                          "overlapping scan lines; on discrete positions it "
@@ -1766,13 +1933,24 @@ async def main():
                     help="--mode full: R,G,B tag frequencies (frame-exact at "
                          "72 fps: 7.2/9/12; at 240 fps: 8/10/12)")
     ap.add_argument("--color-reps", type=int, default=3)
+    ap.add_argument("--color-passes", type=int, default=3,
+                    help="colour scan passes; the colour-to-frequency "
+                         "assignment rotates every pass")
     ap.add_argument("--color-on", type=float, default=6.0,
                     help="colour calibration ON = OFF seconds per block")
     ap.add_argument("--color-grid-w", type=int, default=6)
     ap.add_argument("--color-grid-h", type=int, default=4)
     ap.add_argument("--color-spc", type=float, default=5.0)
     ap.add_argument("--color-target", default="flag",
-                    help="flag | quad | ring | mix | text:X | image path")
+                    help="flag | quad | ring | mix | eight | hues | text:X | image path")
+    ap.add_argument("--plane-spc", default="8",
+                    help="--mode planes: seconds per position, one value or R,G,B "
+                         "(the dim blue earns a longer dwell, e.g. 6,6,10)")
+    ap.add_argument("--plane-passes", type=int, default=1,
+                    help="--mode planes: passes per plane")
+    ap.add_argument("--plane-order", default="2,0,1",
+                    help="--mode planes: order of the planes (0 R, 1 G, 2 B); "
+                         "the dimmest first, while the subject is fresh")
     ap.add_argument("--smooth-sweep", default="9,10,11,12,13,14",
                     help="--mode smooth: frequencies of the white smooth-flicker "
                          "sweep that places the three colour tags (--color-reps "
@@ -1784,7 +1962,12 @@ async def main():
                     help="--mode smooth: seconds per cell. A sine drives 21 %% less "
                          "response than on/off flicker, which 1.6 times the dwell "
                          "makes up for (5 s -> 8 s)")
-    ap.add_argument("--smooth-passes", type=int, default=1)
+    ap.add_argument("--smooth-passes", type=int, default=3)
+    ap.add_argument("--smooth-rotate", type=int, default=1,
+                    help="--mode smooth: 1 = the colour-to-tag assignment rotates "
+                         "every pass (needs 3 passes or a multiple), so the "
+                         "subject's frequency preference cancels out of the "
+                         "colour balance; 0 = fixed tags")
     ap.add_argument("--color-balance", default="1,1,1",
                     help="--mode smooth: R,G,B multipliers on the finished colour "
                          "planes (smoothcolor.COLOR_BALANCE)")
@@ -1799,7 +1982,7 @@ async def main():
     ap.add_argument("--music-off", type=float, default=10.0)
     ap.add_argument("--mode", choices=["visual", "assr", "calib", "alpha",
                                        "sweep", "full", "extras", "mux",
-                                       "music", "bwb", "smooth"],
+                                       "music", "bwb", "smooth", "planes"],
                     default="visual",
                     help="calib = G1 only (calibration, no scan); "
                          "assr = 'ear as a microphone' 40 Hz tone blocks")
@@ -1855,6 +2038,11 @@ async def main():
         args.session = os.path.join("runs", time.strftime("%Y%m%d-%H%M%S") + "_" + args.mode)
     if not args.vblend:
         config.VERTICAL_KERNEL = [1.0]
+    if os.path.isfile(args.target):
+        # a drawing that is already at scan resolution: one position per pixel
+        _w, _h = Image.open(args.target).size
+        if _w <= 48 and _h <= 48:
+            args.grid_w, args.grid_h = _w, _h
     if args.target.startswith("pix"):
         import targets as _t
         _g = _t.load_target(args.target)
@@ -1925,19 +2113,28 @@ async def main():
         print(f"stimulus page:  http://{local_ip()}:{args.http_port}/  "
               f"(?auto=1 for unattended)"
               + (f"  token: ?k={args.page_token}" if args.page_token else ""))
+        if args.lsl:
+            args.source = "lsl"
+        if args.muse and args.source == "osc":
+            args.source = "ble"
+        if args.muse == "*":
+            args.muse = ""
         muse = None
-        if args.muse:
+        if args.source == "muselsl":
             from muse_stream import MuseStream
             preset = args.muse_preset
             if preset is None and not args.no_aux and args.muse_model != "athena":
                 preset = "20"           # classic Muse: aux (Oz) input ON
-            muse = MuseStream(args.muse_address, args.muse_model, preset=preset).start()
+            muse = MuseStream(args.muse or None, args.muse_model, preset=preset).start()
             print("EEG in:         Muse over this PC's Bluetooth (muselsl -> LSL)"
                   + (f", preset {preset}" if preset else "")
                   + ("" if preset or args.no_aux else
                      "; Athena: aux preset not set - check AUX with --mode alpha"))
-        elif args.lsl:
+        elif args.source == "lsl":
             print("EEG in:         LSL EEG stream (start muselsl / mind2motor first)")
+        elif args.source == "ble":
+            print("EEG in:         Muse over this computer's Bluetooth "
+                  "(no phone app)")
         else:
             print(f"EEG OSC in:     {local_ip()}:{args.osc_port}  "
                   "(Mind Monitor / MuseLog / phantom)")

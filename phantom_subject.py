@@ -138,7 +138,12 @@ def main():
     tails = [(n, CsvTail(os.path.join(args.session, n))) for n in
              ("calib_log.csv", "cursor_log.csv", "sweep_log.csv",
               "ccal_log.csv", "color_log.csv", "assr_log.csv", "mux_log.csv",
-              "bwb_cal_log.csv", "bwb_log.csv", "smooth_log.csv")]
+              "bwb_cal_log.csv", "bwb_log.csv", "smooth_log.csv",
+              "plane_red_log.csv", "plane_green_log.csv", "plane_blue_log.csv")]
+    # --mode planes: one black/<colour> scan per plane; the colour gain of
+    # that plane applies to the whole scan
+    plane_of = {"plane_red_log.csv": 0, "plane_green_log.csv": 1, "plane_blue_log.csv": 2}
+    cur_plane = None
 
     rng = np.random.default_rng(args.seed)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -227,6 +232,7 @@ def main():
                     except (IndexError, ValueError):
                         continue
                     trk[0].see(t_row, fl)
+                    cur_plane = plane_of.get(log_name, None)
                     if len(row) >= 12:
                         try:
                             trk[1].see(t_row, int(row[6]))
@@ -256,6 +262,8 @@ def main():
                 gain = tuning(f_k) * (math.pi / 4 if hz_s[k] else 1.0)
                 if in_cell:
                     gain *= color_gain[k]
+                elif k == 0 and cur_plane is not None:
+                    gain *= color_gain[cur_plane]
                 trk[k].drive = gain * max(v, 0.0) ** args.response_gamma \
                     if trk[k].live() else 0.0
             audio_live = time.perf_counter() - audio_pc < 0.3

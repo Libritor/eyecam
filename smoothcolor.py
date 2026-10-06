@@ -186,9 +186,10 @@ def clip_artifacts(seg, sigma_floor):
     return base + np.clip(dev, -lim, lim)
 
 
-def visits(cur_t, gx, gy, spc):
+def visits(cur_t, gx, gy, spc, with_index=False):
     """(gx, gy, t0, t1) per cell visit. A stay much longer than spc is two
-    passes meeting on one cell: it is cut into visits of spc."""
+    passes meeting on one cell: it is cut into visits of spc.
+    with_index: also the log row the visit starts on."""
     cut = np.flatnonzero((np.diff(gx) != 0) | (np.diff(gy) != 0))
     out = []
     for s, e in zip(np.r_[0, cut + 1], np.r_[cut + 1, len(gx)]):
@@ -197,8 +198,28 @@ def visits(cur_t, gx, gy, spc):
         t0, t1 = cur_t[s], cur_t[e - 1]
         n = max(1, int(round((t1 - t0) / spc))) if spc else 1
         for k in range(n):
-            out.append((int(gx[s]), int(gy[s]), t0 + k * (t1 - t0) / n,
-                        t0 + (k + 1) * (t1 - t0) / n))
+            v = (int(gx[s]), int(gy[s]), t0 + k * (t1 - t0) / n,
+                 t0 + (k + 1) * (t1 - t0) / n)
+            out.append(v + (int(s),) if with_index else v)
+    return out
+
+
+def logged_tags(session_dir, log_name, tags):
+    """The R, G, B tag of every log row (the page writes hz_r, hz_g, hz_b):
+    with rotation (--smooth-rotate) the assignment changes every pass. Rows
+    without tags (an older log) get the session's fixed tags."""
+    from reconstruct import read_csv
+    header, rows = read_csv(os.path.join(session_dir, log_name))
+    out = np.tile(np.asarray(tags, float), (len(rows), 1))
+    if "hz_r" in header:
+        k = header.index("hz_r")
+        for i, r in enumerate(rows):
+            try:
+                v = [float(r[k]), float(r[k + 1]), float(r[k + 2])]
+            except (ValueError, IndexError):
+                continue
+            if all(x > 0 for x in v):
+                out[i] = v
     return out
 
 
@@ -214,65 +235,127 @@ def decode(session_dir, tags, weights=None, spc=0.0, shift_s=0.0, channels="",
     w = np.ones(data.shape[1]) if weights is None else np.asarray(weights, float)
     sigma = [hf_sigma(data[:, c]) for c in range(data.shape[1])]
     gw, gh = gx.max() + 1, gy.max() + 1
-    acc, cnt = np.zeros((gh, gw, 3)), np.zeros((gh, gw))
-    for x, y, t0, t1 in visits(cur_t, gx, gy, spc):
+    row_tags = logged_tags(session_dir, log_name, tags)
+    # one amplitude per (visit, colour): sqrt(SNR - 1) of the line at the
+    # tag that colour used during that visit
+    amp, where, used = [], [], []
+    for x, y, t0, t1, s in visits(cur_t, gx, gy, spc, with_index=True):
         i0, i1 = np.searchsorted(eeg_t, [t0 + (SETTLE if t1 - t0 > 2 else 0), t1])
         if i1 - i0 < max(1.5, 0.6 * (t1 - t0)) * fs:
             continue                               # too short, or the stream dropped
+        vt = list(row_tags[s])
         snr, den = np.zeros(3), 0.0
         for c in np.flatnonzero(w > 0):
             seg = clip_artifacts(data[i0:i1, c], sigma[c])
             if seg is None:
                 continue
-            v = [tag_snr(seg, fs, f0, [t for t in tags if t != f0]
-                         + ([alpha] if alpha else [])) for f0 in tags]
+            v = [tag_snr(seg, fs, f0, [t for t in vt if t != f0]
+                         + ([alpha] if alpha else [])) for f0 in vt]
             if np.all(np.isfinite(v)):
                 snr += w[c] * np.array(v)
                 den += w[c]
         if den > 0:
-            acc[y, x] += snr / den
-            cnt[y, x] += 1
-    grid = np.sqrt(np.maximum(acc / np.maximum(cnt, 1)[:, :, None] - 1.0, 0.0))
+            amp.append(np.sqrt(np.maximum(snr / den - 1.0, 0.0)))
+            where.append((y, x))
+            used.append(vt)
+    amp, used = np.asarray(amp).reshape(-1, 3), np.asarray(used).reshape(-1, 3)
+    # tag gain: with rotation every colour has been on every tag equally
+    # often, so a tag's mean amplitude over the scan is the subject's
+    # response to that frequency, not the picture; divide it out
+    rotated = len(amp) and all(
+        abs(np.mean(used[:, c] == t) - 1.0 / 3) < 0.1 for c in range(3) for t in tags)
+    if rotated:
+        gain = {t: max(amp[used == t].mean(), 1e-6) for t in tags}
+        mean_gain = np.mean(list(gain.values()))
+        amp = amp / np.vectorize(lambda t: gain[t] / mean_gain)(used)
+    acc, cnt = np.zeros((gh, gw, 3)), np.zeros((gh, gw))
+    for a_, (y, x) in zip(amp, where):
+        acc[y, x] += a_
+        cnt[y, x] += 1
+    grid = acc / np.maximum(cnt, 1)[:, :, None]
     for k in range(3):                              # cells never scored
         plane = grid[:, :, k]
         plane[cnt == 0] = np.median(plane[cnt > 0]) if (cnt > 0).any() else 0.0
     return grid
 
 
-def to_rgb(grid, balance=COLOR_BALANCE, exponent=SHADE_EXPONENT):
+def to_rgb(grid, balance=COLOR_BALANCE, exponent=SHADE_EXPONENT, floor=RANGE_FLOOR):
     """Response grid -> picture in [0, 1]: each plane scaled to its own range,
-    then the brightness curve and the colour balance."""
+    then the brightness curve and the colour balance. floor is on the grid's
+    own scale (the sqrt(SNR - 1) amplitude here; 0 for a grid of paper
+    scores, whose scale is not fixed)."""
     rgb = np.zeros_like(grid)
     for k in range(3):
         lo, hi = np.percentile(grid[:, :, k], [2, 98])
-        plane = np.clip((grid[:, :, k] - lo) / max(hi - lo, RANGE_FLOOR), 0, 1)
+        plane = np.clip((grid[:, :, k] - lo) / max(hi - lo, floor, 1e-12), 0, 1)
         rgb[:, :, k] = np.clip(plane ** exponent * balance[k], 0, 1)
     return rgb
 
 
-def metrics(rgb, target):
-    """Agreement of the decoded picture with the one shown."""
+def otsu(v):
+    """The split of the values that best separates two groups (Otsu): the
+    automatic threshold, which never sees the picture shown."""
+    s = np.sort(np.asarray(v, float).ravel())
+    best, thr = -1.0, s[len(s) // 2]
+    for k in range(1, len(s)):
+        a, b = s[:k], s[k:]
+        w = len(a) * len(b) * (a.mean() - b.mean()) ** 2
+        if w > best:
+            best, thr = w, (s[k - 1] + s[k]) / 2
+    return thr
+
+
+def metrics(rgb, target, grid=None):
+    """Agreement of the decoded picture with the one shown. With the response
+    grid, a pure-colour cell is judged by each plane's own automatic (Otsu)
+    threshold, as the black/white picture is; without it, by half."""
     t = np.asarray(target, float)
     if t.shape != rgb.shape:
         return {}
     res = dict(
         r_all=float(np.corrcoef(t.ravel(), rgb.ravel())[0, 1]),
+        hue_right=hue_accuracy(rgb, t),
         r_planes=[float(np.corrcoef(t[:, :, k].ravel(), rgb[:, :, k].ravel())[0, 1])
                   if t[:, :, k].std() > 0 else float("nan") for k in range(3)],
         mean_abs_error=float(np.abs(t - rgb).mean()))
     # cells shown in one of the 8 pure colours (every channel fully on or off)
     pure = ((t <= 0.25) | (t >= 0.75)).all(axis=2)
     if pure.any():
-        same = ((rgb > 0.5) == (t > 0.5)).all(axis=2)
+        if grid is not None:
+            on = np.stack([grid[:, :, k] > otsu(grid[:, :, k]) for k in range(3)], axis=2)
+        else:
+            on = rgb > 0.5
+        same = (on == (t > 0.5)).all(axis=2)
         res["pure_cells"] = int(pure.sum())
         res["pure_right"] = int(same[pure].sum())
     return res
+
+
+def hue_accuracy(rgb, target, sat_min=0.25):
+    """Share of the coloured cells (shown with some saturation) whose decoded
+    hue is within 30 degrees of the hue shown: the colour-naming test."""
+    import colorsys
+    t, d = np.asarray(target, float), np.asarray(rgb, float)
+    n = right = 0
+    for y in range(t.shape[0]):
+        for x in range(t.shape[1]):
+            ht, st, vt = colorsys.rgb_to_hsv(*t[y, x])
+            if st < sat_min or vt < 0.25:
+                continue
+            hd, sd, vd = colorsys.rgb_to_hsv(*np.clip(d[y, x], 0, 1))
+            n += 1
+            diff = abs(ht - hd) % 1.0
+            right += min(diff, 1.0 - diff) <= 30 / 360.0 and sd >= sat_min
+    return (int(right), int(n))
 
 
 def summary(res):
     text = "colour r = %.2f (R %.2f, G %.2f, B %.2f)" % (res["r_all"], *res["r_planes"])
     if "pure_cells" in res:
         text += f", {res['pure_right']} of {res['pure_cells']} pure-colour cells right"
+    hr = res.get("hue_right")
+    if hr and hr[1]:
+        text += f", hue right on {hr[0]} of {hr[1]} coloured cells"
     if res.get("r_null"):
         text += f"; time-shifted EEG reaches {max(res['r_null']):.2f}"
     return text
@@ -304,7 +387,7 @@ def run(session_dir, tags, weights=None, spc=0.0, target=None, channels="",
     rgb = to_rgb(grid, balance, exponent)
     res = dict(tags=[float(t) for t in tags], balance=list(balance), exponent=exponent)
     if target is not None:
-        res.update(metrics(rgb, target))
+        res.update(metrics(rgb, target, grid))
         eeg_t = np.genfromtxt(os.path.join(session_dir, "eeg.csv"), delimiter=",",
                               skip_header=1, usecols=[0])
         span, nulls = eeg_t[-1] - eeg_t[0], []

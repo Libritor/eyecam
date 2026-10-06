@@ -32,7 +32,7 @@ def main():
             [sys.executable, "xr_session.py", "--session", "runs/webgate",
              "--http-port", str(HTTP), "--osc-port", str(OSC),
              "--grid-w", "8", "--grid-h", "6", "--spc", "0.8",
-             "--calib-blocks", "3", "--target", "text:NO",
+             "--calib-blocks", "5", "--target", "text:NO",
              "--spectator", "", "--signal-timeout", "120", "--linger", "2"]
             + os.environ.get("WEBGATE_EXTRA", "").split(),
             cwd=ROOT)
