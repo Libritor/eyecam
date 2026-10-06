@@ -607,9 +607,24 @@ class Driver:
 
             # persistent Muse status badge: rate + per-electrode contact,
             # pushed to the page once a second through EVERY stage
+            ip0 = local_ip()
+
             async def heartbeat():
+                nonlocal ip0
                 while True:
                     tail.poll()
+                    # this computer hopping to another Wi-Fi mid-run breaks
+                    # the phone's stream: say so, with the address to use
+                    ip_now = local_ip()
+                    if ip_now != ip0 and ip_now != "127.0.0.1":
+                        print(f"NETWORK CHANGED: this PC is now {ip_now} (was {ip0}); "
+                              f"the phone must stream to {ip_now}")
+                        await self.send(cmd="pause", text=f"PAUSED - the computer changed "
+                                        f"network: it is now {ip_now}. On the phone, set "
+                                        f"MuseLog's target to {ip_now} port 5000; the run "
+                                        "continues when EEG returns.")
+                        self.paused = True
+                        ip0 = ip_now
                     await self.send(cmd="eeg", rate=tail.rate(),
                                     q=channel_quality(tail), names=names())
                     self.spectate(type="eeg", rate=tail.rate(), rms=[])
@@ -632,7 +647,10 @@ class Driver:
                                 and self.eeg_silent >= 3):
                             self.paused = True
                             print("EEG STREAM SILENT: scan paused")
-                            await self.send(cmd="pause")
+                            await self.send(cmd="pause", text="PAUSED - no EEG for 3 s. On "
+                                            "the phone: is MuseLog still connected to the "
+                                            f"Muse and streaming to {local_ip()} port 5000? "
+                                            "The run continues when data returns.")
                         elif not self.scan_active and self.eeg_silent == 10:
                             print("EEG STREAM LOST (10 s without samples)")
                             self.eeg_lost = True

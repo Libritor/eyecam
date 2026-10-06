@@ -64,16 +64,21 @@ async function waitForPress() {
 
 // The driver pauses the scan when the EEG stream goes silent. The position
 // in progress is abandoned and done again from the start after the resume.
-let paused = false;
+let paused = false, linkLost = false, pauseReason = "";
+const halted = () => paused || linkLost;
 async function holdWhilePaused() {
-  if (!paused) return false;
+  if (!halted()) return false;
   black();
   send({ type: "frame", stage: "paused", pt: now(), gx: -1, gy: -1, lum: 0, fl: 0 });
   const keep = sub.textContent;
-  while (paused) {
-    sub.textContent = "PAUSED - no EEG data from the Muse. Check MuseLog on the phone.";
+  title.textContent = "PAUSED"; title.className = "warn";
+  while (halted()) {
+    sub.textContent = linkLost
+      ? "CONNECTION TO THE COMPUTER LOST - keep the headset on; reconnecting. This position will be shown again."
+      : (pauseReason || "PAUSED - no EEG data from the Muse. Check MuseLog on the phone.");
     await sleep(200);
   }
+  title.textContent = "";
   sub.textContent = "resuming...";
   await sleep(2000);
   sub.textContent = keep;
@@ -215,7 +220,7 @@ async function runColorScan(m) {
       const [r, g, b] = target[gy][gx];
       const t0 = now();
       flickerT0 = (await frameTs()) / 1000;
-      while (now() - t0 < m.spc && running === tok && !paused) {
+      while (now() - t0 < m.spc && running === tok && !halted()) {
         const ts = await frameTs(); frameCount++;
         const t = now();
         const sR = r > 0.05 && phaseOn(ts, plan[0].k);
@@ -230,7 +235,7 @@ async function runColorScan(m) {
         send({ type: "frame", stage: "color", pt: t, gx, gy, lum: r, fl: sR ? 1 : 0,
                flG: sG ? 1 : 0, flB: sB ? 1 : 0, r, g, b });
       }
-      if (paused) { xi--; continue; }
+      if (halted()) { xi--; continue; }
       if (running !== tok) break;
     }
     send({ type: "row", y: gy });
@@ -376,7 +381,7 @@ async function runScan(m) {
       const bwc = m.bw ? ["#ffffff", "#000000"] : null;
       const t0 = now();
       flickerT0 = (await frameTs()) / 1000;
-      while (now() - t0 < m.spc && running === tok && !paused) {
+      while (now() - t0 < m.spc && running === tok && !halted()) {
         await frameTs(); frameCount++;
         const t = now();
         const fl = lum > 0.05 && flickerOn();
@@ -394,7 +399,7 @@ async function runScan(m) {
         send({ type: "frame", stage: "scan", pt: t, gx, gy,
                lum, fl: fl ? 1 : 0 });
       }
-      if (paused) { xi--; continue; }
+      if (halted()) { xi--; continue; }
       if (running !== tok) break;
       nDone++;
       if (restEvery > 0 && nDone % restEvery === 0 && nDone < total) {
@@ -448,6 +453,10 @@ function showMuse(m) {
     `${n} <span style="color:${m.q[i] ? "#6fd68b" : "#ff6666"}">` +
     `${m.q[i] ? "✓" : "✕"}</span>`).join("  ");
   badge.innerHTML = `MUSE ${m.rate.toFixed(0)} Hz   ${cells}`;
+  const oz = m.names.findIndex(n => /^AUX/i.test(n) || /^OZ$/i.test(n));
+  if (oz >= 0 && !m.q[oz]) {
+    badge.innerHTML += `<br><span style="color:#ff6666">Oz electrode: no contact — wet it and press it down</span>`;
+  }
 }
 
 function showCalibResult(m) {
@@ -684,8 +693,12 @@ function showAssrResult(m) {
 function connect() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.onopen = () => { sub.textContent = "connected — waiting for driver"; send({ type: "hello", ua: navigator.userAgent, vis: document.visibilityState, q: location.search, auto: location.search.includes("auto=1") ? 1 : 0 }); };
-  ws.onclose = () => { running = null; sub.textContent = "driver disconnected — retrying"; setTimeout(connect, 2000); };
+  ws.onopen = () => { linkLost = false; if (!running) sub.textContent = "connected — waiting for driver"; send({ type: "hello", ua: navigator.userAgent, vis: document.visibilityState, q: location.search, auto: location.search.includes("auto=1") ? 1 : 0 }); };
+  ws.onclose = () => {
+    linkLost = true;   // hold the run; holdWhilePaused() shows the message
+    if (!running) sub.textContent = "connection to the computer lost — reconnecting";
+    setTimeout(connect, 2000);
+  };
   ws.onmessage = ev => {
     let m; try { m = JSON.parse(ev.data); } catch { return; }
     switch (m.cmd) {
@@ -704,8 +717,8 @@ function connect() {
       case "assr_result": showAssrResult(m); break;
       case "result": showResult(m); break;
       case "msg": sub.textContent = m.text; break;
-      case "pause": paused = true; break;
-      case "resume": paused = false; break;
+      case "pause": paused = true; pauseReason = m.text || ""; break;
+      case "resume": paused = false; pauseReason = ""; break;
     }
   };
 }
