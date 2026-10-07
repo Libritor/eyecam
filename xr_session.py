@@ -2088,7 +2088,8 @@ async def main():
                         tok = getattr(args, "page_token", "") or ""
                         if tok and tok not in str(m.get("q", "")):
                             print("page without the session token ignored "
-                                  f"(open the URL with ?k={tok})")
+                                  f"(it opened {m.get('q') or '/'!r}, {m.get('vis')}; "
+                                  f"open the URL with ?k={tok})")
                             driver.vis[ws] = "hidden"   # never adopted
                             try:
                                 await ws.send(json.dumps(dict(
