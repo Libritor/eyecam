@@ -177,7 +177,7 @@ picture to scan. Click a button, or press 1 or 2:
 
 1. **Black & white**: the original scan (`--target`, `--spc`, `--passes`), for
    example the pixel-font "NO".
-2. **Black, white & blue**: the frequency-phase coded colour scan
+2. **Colour**: the frequency-phase coded colour palette scan
    (`--bwb-*` options, see below).
 
 The prompt also says whether calibration found a clear response.
@@ -191,6 +191,36 @@ python xr_session.py --muse --mode visual --freq 12 --target pix:NO --spc 8 --pa
 Each run now gets its own folder, `runs/<date-time>_<mode>`, unless
 `--session` names one. Previously every run went to `runs/xr1` and the next
 run overwrote its `eeg.csv`.
+
+### Scanning until every square is 99 % certain (`--certainty`)
+
+Both the black & white scan and the colour scan run one full pass, then show
+the least certain squares again, `--certainty-batch` (6) at a time, until
+every square is at least `--certainty` (default 0.99) sure of its colour, or
+each square has had `--certainty-max-passes` (6) visits. Between batches the
+driver decodes the EEG recorded so far (`adaptive.py`); certainty never looks
+at the target. `--certainty 0` restores fixed `--passes` / `--bwb-passes`.
+
+- **Black & white:** a square is white when its mean log paper score is above
+  the Otsu threshold of all squares; its certainty is how many standard errors
+  it sits from that threshold. The noise level is the larger of the spread
+  around the two classes and the spread between repeat visits to one square,
+  and no stop is allowed before some squares have been seen twice: with no
+  signal, Otsu still splits noise into two tidy groups, but repeat visits to
+  one square cannot fake agreement.
+- **Colour:** the decoder's own probability for the square's colour.
+
+`certainty.json` records each check (visits, minutes, lowest certainty,
+squares still below), the final certainty and visits per square. The result
+line leads with the squares right at that certainty.
+
+Simulated, pixel-font "NO":
+
+| | fixed passes | certainty 0.99 |
+|---|---|---|
+| black & white, 9×5, 8 s visits (`analysis/adaptive_bw_sim.py`) | 3 passes, 18 min | typical 7.6 min, whole "NO" right in 40 of 40 runs |
+| 4 colours, 11×7, 4 s visits, 5 ms timing wobble (`analysis/bwb_palette_sim.py`) | 3 passes, 15.4 min, right in 98 % | typical 6.1 min, right in 98 % |
+| black & white with **no signal** | — | never claims certainty; scans to the cap |
 
 ### How the black & white image is computed
 
@@ -340,7 +370,7 @@ not yet tested on real recordings.
 | `extras` | colour and music only, reusing an existing `calibration.json` |
 | `mux` | three squares per dwell, each with its own tag frequency |
 | `music` / `assr` | the 40 Hz auditory stage on its own |
-| `bwb` | black / white / blue: frequency-phase coded colour, decoded with FBCCA (see below) |
+| `bwb` | colour palette: frequency-phase coded colours between 12 and 15 Hz, decoded with FBCCA + phase templates (see below) |
 
 Useful options: `--freq` flicker frequency, `--grid-w/--grid-h` positions,
 `--spc` seconds per position, `--patch` square size independent of the grid
@@ -365,57 +395,107 @@ The run that produced the legible image:
 python xr_session.py --mode visual --freq 12 --target pix:NO --spc 8 --passes 3     --calib-blocks 6 --calib-on 8 --calib-off 8 --calib-style bw --calib-size 1
 ```
 
-### Black, white and blue (`--mode bwb`)
+### Colour palette (`--mode bwb`)
 
-Each colour has its own code. A white cell flickers white/black at code 0, a
-blue cell flickers blue/black at code 1, and a black cell does not flicker. A
-code is a **frequency plus a phase** (hybrid frequency-phase modulation, as in
-JFPM spellers). Its phase restarts at every cell, so the response arrives with
-a known phase. `bwb.py` scores each cell two ways:
+Each colour has its own code, and black does not flicker. A code is a
+**frequency plus a phase** (hybrid frequency-phase modulation, as in JFPM
+spellers): a period of whole display frames and a phase of whole frames. On a
+72 Hz Quest the rates between 12 and 15 Hz are 12 Hz (6 frames, phases in
+60° steps) and 14.4 Hz (5 frames, 72° steps), so there are 11 codes: up to 11
+colours plus black. Several colours share a frequency and differ only in
+phase, so no colour has to use a rate this subject responds to weakly (red at
+7.2 Hz barely registered in the frequency-tagged colour scan).
 
-- **FBCCA** (filter-bank CCA, Chen et al. 2015) at each code's frequency, using
+The colour is read from the code, not from the hue on screen, so each cell
+flickers a **bright tint** of its colour (`--bwb-tint`, mixed toward white)
+for a bigger response, and the decoded image paints the true colour.
+
+The phase restarts at every cell, so the response arrives with a known phase.
+`bwb.py` scores each cell two ways:
+
+- **FBCCA** (filter-bank CCA, Chen et al. 2015) at each code frequency, using
   all channels in three sub-bands. It ignores phase.
 - **A phase template match:** the cell's response at f and 2f, measured
   relative to the code's phase and projected onto the response recorded for
   that code during calibration.
 
-The session first shows shuffled black, white and blue calibration blocks on
-one scan-sized patch. A shrinkage LDA learns from them which mix of the four
-scores separates the three classes, and it is cross-validated by leaving one
-block out at a time. Then it scans the picture and colours every cell black,
-white or blue.
+The session first shows shuffled calibration blocks, one per colour and black
+per round, on one scan-sized patch. A shrinkage QDA (each class with its own
+spread: black is tight, a colour varies with attention from visit to visit)
+learns which mix of the scores separates the classes, cross-validated by
+leaving one block out at a time. Its certainty is scaled so that the held-out
+blocks' mean certainty matches their accuracy. Then it scans the picture and
+colours every cell.
+
+**Timing.** Phase codes are only as good as their time reference. Each cell's
+reference is its first frame on the page's own vsync clock, mapped to the PC
+clock by a straight-line fit over every logged frame, not the time the frame
+message reached the PC over Wi-Fi.
 
 ```
-python xr_session.py --muse --mode bwb --bwb-target bands --bwb-codes 12:0,9:180
+python xr_session.py --muse --mode bwb --bwb-colours white,red,green,blue --bwb-target checker
+python xr_session.py --muse --mode bwb --bwb-colours white,red,green,blue,yellow,cyan
+# "NO" in 4 colours: red N, green O, on blue, white frame (11 x 7 cells)
+python xr_session.py --muse --mode bwb --bwb-colours white,red,green,blue --bwb-target pix:NO \
+    --bwb-fg red,green --bwb-bg blue --bwb-border white
 python bwb.py --session runs/<session>          # re-decode a recorded session
+python analysis/bwb_palette_sim.py --colours 6 --jitter-ms 5    # offline simulation
 ```
 
 | Option | What it does |
 |---|---|
-| `--bwb-codes` | `Hz:deg` pairs for white and blue. The page snaps each to whole display frames and decodes at the delivered values. A 60 Hz screen gives 10 Hz @ 0° and 7.5 Hz @ 180°. The same frequency with different phases, e.g. `12:0,12:180`, also works. |
-| `--bwb-target` | `bands` (default), `checker`, `text:X`, `pix:X` (white on blue with black rows), or an image file snapped to the three colours |
+| `--bwb-colours` | Palette besides black, in code order (default `white,red,green,blue`). Names: white red green blue yellow cyan magenta orange purple pink lime teal brown grey. |
+| `--bwb-codes` | `Hz:deg` per colour. Default: assigned between 12 and 15 Hz for `--bwb-refresh` (72): white 12 Hz @ 0°, red 12 @ 180°, green 14.4 @ 0°, blue 14.4 @ 144°. The page snaps each to whole frames and the decoder uses what was delivered; the driver warns if two colours land on one code. |
+| `--bwb-tint` | 0 = flicker the pure colour, 1 = white; default 0.5 |
+| `--bwb-target` | `bands` (default), `checker`, `text:X`, `pix:X` (colour 1 on colour 2 with black rows), or an image file snapped to the palette |
 | `--bwb-fg`, `--bwb-bg` | Glyph and background colour for `text:`/`pix:` targets, with a one-cell background margin. For example `--bwb-target pix:N --bwb-fg blue --bwb-bg white` is a blue N on white, 7×6 cells. |
 | `--bwb-grid-w/-h`, `--bwb-spc`, `--bwb-passes` | Scan size, seconds per cell, repeat passes |
-| `--bwb-reps`, `--bwb-on` | Calibration blocks per colour, seconds per block |
+| `--bwb-reps`, `--bwb-on` | Calibration blocks per class, seconds per block |
 | `--bwb-channels` | Channels to decode, e.g. `TP9,TP10,AUX`. Default: all |
 
-The result is `reconstruction_bwb.png`, plus `bwb_result.json` with the
-calibration CV accuracy, the scan accuracy and the confusion matrix.
+The result is `reconstruction_bwb.png`, plus `bwb_result.json` with how many
+cells of the shown picture came out the right colour, the confusion matrix and
+the lowest cell certainty. That scan result is the measure of success; the
+calibration's cross-validated accuracy is also stored, but it is only the
+classifier's own check on its training blocks.
 
-Tested offline only:
+**Simulated** (`analysis/bwb_palette_sim.py`: the synthetic subject of the
+"NO" analysis, decoded by `bwb.py` itself; 6×4 cells, 4 s visits, tint 0.5,
+40 runs each). Cells right out of 24 after two passes (3.2 min of scanning):
 
-- **Synthetic phase-locked EEG**, 6×4 bands, 3 seeds: 90 % of cells right at
-  moderate noise and about 70 % at high noise (chance 33 %).
-- **Which score helps.** FBCCA alone got 42–45 %. The phase template carried
-  most of the accuracy. Synthetic responses are perfectly phase-locked, which
-  flatters the template; with real timing jitter FBCCA matters more, and the
-  LDA weights the two from your own calibration.
-- **Phantom subject**, whole session through the browser page: 83 % of 24 cells
-  with 2 calibration blocks per colour.
-- **Not yet run on a real headset.**
-- **Blue is the weak class.** Blue is dim, so it drives a smaller SSVEP than
-  white, and blue cells are the ones that drift to "black" first. Longer cells
-  (`--bwb-spc`), more calibration blocks and the Oz electrode all help.
+| Colours + black | timing wobble 0 ms | 5 ms | 10 ms | 15 ms |
+|---|---|---|---|---|
+| 4 | 24.0 | 24.0 | 22.6 | 19.3 |
+| 6 | 24.0 | 23.3 | 18.9 | 15.1 |
+| 8 | 24.0 | 22.1 | 16.4 | 12.1 |
+| 11 | 24.0 | 20.9 | 12.9 | 8.9 |
+
+Whole picture right (all 24 cells), share of runs, after two / three passes:
+
+| Colours + black | 0 ms | 5 ms | 10 ms | 15 ms |
+|---|---|---|---|---|
+| 4 | 100 / 100 % | 98 / 100 % | 15 / 45 % | 0 / 2 % |
+| 6 | 100 / 100 % | 42 / 70 % | 0 / 0 % | 0 / 0 % |
+| 8 | 100 / 100 % | 15 / 28 % | 0 / 0 % | 0 / 0 % |
+| 11 | 98 / 100 % | 0 / 12 % | 0 / 0 % | 0 / 0 % |
+
+Timing wobble (frame timing, EEG timestamps and the brain's own latency drift,
+per visit) decides how many colours fit. 10 ms is 43° at 12 Hz, close to the
+60° between neighbouring codes. The wobble on a real headset has **not been
+measured yet**; the way to find how many colours work is to scan a known
+picture and count the cells that come out right. Other results:
+
+- **Tint.** At 4 colours, all 24 cells right after two passes in 98 % of runs
+  at tint 0.5 against 65 % with pure colours. The brightness model (response ~
+  √luminance) is assumed, not measured.
+- **Page clock vs Wi-Fi arrival**, one 11-colour session written to disk with
+  Wi-Fi-like delays and decoded through the files: 24 of 24 cells right on the
+  page clock, 16 of 24 on arrival times.
+- **Certainty** is honest at 4 to 6 colours with good timing (cells claimed
+  99 % sure are right 98–100 % of the time). With many colours and timing
+  wobble it is overconfident (claimed 99 %, right 87 %).
+- **Not yet run on a real headset.** The phantom subject result for the old
+  white/blue codes was 83 % of 24 cells.
 
 ### Running in a Quest headset
 
@@ -533,7 +613,7 @@ and the small result files for each session are in `docs/results`.
 | `analysis/envelope.py` | SSVEP envelope over time with blocks, scan cells and masked stretches |
 | `analysis/rescore_blinks.py` | rescore recorded sessions with / without masking |
 | `diagnose.py` | per-channel SSVEP, noise, artifacts and Oz check against the published runs, with a verdict |
-| `bwb.py` | black / white / blue decoder: frequency-phase codes, FBCCA + phase templates, shrinkage LDA |
+| `bwb.py` | colour palette decoder: frequency-phase codes, FBCCA + phase templates, shrinkage QDA, page-clock timing |
 | `muse_stream.py`, `lsl_to_osc.py` | Muse over this PC's Bluetooth via muselsl (`--muse`), and an LSL-to-OSC bridge |
 | `phantom_subject.py` | synthetic subject for end-to-end tests, including colour tags and audio |
 | `targets.py` | text, pixel-font, image and colour targets |

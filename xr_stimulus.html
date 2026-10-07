@@ -121,13 +121,6 @@ function phaseOn(ts, k) {                            // k = half period in frame
   const half = k / refreshHz;                        // seconds
   return Math.floor((ts / 1000 - flickerT0 + 0.5 / refreshHz) / half) % 2 === 0;
 }
-// same, delayed by `shift` half periods (phase code phi = shift * pi): the
-// fundamental of the displayed square wave is sin(2*pi*f*x - phi)
-function phaseOnShift(ts, k, shift) {
-  const half = k / refreshHz;
-  const n = Math.floor((ts / 1000 - flickerT0 + 0.5 / refreshHz) / half - shift);
-  return ((n % 2) + 2) % 2 === 0;
-}
 const flickerOnAt = ts => phaseOn(ts, halfFrames);
 const flickerOn = () => flickerOnAt(lastTs);
 let lastTs = 0;
@@ -319,22 +312,32 @@ function showSweepResult(m) {
   sub.textContent = m.verdict + "   —   " + m.table;
 }
 
-// ---- black / white / blue (hybrid frequency-phase codes) ----
-// White cells flicker white/black with code 0 (f0, phi0), blue cells flicker
-// blue/black with code 1 (f1, phi1), black cells stay black. Each code is a
-// frame-exact frequency plus a phase offset snapped to whole frames, both
-// reported back (bwb_plan) so the decoder builds its references from what was
-// actually shown. The phase restarts at every cell / block onset.
+// ---- colour palette (hybrid frequency-phase codes) ----
+// Class 0 (black) does not flicker; class k flickers its display colour
+// (m.show[k], a bright tint of the palette colour) against black with code
+// k-1. A code is a period of a whole number of display frames (72 Hz panel:
+// 6 frames = 12 Hz, 5 frames = 14.4 Hz; odd periods are on for the longer
+// half) plus a phase of whole frames (60 / 72 degree steps). Several codes may
+// share a period and differ in phase only. What was actually delivered is
+// reported back (bwb_plan) so the decoder builds its references from it. The
+// phase restarts at every cell / block onset.
 const BWB_COLORS = ["#000000", "#ffffff", "#0000ff"];
 async function planBwb(codes) {
+  if (!refreshMeasured) { await measureRefresh(); refreshMeasured = true; }
   const plans = [];
   for (const c of codes) {
-    await planFlicker(c.hz, plans.map(p => p.hz));
-    const shift = Math.round((c.phaseDeg / 180) * halfFrames) / halfFrames;  // half periods
-    plans.push({ hz: actualHz, k: halfFrames, shift, phaseDeg: shift * 180 });
+    const P = Math.max(2, Math.round(refreshHz / c.hz));
+    const shift = ((Math.round(c.phaseDeg / 360 * P) % P) + P) % P;
+    plans.push({ hz: refreshHz / P, P, on: Math.ceil(P / 2), shift, phaseDeg: 360 * shift / P });
   }
-  send({ type: "bwb_plan", codes: plans.map(p => ({ hz: p.hz, phaseDeg: p.phaseDeg })), refresh: refreshHz });
+  send({ type: "bwb_plan", codes: plans.map(p => ({ hz: p.hz, phaseDeg: p.phaseDeg, frames: p.P })),
+         refresh: refreshHz });
   return plans;
+}
+// frame-exact code state from the vsync timestamp (no drift after a dropped frame)
+function codeOn(ts, p) {
+  const n = Math.floor((ts / 1000 - flickerT0) * refreshHz + 0.5) - p.shift;
+  return ((n % p.P) + p.P) % p.P < p.on;
 }
 function bwbGeom(m) {
   const gw = m.gridW, gh = m.gridH;
@@ -343,15 +346,21 @@ function bwbGeom(m) {
   const pw = m.patch ? bw / 6 * m.patch : cwid, ph = m.patch ? bh / 4 * m.patch : chgt;
   return { x0, y0, cwid, chgt, pw, ph };
 }
-// draw class cls (0 black, 1 white, 2 blue) centred at (cx, cy); returns the
-// two flicker states for the log
-function drawBwb(ts, plans, cls, cx, cy, pw, ph) {
-  const fW = cls === 1 && phaseOnShift(ts, plans[0].k, plans[0].shift);
-  const fB = cls === 2 && phaseOnShift(ts, plans[1].k, plans[1].shift);
+// draw class cls (0 = black, k = palette colour k) centred at (cx, cy);
+// returns whether it is lit this frame, for the log
+function drawBwb(ts, plans, cls, cx, cy, pw, ph, show) {
+  const lit = cls > 0 && codeOn(ts, plans[cls - 1]);
   black();
-  if (fW || fB) { ctx.fillStyle = BWB_COLORS[cls]; ctx.fillRect(cx - pw / 2, cy - ph / 2, pw, ph); }
+  if (lit) { ctx.fillStyle = (show || BWB_COLORS)[cls]; ctx.fillRect(cx - pw / 2, cy - ph / 2, pw, ph); }
   dot(cx, cy);
-  return [fW, fB];
+  return lit;
+}
+// page_t is the frame's vsync time (same clock as performance.now): the
+// decoder times each cell's phase reference from it, not from Wi-Fi arrival.
+// The r column carries the class.
+function bwbFrame(stage, gx, gy, cls, lit, ts) {
+  send({ type: "frame", stage, pt: ts / 1000, gx, gy, lum: cls > 0 ? 1 : 0,
+         fl: lit ? 1 : 0, flG: 0, flB: 0, r: cls, g: 0, b: 0 });
 }
 async function runBwbCalib(m) {
   hideResult(); title.textContent = "COLOUR CALIBRATION"; title.className = "";
@@ -364,14 +373,12 @@ async function runBwbCalib(m) {
     const cls = order[b];
     if (await holdWhilePaused()) { b--; continue; }
     send({ type: "block", b, on: cls !== 0, phase: "start", hz: cls ? plans[cls - 1].hz : 0, cls });
-    sub.textContent = `block ${b + 1}/${order.length}: ${["black", "white", "blue"][cls]} — look at the dot`;
+    sub.textContent = `block ${b + 1}/${order.length}: ${(m.names || ["black", "white", "blue"])[cls]} — look at the dot`;
     const t0 = now();
     flickerT0 = (await frameTs()) / 1000;
     while (now() - t0 < m.onS && running === tok && !paused) {
       const ts = await frameTs(); frameCount++;
-      const [fW, fB] = drawBwb(ts, plans, cls, cx, cy, g.pw, g.ph);
-      send({ type: "frame", stage: "bwbcal", pt: now(), gx: -1, gy: -1, lum: cls === 1 ? 1 : 0,
-             fl: fW ? 1 : 0, flG: 0, flB: fB ? 1 : 0, r: cls === 1 ? 1 : 0, g: cls === 1 ? 1 : 0, b: cls ? 1 : 0 });
+      bwbFrame("bwbcal", -1, -1, cls, drawBwb(ts, plans, cls, cx, cy, g.pw, g.ph, m.show), ts);
     }
     send({ type: "block", b, on: cls !== 0, phase: "end", hz: cls ? plans[cls - 1].hz : 0, cls });
     if (paused) { b--; continue; }
@@ -381,20 +388,37 @@ async function runBwbCalib(m) {
   black();
   send({ type: "bwb_calib_done" });
 }
+// The visit order of a scan: m.cells ([[gx, gy], ...], the squares the driver
+// chose because they are the least certain so far) or whole serpentine
+// passes, odd passes bottom-to-top so slow drift does not line up with the
+// image the same way twice.
+function scanOrder(m) {
+  if (m.cells) return m.cells.map(([gx, gy], i) => ({ gx, gy, label: i === 0 ? (m.label || "") : null }));
+  const out = [], passes = Math.max(1, m.passes || 1), gw = m.gridW, gh = m.gridH;
+  for (let ps = 0; ps < passes; ps++)
+    for (let ry = 0; ry < gh; ry++) {
+      const gy = ps % 2 === 1 ? gh - 1 - ry : ry;
+      const xs = [...Array(gw).keys()];
+      if ((ry + ps) % 2 === 1) xs.reverse();
+      xs.forEach((gx, i) => out.push({ gx, gy, rowEnd: i === gw - 1,
+        label: i === 0 && ry === 0 && passes > 1 ? `pass ${ps + 1}/${passes}` : null }));
+    }
+  return out;
+}
+// a no-position row in the log: keeps two scans' visits to one square apart
+function separator() {
+  send({ type: "frame", stage: "sep", pt: now(), gx: -1, gy: -1, lum: 0, fl: 0 });
+}
 async function runBwbScan(m) {
   hideResult(); title.textContent = ""; sub.textContent = "";
   const tok = running = {};
   const plans = await planBwb(m.codes);
-  const g = bwbGeom(m), gw = m.gridW, gh = m.gridH, target = m.target;   // target[y][x] = class
-  const passes = Math.max(1, m.passes || 1);
-  for (let ps = 0; ps < passes && running === tok; ps++)
-  for (let ry = 0; ry < gh && running === tok; ry++) {
-    const gy = ps % 2 === 1 ? gh - 1 - ry : ry;
-    const xs = [...Array(gw).keys()];
-    if ((ry + ps) % 2 === 1) xs.reverse();
-    if (passes > 1) sub.textContent = `pass ${ps + 1}/${passes}`;
-    for (let xi = 0; xi < xs.length; xi++) {
-      const gx = xs[xi];
+  const g = bwbGeom(m), target = m.target;   // target[y][x] = class
+  const seq = scanOrder(m);
+  separator();
+  for (let xi = 0; xi < seq.length && running === tok; xi++) {
+      const { gx, gy } = seq[xi];
+      if (seq[xi].label) sub.textContent = seq[xi].label;
       if (await holdWhilePaused()) { xi--; continue; }
       const cls = target[gy][gx];
       const cx = g.x0 + (gx + 0.5) * g.cwid, cy = g.y0 + (gy + 0.5) * g.chgt;
@@ -402,15 +426,13 @@ async function runBwbScan(m) {
       flickerT0 = (await frameTs()) / 1000;
       while (now() - t0 < m.spc && running === tok && !paused) {
         const ts = await frameTs(); frameCount++;
-        const [fW, fB] = drawBwb(ts, plans, cls, cx, cy, g.pw, g.ph);
-        send({ type: "frame", stage: "bwb", pt: now(), gx, gy, lum: cls === 1 ? 1 : 0,
-               fl: fW ? 1 : 0, flG: 0, flB: fB ? 1 : 0, r: cls === 1 ? 1 : 0, g: cls === 1 ? 1 : 0, b: cls ? 1 : 0 });
+        bwbFrame("bwb", gx, gy, cls, drawBwb(ts, plans, cls, cx, cy, g.pw, g.ph, m.show), ts);
       }
       if (paused) { xi--; continue; }
       if (running !== tok) break;
-    }
-    send({ type: "row", y: gy });
+      if (seq[xi].rowEnd) send({ type: "row", y: gy });
   }
+  separator();
   black();
   send({ type: "scan_done" });
 }
@@ -428,17 +450,11 @@ async function runScan(m) {
   const bh = bw * gh / gw;
   const x0 = (cv.width - bw) / 2, y0 = (cv.height - bh) / 2;
   const cwid = bw / gw, chgt = bh / gh;
-  // several passes over the board; odd passes run bottom-to-top so slow
-  // drift does not line up with the image the same way twice
-  const passes = Math.max(1, m.passes || 1);
-  for (let ps = 0; ps < passes && running === tok; ps++)
-  for (let ry = 0; ry < gh && running === tok; ry++) {
-    const gy = ps % 2 === 1 ? gh - 1 - ry : ry;
-    const xs = [...Array(gw).keys()];
-    if ((ry + ps) % 2 === 1) xs.reverse();
-    if (passes > 1) sub.textContent = `pass ${ps + 1}/${passes}`;
-    for (let xi = 0; xi < xs.length; xi++) {
-      const gx = xs[xi];
+  const seq = scanOrder(m);
+  separator();
+  for (let xi = 0; xi < seq.length && running === tok; xi++) {
+      const { gx, gy } = seq[xi];
+      if (seq[xi].label) sub.textContent = seq[xi].label;
       if (await holdWhilePaused()) { xi--; continue; }
       const lum = target[gy][gx];
       // fixed patch size (m.patch x a 6x4-grid cell) so a finer grid only
@@ -478,9 +494,9 @@ async function runScan(m) {
       }
       if (paused) { xi--; continue; }
       if (running !== tok) break;
-    }
-    send({ type: "row", y: gy });
+      if (seq[xi].rowEnd) send({ type: "row", y: gy });
   }
+  separator();
   black();
   send({ type: "scan_done" });
 }

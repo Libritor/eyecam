@@ -117,6 +117,18 @@ def pix_target(text, levels=False):
     return np.hstack(cols)
 
 
+def pix_letters(text):
+    """Same layout as pix_target: the index of the letter each lit cell
+    belongs to (0, 1, ...), -1 where unlit."""
+    chars = [c for c in text.upper() if c in PIX]
+    cols = []
+    for k, c in enumerate(chars):
+        cols.append(np.array([[k if ch == "X" else -1 for ch in row] for row in PIX[c]]))
+        if k < len(chars) - 1:
+            cols.append(np.full((5, 1), -1))
+    return np.hstack(cols)
+
+
 def load_target(spec, grid_w=None, grid_h=None, binarize=None):
     """spec: 'text:NO CAMERAS' or a path to an image file.
     binarize: threshold at 0.5 so every cell is fully on or off (default: yes
@@ -154,39 +166,53 @@ def load_target(spec, grid_w=None, grid_h=None, binarize=None):
 BWB_NAMES = {"black": 0, "white": 1, "blue": 2}
 
 
-def bwb_target(spec, grid_w=6, grid_h=4, fg=None, bg=None):
-    """Class grid (grid_h, grid_w) for the black / white / blue scan:
-    0 = black, 1 = white, 2 = blue.
-    'bands'   = three vertical bands black | white | blue
-    'checker' = the three classes on diagonals (every class in every row)
-    'text:X'  = glyph X in white on blue, a black row above and below
-    'pix:X'   = pixel-font X in white on blue, black rows above and below
+def bwb_target(spec, grid_w=6, grid_h=4, fg=None, bg=None, colours=None, border=None):
+    """Class grid (grid_h, grid_w) for the colour-palette scan: 0 = black,
+    k = colours[k - 1] (default colours: white, blue, i.e. the original
+    black / white / blue scan).
+    'bands'   = one vertical band per class: black | colour 1 | colour 2 ...
+    'checker' = the classes on diagonals (every class in every row)
+    'text:X'  = glyph X in colour 1 on colour 2, a black row above and below
+    'pix:X'   = pixel-font X in colour 1 on colour 2, black rows above and below
                 (grid set by the font: 7 rows)
-    or an image path, each cell snapped to the nearest of the three colours.
-    fg / bg ('black' | 'white' | 'blue') recolour a text:/pix: glyph and its
-    background; the glyph then gets a one-cell background margin all round
-    instead of the black rows (e.g. fg='blue', bg='white': a blue letter on
-    white)."""
+    or an image path, each cell snapped to the nearest palette colour.
+    fg / bg (palette names, or 'black') recolour a text:/pix: glyph and its
+    background; the glyph then gets a one-cell margin all round instead of the
+    black rows, in `border` if given, else the background (e.g. fg='blue',
+    bg='white': a blue letter on white). For pix: targets fg may name one
+    colour per letter: fg='red,green', bg='blue', border='white' is a red N
+    and a green O on blue inside a white frame, 11 x 7 cells."""
+    import bwb
+    names, pal = bwb.classes_of(colours)
+    K = len(names)
+    idx = {n: i for i, n in enumerate(names)}
     if spec == "bands":
         g = np.zeros((grid_h, grid_w), int)
         for x in range(grid_w):
-            g[:, x] = min(2, int(3 * x / grid_w))
+            g[:, x] = min(K - 1, int(K * x / grid_w))
         return g
     if spec == "checker":
         yy, xx = np.mgrid[0:grid_h, 0:grid_w]
-        return (xx + yy) % 3
+        return (xx + yy) % K
     if spec.startswith("text:") or spec.startswith("pix:"):
-        # glyph rows plus one black row above and below (so all three appear)
-        custom = fg is not None or bg is not None
-        f_cls, b_cls = BWB_NAMES[fg or "white"], BWB_NAMES[bg or "blue"]
+        # glyph rows plus one black row above and below (so black appears too)
+        fgs = [c.strip() for c in fg.split(",")] if fg else []
+        custom = bool(fgs) or bg is not None or border is not None
+        for c in fgs + [bg, border]:
+            if c is not None and c not in idx:
+                raise ValueError(f"{c!r} is not in the palette {names}")
+        f_cls = [idx[c] for c in fgs] or [1]
+        b_cls = idx[bg] if bg else min(2, K - 1)
         rows = grid_h - 2
         cols = grid_w - 2 if custom else grid_w
-        gl = (text_target(spec[5:], cols, max(1, rows)) if spec.startswith("text:")
-              else pix_target(spec[4:]))
-        g = np.where(np.asarray(gl) > 0.5, f_cls, b_cls)
+        if spec.startswith("text:"):
+            gl = text_target(spec[5:], cols, max(1, rows))
+            g = np.where(np.asarray(gl) > 0.5, f_cls[0], b_cls)
+        else:
+            letter = pix_letters(spec[4:])
+            g = np.where(letter >= 0, np.take(f_cls, letter % len(f_cls)), b_cls)
         if custom:
-            return np.pad(g, 1, constant_values=b_cls)
+            return np.pad(g, 1, constant_values=b_cls if border is None else idx[border])
         return np.pad(g, ((1, 1), (0, 0)), constant_values=0)
     img = np.asarray(Image.open(spec).convert("RGB").resize((grid_w, grid_h), Image.BOX), float) / 255
-    pal = np.array([[0, 0, 0], [1, 1, 1], [0, 0, 1]], float)
     return np.argmin(((img[:, :, None, :] - pal) ** 2).sum(-1), axis=2)

@@ -8,7 +8,11 @@ actually on screen:
   - carrier frequency is MEASURED from the flicker_on rising-edge intervals,
     so a stimulus flickering at the wrong rate (bad half_period math, an
     unexpected display refresh) shifts the injected SSVEP off the 15 Hz
-    analysis bin and fails the gate.
+    analysis bin and fails the gate;
+  - the primary response is PHASE-LOCKED to the last logged rising edge
+    (plus a fixed 0.12 s visual latency), as a real SSVEP is, so the
+    frequency-phase colour codes (several colours at one rate, told apart by
+    phase) can be decoded end to end.
 SNR is deliberately asymmetric across channels (strong on TP9/TP10, weak on
 AF7/AF8) so calibration must find the right channels, and each channel
 carries a slow large-amplitude baseline drift (ordinary for dry electrodes)
@@ -42,6 +46,13 @@ import numpy as np
 
 import config
 from tailer import CsvTail
+
+try:                       # the clock the driver stamps the stimulus log with
+    from pylsl import local_clock
+except ImportError:
+    local_clock = time.perf_counter
+
+LATENCY = 0.12             # visual pathway delay of the phase-locked response (s)
 
 CHANNELS = ["TP9", "AF7", "AF8", "TP10"]
 CH_SNR = [0.8, 0.2, 0.2, 0.8]
@@ -230,10 +241,14 @@ def main():
             audio_live = time.perf_counter() - audio_pc < 0.3
             a_drive = audio_lum if audio_live else 0.0
 
-            for _ in range(burst):
+            clk = local_clock()
+            for i in range(burst):
                 t = n / fs
                 env = a_env * env + (1 - a_env) * trk[0].drive
-                phase += 2 * math.pi * f_meas / fs
+                if trk[0].last_rise_t is not None:      # locked to the flicker
+                    phase = 2 * math.pi * f_meas * (clk + i / fs - trk[0].last_rise_t - LATENCY)
+                else:
+                    phase += 2 * math.pi * f_meas / fs
                 ssvep = env * (math.sin(phase) + 0.4 * math.sin(2 * phase))
                 for k, f_k in ((1, f_g), (2, f_b)):
                     trk[k].env = a_env * trk[k].env + (1 - a_env) * trk[k].drive

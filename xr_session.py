@@ -406,12 +406,14 @@ class Driver:
             except Exception:
                 pass
 
-    def open_log(self, name):
-        self.log_file = open(os.path.join(self.session, name), "w",
-                             buffering=1)
-        self.log_file.write(
-            "time,grid_x,grid_y,luminance,flicker_on,page_t,"
-            "flicker_g,flicker_b,r,g,b,audio_hz\n")
+    def open_log(self, name, append=False):
+        path = os.path.join(self.session, name)
+        add = append and os.path.exists(path)
+        self.log_file = open(path, "a" if add else "w", buffering=1)
+        if not add:
+            self.log_file.write(
+                "time,grid_x,grid_y,luminance,flicker_on,page_t,"
+                "flicker_g,flicker_b,r,g,b,audio_hz\n")
 
     def close_log(self):
         if self.log_file:
@@ -429,7 +431,7 @@ class Driver:
                 pos = (m["gx"], m["gy"])
                 if pos != getattr(self, "cur_pos", None):
                     self.cur_pos, self.cur_t0, self.cur_masked = pos, t, set()
-            elif m["stage"] in ("paused", "redo"):
+            elif m["stage"] in ("paused", "redo", "sep"):
                 self.cur_pos = None
             if self.log_file:
                 self.log_file.write(
@@ -459,9 +461,13 @@ class Driver:
         elif typ == "bwb_plan":
             self.bwb_codes = [dict(hz=float(c["hz"]), phaseDeg=float(c["phaseDeg"]))
                               for c in m.get("codes", [])]
-            print("black/white/blue codes delivered:",
+            print("colour codes delivered:",
                   ", ".join(f"{c['hz']:.2f} Hz @ {c['phaseDeg']:.0f} deg" for c in self.bwb_codes),
                   "@", m.get("refresh"), "fps")
+            seen = [(round(c["hz"], 2), round(c["phaseDeg"]) % 360) for c in self.bwb_codes]
+            if len(set(seen)) < len(seen):
+                print("WARNING: two colours landed on the same code at this refresh rate; "
+                      "they cannot be told apart (pass --bwb-codes for this panel)")
         elif typ == "color_plan":
             self.color_hzs = [float(v) for v in m.get("hzs", [])]
             print("colour flicker plan:", self.color_hzs, "@", m.get("refresh"), "fps")
@@ -906,8 +912,8 @@ class Driver:
                                     options=[dict(value="bw", label="Black & white",
                                                   detail=f"the original scan: {a.target}, "
                                                          f"{a.passes} pass(es), {a.spc:g} s per position"),
-                                             dict(value="bwb", label="Black, white & blue",
-                                                  detail=f"frequency-phase codes {a.bwb_codes}; "
+                                             dict(value="bwb", label="Colour",
+                                                  detail=f"{a.bwb_colours} by frequency-phase codes; "
                                                          f"{a.bwb_target}, {a.bwb_passes} pass(es)")])
                     m = await self.wait_for("choice", timeout=a.signal_timeout)
                     choice = m.get("value", "bw")
@@ -918,14 +924,43 @@ class Driver:
 
             # scan (page-driven serpentine)
             self.spectate(type="stage", stage="scan", detail="")
-            self.open_log("cursor_log.csv")
-            await self.send(cmd="start_scan", gridW=a.grid_w, gridH=a.grid_h,
-                            spc=a.spc, freq=a.freq, target=target.tolist(),
-                            patch=a.patch, bw=(a.calib_style == "bw"),
-                            passes=a.passes, board=a.board)
-            scan_s = a.grid_w * a.grid_h * a.spc * max(1, a.passes)
-            await self.wait_for("scan_done", timeout=scan_s * 2 + 120)
-            self.close_log()
+            scan_kw = dict(gridW=a.grid_w, gridH=a.grid_h, spc=a.spc, freq=a.freq,
+                           target=target.tolist(), patch=a.patch,
+                           bw=(a.calib_style == "bw"), board=a.board)
+            bw_cert = None
+            if a.certainty > 0:
+                import adaptive
+                cal_w = reconstruct.weights_from_calibration(
+                    os.path.join(self.session, "calibration.json"), names())
+                mk_live = {}
+                if a.mask_blinks:
+                    import blinkmask
+                    mk_live = dict(mask_blinks=True, mask_opts=blinkmask.options(a))
+                P = a.grid_w * a.grid_h
+
+                def bw_state():
+                    call, cert, n, repeats = adaptive.bw_state(
+                        self.session, cal_w, self.stim_freq, **mk_live)
+                    bw_state.call = call
+                    # no stop before some squares have a repeat visit (adaptive.py)
+                    return cert, n, repeats >= min(a.certainty_batch, P)
+                print(f"scan: one pass, then the least certain squares until every "
+                      f"square is {a.certainty:.0%} certain (--passes is not used)")
+                timeline, cert, n = await self.certainty_scan(
+                    scan_kw, "cursor_log.csv", a.grid_w, a.grid_h, a.spc, bw_state)
+                tb = np.asarray(target) > 0.5
+                right = int((bw_state.call == tb).sum())
+                bw_cert = dict(right=right, n=int(tb.size), min_certainty=float(cert.min()),
+                               minutes=timeline[-1]["minutes"], visits=int(n.sum()))
+                result["certainty"] = dict(bw_cert, timeline=timeline)
+                print(f"certainty call: {right} of {tb.size} squares right, lowest "
+                      f"certainty {cert.min():.1%}, {n.sum() * a.spc / 60:.1f} min of scanning")
+            else:
+                self.open_log("cursor_log.csv")
+                await self.send(cmd="start_scan", passes=a.passes, **scan_kw)
+                scan_s = a.grid_w * a.grid_h * a.spc * max(1, a.passes)
+                await self.wait_for("scan_done", timeout=scan_s * 2 + 120)
+                self.close_log()
             await asyncio.sleep(0.7)
 
             # reconstruct: the chosen method (default: the paper exactly -
@@ -976,9 +1011,13 @@ class Driver:
                   f"r: {', '.join(f'{v:.2f}' for v in rs_null)}")
             with open(os.path.join(self.session, "reconstruction_figure.png"), "rb") as f:
                 png = "data:image/png;base64," + base64.b64encode(f.read()).decode()
+            text = (f"r = {r:.2f}  -  automatic threshold: "
+                    f"{fig['right']} of {fig['n']} positions right")
+            if bw_cert:
+                text = (f"{bw_cert['right']} of {bw_cert['n']} squares right at "
+                        f"{a.certainty:.0%} certainty ({bw_cert['minutes']:.1f} min)  -  " + text)
             await self.send(cmd="result", png=png, r=r or 0.0, flickerHz=flicker_hz,
-                            wide=True, text=(f"r = {r:.2f}  -  automatic threshold: "
-                                             f"{fig['right']} of {fig['n']} positions right"))
+                            wide=True, text=text)
             flat = [float(v) for v in np.asarray(grid).ravel()]
             self.spectate(type="grid", w=a.grid_w, h=a.grid_h, scores=flat)
             self.spectate(type="stage", stage="done",
@@ -1009,6 +1048,49 @@ class Driver:
                       "w") as f:
                 json.dump(result, f, indent=1)
             recorder.stop()
+
+    async def certainty_scan(self, scan_kw, log_name, grid_w, grid_h, spc, state):
+        """One full pass, then the least certain squares again, --certainty-batch
+        at a time, until every square is at least --certainty sure (adaptive.py)
+        or each has --certainty-max-passes visits. state() -> (certainty grid,
+        visits grid, may_stop). Returns the per-batch timeline."""
+        import adaptive
+        a = self.args
+        P = grid_w * grid_h
+        self.open_log(log_name)
+        await self.send(cmd="start_scan", passes=1, **scan_kw)
+        await self.wait_for("scan_done", timeout=P * spc * 2 + 120)
+        self.close_log()
+        timeline = []
+        while True:
+            await asyncio.sleep(0.7)                  # the last visit's EEG lands
+            cert, n, may_stop = await asyncio.to_thread(state)
+            low = int((cert < a.certainty).sum())
+            timeline.append(dict(visits=int(n.sum()), minutes=round(n.sum() * spc / 60, 2),
+                                 min_certainty=round(float(cert.min()), 4), below=low))
+            print(f"certainty after {int(n.sum())} visits ({n.sum() * spc / 60:.1f} min): "
+                  f"lowest {cert.min():.1%}, {low} of {P} squares below {a.certainty:.0%}")
+            if may_stop and low == 0:
+                print("every square is certain enough: scan done")
+                break
+            cells = adaptive.pick(cert, n, a.certainty_batch, a.certainty_max_passes)
+            if not cells:
+                print(f"every square has {a.certainty_max_passes} visits: stopping "
+                      f"with {low} squares below {a.certainty:.0%}")
+                break
+            self.open_log(log_name, append=True)
+            await self.send(cmd="start_scan", cells=cells, spc=spc,
+                            label=f"checking {len(cells)} uncertain squares "
+                                  f"({low} below {a.certainty:.0%})",
+                            **{k: v for k, v in scan_kw.items() if k != "spc"})
+            await self.wait_for("scan_done", timeout=len(cells) * spc * 2 + 60)
+            self.close_log()
+        with open(os.path.join(self.session, "certainty.json"), "w") as f:
+            json.dump(dict(certainty=a.certainty, batch=a.certainty_batch,
+                           max_passes=a.certainty_max_passes, timeline=timeline,
+                           final=np.asarray(cert).round(4).tolist(),
+                           visits=np.asarray(n).tolist()), f, indent=1)
+        return timeline, cert, n
 
     def measured_cols(self, log_name, cols=(4, 6, 7)):
         """Delivered frequency per flicker column from page-clock rising edges."""
@@ -1263,36 +1345,53 @@ class Driver:
         await asyncio.sleep(3.0)
 
     async def run_bwb(self, result, recorder):
-        """Black / white / blue: calibrate the two frequency-phase codes and the
-        no-flicker class on one scan-sized patch, then scan a class picture
-        and decode every cell with FBCCA + phase templates (bwb.py)."""
+        """Colour palette: calibrate one frequency-phase code per colour and the
+        no-flicker black class on one scan-sized patch, then scan a class
+        picture and decode every cell with FBCCA + phase templates (bwb.py).
+        Each colour flickers a bright tint of itself (--bwb-tint); the colour
+        is read from the code, not from the hue."""
         import random
         import bwb
         a = self.args
-        codes = []
-        for part in str(a.bwb_codes).split(","):
-            hz, _, deg = part.partition(":")
-            codes.append(dict(hz=float(hz), phaseDeg=float(deg or 0)))
-        if len(codes) != 2:
-            raise ValueError("--bwb-codes needs two codes: white,blue (Hz:deg)")
+        colours = [c.strip() for c in str(a.bwb_colours).split(",") if c.strip()]
+        bad = [c for c in colours if c not in bwb.PALETTE or c == "black"]
+        if bad or len(set(colours)) < len(colours):
+            raise ValueError(f"--bwb-colours: unknown or repeated {bad or colours}; "
+                             f"choose from {', '.join(c for c in bwb.PALETTE if c != 'black')}")
+        if a.bwb_codes:
+            codes = []
+            for part in str(a.bwb_codes).split(","):
+                hz, _, deg = part.partition(":")
+                codes.append(dict(hz=float(hz), phaseDeg=float(deg or 0)))
+        else:
+            codes = bwb.palette_codes(len(colours), a.bwb_refresh)
+        if len(codes) != len(colours):
+            raise ValueError(f"{len(codes)} codes for {len(colours)} colours "
+                             f"(--bwb-codes needs one Hz:deg per --bwb-colours entry)")
+        names = ["black"] + colours
+        show = ["#000000"] + [bwb.tint_hex(c, a.bwb_tint) for c in colours]
+        print("colour codes requested:", ", ".join(
+            f"{c} {d['hz']:.2f} Hz @ {d['phaseDeg']:.0f} deg ({h})"
+            for c, d, h in zip(colours, codes, show[1:])))
         ctarget = targets.bwb_target(a.bwb_target, a.bwb_grid_w, a.bwb_grid_h,
-                                     fg=a.bwb_fg, bg=a.bwb_bg)
+                                     fg=a.bwb_fg, bg=a.bwb_bg, colours=colours,
+                                     border=a.bwb_border)
         gh, gw = ctarget.shape
         np.save(os.path.join(self.session, "target_bwb.npy"), ctarget)
         geom = dict(gridW=gw, gridH=gh, patch=a.patch, board=a.board)
 
-        # ---- calibration: shuffled black / white / blue blocks on one patch
+        # ---- calibration: every class once per round, shuffled, on one patch
         order = []
         for _ in range(a.bwb_reps):
-            trio = [0, 1, 2]
-            random.shuffle(trio)
-            order += trio
-        self.spectate(type="stage", stage="bwb_calib", detail=a.bwb_codes)
+            rnd = list(range(len(names)))
+            random.shuffle(rnd)
+            order += rnd
+        self.spectate(type="stage", stage="bwb_calib", detail=",".join(colours))
         self.blocks, self.block_hz, self.block_cls = [], [], []
         self.bwb_codes = []
         self.open_log("bwb_cal_log.csv")
-        await self.send(cmd="start_bwb_calib", codes=codes, order=order,
-                        onS=a.bwb_on, restS=1.0, **geom)
+        await self.send(cmd="start_bwb_calib", codes=codes, order=order, names=names,
+                        show=show, onS=a.bwb_on, restS=1.0, **geom)
         await self.wait_for("bwb_calib_done",
                             timeout=len(order) * (a.bwb_on + 1.0) * 2 + 120)
         self.close_log()
@@ -1303,22 +1402,39 @@ class Driver:
 
         # ---- scan
         self.spectate(type="stage", stage="bwb_scan", detail=a.bwb_target)
-        self.open_log("bwb_log.csv")
-        await self.send(cmd="start_scan", bwb=True, codes=codes, spc=a.bwb_spc,
-                        passes=a.bwb_passes, target=ctarget.tolist(), **geom)
-        await self.wait_for("scan_done",
-                            timeout=gw * gh * a.bwb_spc * a.bwb_passes * 2 + 120)
-        self.close_log()
+        scan_kw = dict(bwb=True, codes=codes, spc=a.bwb_spc, show=show,
+                       target=ctarget.tolist(), **geom)
+        if a.certainty > 0:
+            import adaptive
+
+            def colour_state():
+                _, cert, n = adaptive.colour_state(
+                    self.session, self.bwb_codes or codes, blocks, a.bwb_spc, gw, gh,
+                    colours, a.bwb_channels)
+                return cert, n, True
+            print(f"scan: one pass, then the least certain squares until every "
+                  f"square is {a.certainty:.0%} certain (--bwb-passes is not used)")
+            timeline, cert, n = await self.certainty_scan(
+                scan_kw, "bwb_log.csv", gw, gh, a.bwb_spc, colour_state)
+            result["certainty"] = dict(min_certainty=float(cert.min()), visits=int(n.sum()),
+                                       minutes=timeline[-1]["minutes"], timeline=timeline)
+        else:
+            self.open_log("bwb_log.csv")
+            await self.send(cmd="start_scan", passes=a.bwb_passes, **scan_kw)
+            await self.wait_for("scan_done",
+                                timeout=gw * gh * a.bwb_spc * a.bwb_passes * 2 + 120)
+            self.close_log()
         await asyncio.sleep(0.7)
         with open(os.path.join(self.session, "bwb_meta.json"), "w") as f:
-            json.dump(dict(codes=delivered, blocks=blocks, spc=a.bwb_spc), f, indent=1)
+            json.dump(dict(codes=delivered, blocks=blocks, spc=a.bwb_spc, colours=colours,
+                           show=show, tint=a.bwb_tint), f, indent=1)
 
         # ---- decode
-        print("decoding black / white / blue...")
+        print(f"decoding {len(names)} colours...")
         try:
             cls, rgb, res = await asyncio.to_thread(
                 bwb.decode, self.session, delivered, blocks, a.bwb_spc, gw, gh,
-                ctarget, a.bwb_channels)
+                ctarget, a.bwb_channels, "bwb_log.csv", colours)
             text = bwb.summary(res)
             good = res.get("accuracy", 0) >= 0.6
         except Exception as exc:
@@ -1326,7 +1442,7 @@ class Driver:
             res, rgb, text, good = dict(error=repr(exc)), None, f"decoding failed: {exc}", False
         print(text)
         if "confusion" in res:
-            print("confusion (rows = shown black/white/blue, cols = decoded):",
+            print(f"confusion (rows = shown {'/'.join(names)}, cols = decoded):",
                   res["confusion"])
         result["bwb"] = {k: v for k, v in res.items() if k != "classes"}
         comp = os.path.join(self.session, "bwb_comparison.png")
@@ -1683,17 +1799,39 @@ async def main():
                     help="'' disables the spectator mirror")
     ap.add_argument("--require-pass", action="store_true")
     ap.add_argument("--signal-timeout", type=float, default=600)
-    ap.add_argument("--bwb-codes", default="12:0,9:180",
-                    help="--mode bwb: frequency-phase codes 'Hz:deg,Hz:deg' for white "
-                         "and blue (snapped to whole display frames; the page reports "
-                         "what it delivers). The same Hz with different phases also works")
+    ap.add_argument("--certainty", type=float, default=0.99,
+                    help="black & white and colour scans: one pass, then the least "
+                         "certain squares again until every square is at least this "
+                         "sure of its colour (0 = fixed --passes / --bwb-passes)")
+    ap.add_argument("--certainty-batch", type=int, default=6,
+                    help="squares revisited between certainty checks")
+    ap.add_argument("--certainty-max-passes", type=int, default=6,
+                    help="most visits any one square gets")
+    ap.add_argument("--bwb-colours", default="white,red,green,blue",
+                    help="--mode bwb: palette colours besides black, in code order "
+                         "(white red green blue yellow cyan magenta orange purple pink "
+                         "lime teal brown grey). Up to 11 at 72 fps")
+    ap.add_argument("--bwb-codes", default="",
+                    help="frequency-phase codes 'Hz:deg,...', one per colour (snapped to "
+                         "whole display frames; the page reports what it delivers). "
+                         "Default: assigned between 12 and 15 Hz for --bwb-refresh, e.g. "
+                         "white 12:0, red 12:180, green 14.4:0, blue 14.4:144 at 72 fps")
+    ap.add_argument("--bwb-refresh", type=float, default=72.0,
+                    help="panel rate the default codes are planned for")
+    ap.add_argument("--bwb-tint", type=float, default=0.5,
+                    help="how far each colour's flicker is mixed toward white "
+                         "(0 = pure colour, 1 = white): brighter flicker, bigger response")
     ap.add_argument("--bwb-target", default="bands",
                     help="bands | checker | text:X | pix:X | image path")
-    ap.add_argument("--bwb-fg", choices=["black", "white", "blue"], default=None,
-                    help="text:/pix: targets: glyph colour (default white)")
-    ap.add_argument("--bwb-bg", choices=["black", "white", "blue"], default=None,
-                    help="text:/pix: targets: background colour (default blue, with "
-                         "black rows); setting fg/bg adds a background margin instead")
+    ap.add_argument("--bwb-fg", default=None,
+                    help="text:/pix: targets: glyph colour (default the first palette "
+                         "colour); pix: takes one per letter, e.g. red,green")
+    ap.add_argument("--bwb-border", default=None,
+                    help="text:/pix: targets: colour of the one-cell frame (default the "
+                         "background colour)")
+    ap.add_argument("--bwb-bg", default=None,
+                    help="text:/pix: targets: background colour (default the second palette "
+                         "colour, with black rows); setting fg/bg adds a background margin")
     ap.add_argument("--bwb-grid-w", type=int, default=6)
     ap.add_argument("--bwb-grid-h", type=int, default=4)
     ap.add_argument("--bwb-spc", type=float, default=4.0,

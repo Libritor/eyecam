@@ -364,6 +364,8 @@ def reconstruct(eeg_t, data, cur_t, gx, gy, fs=None, weights=None,
         if den > 0:
             acc[gy[s], gx[s]] += num / den
             cnt[gy[s], gx[s]] += 1
+            if info is not None:
+                info.setdefault("scores", []).append((int(gy[s]), int(gx[s]), num / den))
 
     with np.errstate(invalid="ignore"):
         grid = np.where(cnt > 0, acc / np.maximum(cnt, 1), np.nan)
