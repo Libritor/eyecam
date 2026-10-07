@@ -140,11 +140,15 @@ def main():
               "ccal_log.csv", "color_log.csv", "assr_log.csv", "mux_log.csv",
               "bwb_cal_log.csv", "bwb_log.csv", "smooth_log.csv",
               "plane_red_log.csv", "plane_green_log.csv", "plane_blue_log.csv",
-              "calib_red_log.csv", "calib_green_log.csv", "calib_blue_log.csv")]
+              "calib_red_log.csv", "calib_green_log.csv", "calib_blue_log.csv",
+              "calib_red_sweep_log.csv", "calib_green_sweep_log.csv", "calib_blue_sweep_log.csv",
+              "plane_red_revisit_log.csv", "plane_green_revisit_log.csv", "plane_blue_revisit_log.csv")]
     # --mode planes: one black/<colour> scan per plane; the colour gain of
     # that plane applies to the whole scan
     plane_of = {"plane_red_log.csv": 0, "plane_green_log.csv": 1, "plane_blue_log.csv": 2,
-                "calib_red_log.csv": 0, "calib_green_log.csv": 1, "calib_blue_log.csv": 2}
+                "calib_red_log.csv": 0, "calib_green_log.csv": 1, "calib_blue_log.csv": 2,
+                "calib_red_sweep_log.csv": 0, "calib_green_sweep_log.csv": 1, "calib_blue_sweep_log.csv": 2,
+                "plane_red_revisit_log.csv": 0, "plane_green_revisit_log.csv": 1, "plane_blue_revisit_log.csv": 2}
     cur_plane = None
 
     rng = np.random.default_rng(args.seed)

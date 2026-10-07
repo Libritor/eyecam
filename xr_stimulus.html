@@ -389,7 +389,7 @@ async function runMuxScan(m) {
 
 // ---- frequency sweep: frame-exact ON blocks at several frequencies ----
 async function runSweep(m) {
-  hideResult(); title.textContent = "FREQUENCY SWEEP"; title.className = "";
+  hideResult(); title.textContent = m.label || "FREQUENCY SWEEP"; title.className = "";
   const tok = running = {};
   sub.textContent = "measuring display refresh…";
   const frac = m.size || 0.38, full = frac >= 1;
@@ -558,19 +558,24 @@ async function runScan(m) {
   // several passes over the board; odd passes run bottom-to-top so slow
   // drift does not line up with the image the same way twice
   const passes = Math.max(1, m.passes || 1);
-  const total = passes * gw * gh, restEvery = m.restEvery || 0;
+  // m.cells = [[gx, gy], ...]: show only these positions, in this order (the
+  // least certain cells of a plane shown again), instead of the whole board
+  const cellList = Array.isArray(m.cells) && m.cells.length ? m.cells : null;
+  const nRows = cellList ? 1 : gh;
+  const total = passes * (cellList ? cellList.length : gw * gh), restEvery = m.restEvery || 0;
   let nDone = 0;
   for (let ps = 0; ps < passes && running === tok; ps++)
-  for (let ry = 0; ry < gh && running === tok; ry++) {
+  for (let ry = 0; ry < nRows && running === tok; ry++) {
     const gyRow = ps % 2 === 1 ? gh - 1 - ry : ry;
-    const xs = [...Array(gw).keys()];
+    const xs = cellList ? [...cellList.keys()] : [...Array(gw).keys()];
     if ((ry + ps) % 2 === 1) xs.reverse();
     if (passes > 1) sub.textContent = `pass ${ps + 1}/${passes}`;
+    if (cellList) sub.textContent = m.note || `${cellList.length} positions again`;
     for (let xi = 0; xi < xs.length; xi++) {
       if (await holdWhilePaused()) { xi--; continue; }
       // a position shown to a frozen computer is shown again first
       const fromQueue = lostQueue.length > 0;
-      const [gx, gy] = fromQueue ? lostQueue.shift() : [xs[xi], gyRow];
+      const [gx, gy] = fromQueue ? lostQueue.shift() : (cellList ? cellList[xs[xi]] : [xs[xi], gyRow]);
       const lum = target[gy][gx];
       // fixed patch size (m.patch x a 6x4-grid cell) so a finer grid only
       // adds positions (overlapping), never shrinks the flickering area

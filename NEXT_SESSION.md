@@ -31,8 +31,11 @@ colour is only right where all three planes are. The diagnosis is in
   17 -> 21 of 32 on the same EEG, red unchanged); the result line now counts
   each plane: "(R 29, G 24, B 21)".
 
-Next run: the planes command below (the per-colour calibration adds about
-3 min), laptop on mains, phone screen on.
+Next run: the planes command below, laptop on mains, phone screen on. The
+blue fixes are on by default (`--plane-patch 1,1,2`, `--plane-sweep 6,7.2,9,12`
+for blue, `--plane-revisit 0,0,10`): blue's calibration is a 3 min sweep, it is
+scanned at its best frequency with a double-size patch, and its ten least
+certain positions are shown again (about 2 min). Session: about 22 min.
 
 ## The colour session, in order (one day, one electrode placement)
 
@@ -47,7 +50,8 @@ two voided colour runs so far were both a floating Oz.
        --freq 12 --calib-blocks 6 --calib-on 8 --calib-off 8 --calib-style bw --calib-size 1 \
        --plane-spc 6,6,10 --rest-every 32
    ```
-   (`--source osc` instead of `--muse` with MuseLog on the phone.)
+   (`--source osc` instead of `--muse` with MuseLog on the phone; add
+   `--plane-sweep ''` or `--plane-revisit 0` to switch the blue fixes off.)
 2. **Smooth with rotating tags, eight colours** (sweep 3.6 min + 3 passes of
    32 cells at 8 s = 13 min).
    ```

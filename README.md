@@ -588,6 +588,21 @@ the log of the scores, so one very strong cell cannot pull the threshold
 above the other lit cells; the result line counts each plane: "(R 29, G 24,
 B 21)".
 
+**Blue, the weak plane.** Blue's own 12 Hz response measured 0.4x red's and
+a thirtieth of green's on the same day (`vr_planes8`): pure blue has a
+fourteenth of white's luminance and the blue-cone pathway is the slowest in
+the visual system. Three things are on by default for it. `--plane-patch 1,1,2`
+flickers the blue plane with a patch twice the size. `--plane-sweep 6,7.2,9,12`
+turns the blue plane's calibration into a short frequency sweep (three
+black/blue blocks at each frequency, snapped by the page to frame-exact values)
+and scans blue at the frequency with the strongest response, decoded at that
+frequency with that sweep's channel weights (`planes_calib.json`, `per_freq`).
+`--plane-revisit 0,0,10` shows, after the blue pass, the ten positions whose
+scores sit nearest blue's own threshold again, the picture never consulted,
+and averages the visits (Minu's adaptive-pass analysis: the accuracy of three
+passes in half the time). `--plane-passes R,G,B` sets full passes per plane.
+The page's `start_scan` takes a `cells` list for the revisit.
+
 **A frozen computer.** On battery a laptop may enter standby mid-scan and
 freeze the driver and the recorder while the headset page keeps going (that
 run: five standbys, 135 s of holes in the EEG). The driver now holds the PC

@@ -1461,6 +1461,21 @@ class Driver:
         spcs = spcs * 3 if len(spcs) == 1 else spcs      # one dwell, or R,G,B
         if len(spcs) != 3:
             raise ValueError("--plane-spc takes one value or three: R,G,B")
+
+        def per_plane(text, cast, flag):
+            vals = [cast(v) for v in str(text).split(",") if v.strip()]
+            vals = vals * 3 if len(vals) == 1 else vals
+            if len(vals) != 3:
+                raise ValueError(f"--{flag} takes one value or three: R,G,B")
+            return vals
+        patches = per_plane(a.plane_patch, float, "plane-patch")
+        passes = per_plane(a.plane_passes, int, "plane-passes")
+        revisit = per_plane(a.plane_revisit, int, "plane-revisit")
+        sweep_freqs = [float(v) for v in str(a.plane_sweep).split(",") if v.strip()]
+        sweep_planes = ({int(v) for v in str(a.plane_sweep_planes).split(",") if v.strip()}
+                        if len(sweep_freqs) > 1 else set())
+        freqs = {0: a.freq, 1: a.freq, 2: a.freq}   # requested flicker frequency per plane
+        delivered = {}                               # the page's frame-exact frequency per plane
         unit = {0: [1, 0, 0], 1: [0, 1, 0], 2: [0, 0, 1]}
         names = ["red", "green", "blue"]
         hexes = {0: "#ff0000", 1: "#00ff00", 2: "#0000ff"}
@@ -1475,6 +1490,82 @@ class Driver:
             # its own weights; a colour with no response is said so up front.
             for k in order:
                 if ctarget[:, :, k].max() <= 0.02:
+                    continue
+                if k in sweep_planes:
+                    # the plane's own calibration as a frequency sweep: the blue
+                    # cone pathway is the slowest in the visual system and its
+                    # 12 Hz response was 0.4x red's (vr_planes8), so blue is
+                    # scanned at the frequency this person responds to best
+                    log = f"calib_{names[k]}_sweep_log.csv"
+                    self.blocks, self.block_hz, self.block_cls = [], [], []
+                    self.spectate(type="stage", stage="calibrate", detail=f"{names[k]} sweep")
+                    print(f"sweeping the {names[k]} plane: {a.plane_sweep_blocks} black/"
+                          f"{names[k]} blocks at each of {a.plane_sweep} Hz")
+                    self.open_log(log)
+                    await self.send(cmd="start_sweep", freqs=sweep_freqs,
+                                    repeats=a.plane_sweep_blocks, onS=a.calib_on,
+                                    offS=a.calib_off, size=a.calib_size,
+                                    colors=[hexes[k], "#000000"],
+                                    label=f"{names[k].upper()} FREQUENCY SWEEP")
+                    await self.wait_for(
+                        "sweep_done",
+                        timeout=a.plane_sweep_blocks * len(sweep_freqs)
+                        * (a.calib_on + a.calib_off + 2) + 60)
+                    self.close_log()
+                    await asyncio.sleep(0.7)
+                    entry = dict(blocks=a.plane_sweep_blocks, sweep=sweep_freqs, passed=False,
+                                 p=None, best=None, stat=None, weights=None, channels=None,
+                                 freq=None, per_freq={})
+                    sw = None
+                    try:
+                        sw = score_sweep(self.session, self.blocks, self.block_hz, log_name=log)
+                    except Exception as exc:
+                        print(f"{names[k]} sweep scoring failed: {exc!r}")
+                    if sw and sw["results"]:
+                        entry["per_freq"] = {fk: dict(stat=r["stat"], p=r["p"], best=r["best"],
+                                                      delivered=r["delivered"])
+                                             for fk, r in sw["results"].items()}
+                        bk = max(sw["results"], key=lambda fk: sw["results"][fk]["stat"])
+                        r = sw["results"][bk]
+                        wl = {n: max(cc["diff"], 0.0) for n, cc in r["channels"].items()}
+                        tot = sum(wl.values())
+                        entry.update(p=r["p"], best=r["best"], stat=r["stat"],
+                                     channels=r["channels"], freq=float(r["freq"]),
+                                     weights=({n: v / tot for n, v in wl.items()}
+                                              if tot > 0 else None),
+                                     passed=bool(r["p"] < a.plane_calib_p and tot > 0))
+                    pcal[names[k]] = entry
+                    table = "  ".join(f"{float(fk):g} Hz {v['stat']:+.2f} (p {v['p']:.2f})"
+                                      for fk, v in sorted(entry["per_freq"].items(),
+                                                          key=lambda kv: float(kv[0])))
+                    if entry["passed"]:
+                        freqs[k] = entry["freq"]
+                        line_txt = (f"{names[k]}: best {entry['freq']:g} Hz, channel "
+                                    f"{entry['best']}; {table}")
+                    else:
+                        # no clear winner: scan at the session frequency, but
+                        # with this colour's own weights from the sweep blocks
+                        # at that frequency when they lean the right way (the
+                        # black/white weights put most of blue on the ears)
+                        near = None
+                        if sw and sw["results"]:
+                            near = min(sw["results"].values(), key=lambda r: abs(r["freq"] - a.freq))
+                        wl = ({n: max(cc["diff"], 0.0) for n, cc in near["channels"].items()}
+                              if near else {})
+                        tot = sum(wl.values())
+                        if near and tot > 0 and near["stat"] > 0:
+                            entry.update(weights={n: v / tot for n, v in wl.items()},
+                                         use_weights=True, best=near["best"], stat=near["stat"],
+                                         p=near["p"], channels=near["channels"], freq=a.freq)
+                            how = f"with its own weights from the {near['freq']:g} Hz blocks"
+                        else:
+                            how = "with the black/white weights"
+                        line_txt = (f"{names[k]}: no frequency gave a clear response ({table}) "
+                                    f"- scanning at {a.freq:g} Hz {how}")
+                    print("plane sweep " + line_txt)
+                    await self.send(cmd="calib_result", passed=bool(entry["passed"]),
+                                    table=line_txt)
+                    await asyncio.sleep(2.5)
                     continue
                 log = f"calib_{names[k]}_log.csv"
                 self.blocks, self.block_hz, self.block_cls = [], [], []
@@ -1529,11 +1620,24 @@ class Driver:
             result["planesCalib"] = {c: dict(passed=e["passed"], p=e["p"], best=e["best"])
                                      for c, e in pcal.items()}
 
+        def decode_plane(k, log, shift_s=0.0):
+            w = plane_weights(k)
+            g, _ = reconstruct.run(self.session,
+                                   calibration="" if w is not None else cal_path,
+                                   weights=w, stim_freq=delivered.get(k, self.stim_freq),
+                                   method=a.recon_method, vblend=False, cursor_log=log,
+                                   save=False, shift_s=shift_s)
+            if g.shape != (gh, gw):
+                full = np.full((gh, gw), np.nan)
+                full[:min(gh, g.shape[0]), :min(gw, g.shape[1])] = g[:gh, :gw]
+                g = full
+            return g
+
         def plane_weights(k):
             """This plane's own channel weights, or None for the black/white
             calibration's."""
             e = pcal.get(names[k])
-            if e and e.get("passed") and e.get("weights"):
+            if e and (e.get("passed") or e.get("use_weights")) and e.get("weights"):
                 w = np.array([float(e["weights"].get(n, 0.0)) for n in names_eeg])
                 if w.sum() > 0:
                     return w
@@ -1549,23 +1653,59 @@ class Driver:
             logs[k] = log
             self.spectate(type="stage", stage="scan", detail=f"{names[k]} plane")
             print(f"scanning the {names[k]} plane ({gw}x{gh}, {spcs[k]:g} s per "
-                  f"position, {a.plane_passes} pass(es)) at {self.stim_freq:.1f} Hz")
+                  f"position, {passes[k]} pass(es), patch {patches[k]:g}) at "
+                  f"{freqs[k]:g} Hz")
             await self.send(cmd="msg", text=f"{names[k]} plane")
             await asyncio.sleep(1.5)
             self.open_log(log)
             await self.send(cmd="start_scan", gridW=gw, gridH=gh, spc=spcs[k],
-                            freq=a.freq, target=plane.tolist(), patch=a.patch,
-                            bw=True, plane=unit[k], passes=a.plane_passes,
+                            freq=freqs[k], target=plane.tolist(), patch=patches[k],
+                            bw=True, plane=unit[k], passes=passes[k],
                             board=a.board, restEvery=a.rest_every)
-            scan_s = gw * gh * spcs[k] * max(1, a.plane_passes)
+            scan_s = gw * gh * spcs[k] * max(1, passes[k])
             if a.rest_every > 0:
-                scan_s += 600 * (gw * gh * max(1, a.plane_passes) // a.rest_every)
+                scan_s += 600 * (gw * gh * max(1, passes[k]) // a.rest_every)
             await self.wait_for("scan_done", timeout=scan_s * 2 + 120)
             self.close_log()
             await asyncio.sleep(0.7)
+            delivered[k] = self.stim_freq
+            if revisit[k] > 0:
+                # adaptive: the positions whose call is least certain (scores
+                # nearest the plane's own threshold; the picture is never
+                # consulted) are shown again and their visits averaged in
+                cells = []
+                try:
+                    g0 = await asyncio.to_thread(decode_plane, k, log)
+                    thr = smoothcolor.otsu_log(g0)
+                    dist = np.abs(np.log(np.maximum(g0, 1e-9)) - np.log(max(thr, 1e-9)))
+                    dist[~np.isfinite(g0)] = np.inf
+                    pick = np.argsort(dist.ravel())[:revisit[k]]
+                    cells = [[int(i % g0.shape[1]), int(i // g0.shape[1])] for i in pick
+                             if np.isfinite(dist.ravel()[i])]
+                except Exception as exc:
+                    print(f"{names[k]} revisit skipped: {exc!r}")
+                if cells:
+                    print(f"{names[k]} plane: showing the {len(cells)} least certain "
+                          f"positions again ({spcs[k]:g} s each)")
+                    rlog = f"plane_{names[k]}_revisit_log.csv"
+                    self.open_log(rlog)
+                    await self.send(cmd="start_scan", gridW=gw, gridH=gh, spc=spcs[k],
+                                    freq=freqs[k], target=plane.tolist(), patch=patches[k],
+                                    bw=True, plane=unit[k], passes=1, board=a.board,
+                                    restEvery=0, cells=cells,
+                                    note=f"{names[k]}: {len(cells)} positions again")
+                    await self.wait_for("scan_done", timeout=len(cells) * spcs[k] * 2 + 120)
+                    self.close_log()
+                    await asyncio.sleep(0.7)
+                    with open(os.path.join(self.session, rlog)) as fr, \
+                            open(os.path.join(self.session, log), "a") as fa:
+                        fa.writelines(fr.readlines()[1:])   # the revisit joins the plane's log
         with open(os.path.join(self.session, "planes_meta.json"), "w") as f:
             json.dump(dict(logs={names[k]: v for k, v in logs.items()}, spc=spcs,
-                           passes=a.plane_passes, freq=self.stim_freq,
+                           passes=passes, patch=patches, revisit=revisit,
+                           freq_requested={names[k]: v for k, v in freqs.items()},
+                           freq_delivered={names[k]: v for k, v in delivered.items()},
+                           freq=self.stim_freq,
                            method=a.recon_method, target=a.color_target), f, indent=1)
 
         # ---- decode: each plane like the grey picture, then RGB
@@ -1574,14 +1714,7 @@ class Driver:
         def planes_grid(shift_s=0.0):
             grid = np.zeros((gh, gw, 3))
             for k, log in logs.items():
-                w = plane_weights(k)
-                g, _ = reconstruct.run(self.session,
-                                       calibration="" if w is not None else cal_path,
-                                       weights=w,
-                                       stim_freq=self.stim_freq, method=a.recon_method,
-                                       vblend=False, cursor_log=log, save=False,
-                                       shift_s=shift_s)
-                grid[:, :, k] = g
+                grid[:, :, k] = np.nan_to_num(decode_plane(k, log, shift_s))
             return grid
 
         try:
@@ -1635,8 +1768,9 @@ class Driver:
                 png = "data:image/png;base64," + base64.b64encode(f.read()).decode()
         else:
             png = rgb_to_data_url(rgb) if rgb is not None else ""
+        hz_txt = "/".join(f"{delivered[k]:g}" for k in logs if k in delivered) or f"{self.stim_freq:g}"
         await self.send(cmd="color_result", png=png,
-                        text=f"{text}   [planes at {self.stim_freq:.1f} Hz]",
+                        text=f"{text}   [planes at {hz_txt} Hz]",
                         passed=bool(good), wide=bool(comp))
         result["ok"] = True
         recorder.stop()
@@ -2087,8 +2221,25 @@ async def main():
     ap.add_argument("--plane-spc", default="8",
                     help="--mode planes: seconds per position, one value or R,G,B "
                          "(the dim blue earns a longer dwell, e.g. 6,6,10)")
-    ap.add_argument("--plane-passes", type=int, default=1,
-                    help="--mode planes: passes per plane")
+    ap.add_argument("--plane-passes", default="1",
+                    help="--mode planes: passes per plane, one value or R,G,B")
+    ap.add_argument("--plane-patch", default="1,1,2",
+                    help="--mode planes: flicker patch size per plane in units of a "
+                         "6x4-grid cell, one value or R,G,B (blue is the weakest "
+                         "response: a larger patch for it by default)")
+    ap.add_argument("--plane-revisit", default="0,0,10",
+                    help="--mode planes: after a plane's pass, show its N least "
+                         "certain positions (scores nearest the threshold, the "
+                         "picture never consulted) again; one value or R,G,B")
+    ap.add_argument("--plane-sweep", default="6,7.2,9,12",
+                    help="--mode planes: frequencies tried in the sweep planes' own "
+                         "calibration (the page snaps each to a frame-exact value); "
+                         "the plane is then scanned at the one with the strongest "
+                         "response. '' = no sweep")
+    ap.add_argument("--plane-sweep-planes", default="2",
+                    help="--mode planes: planes that get the sweep (0 R, 1 G, 2 B)")
+    ap.add_argument("--plane-sweep-blocks", type=int, default=3,
+                    help="--plane-sweep: ON/OFF blocks per frequency")
     ap.add_argument("--plane-calib", type=int, default=4,
                     help="--mode planes: black/<colour> calibration blocks per plane "
                          "before the scans (0 = none); a plane whose own response is "
