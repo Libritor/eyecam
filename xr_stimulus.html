@@ -65,9 +65,22 @@ async function waitForPress() {
 // The driver pauses the scan when the EEG stream goes silent. The position
 // in progress is abandoned and done again from the start after the resume.
 let paused = false, linkLost = false, pauseReason = "", redoNow = false;
-const halted = () => paused || linkLost;
+// the driver sends an "eeg" heartbeat every second. When it stops for 3 s the
+// computer has frozen (laptop standby) or the link has stalled: nothing is
+// being recorded, so the scan holds and shows the position again on return.
+let lastBeat = 0;
+const beatLost = () => lastBeat > 0 && now() - lastBeat > 3;
+const halted = () => paused || linkLost || beatLost();
+let shown = [], lostQueue = [];   // this scan's positions; those to show again after a freeze
 async function holdWhilePaused() {
   if (!halted()) return false;
+  if (beatLost()) {
+    // every position that ended after the last heartbeat was shown to a
+    // frozen computer: queue it to be shown again when the driver is back
+    for (const s of shown)
+      if (s.t1 > lastBeat && !lostQueue.some(q => q[0] === s.gx && q[1] === s.gy))
+        lostQueue.push([s.gx, s.gy]);
+  }
   black();
   send({ type: "frame", stage: "paused", pt: now(), gx: -1, gy: -1, lum: 0, fl: 0 });
   const keep = sub.textContent;
@@ -75,6 +88,8 @@ async function holdWhilePaused() {
   while (halted()) {
     sub.textContent = linkLost
       ? "CONNECTION TO THE COMPUTER LOST - keep the headset on; reconnecting. This position will be shown again."
+      : beatLost()
+      ? "PAUSED - the computer stopped responding (asleep?). Keep the headset on; this position will be shown again."
       : (pauseReason || "PAUSED - no EEG data from the Muse. Check MuseLog on the phone.");
     await sleep(200);
   }
@@ -170,7 +185,7 @@ const smoothByte = (v, lvl) => Math.round(255 * v * Math.pow(lvl, 1 / DISPLAY_GA
 // ---- stages (each is an async rAF loop; `running` token cancels) ----
 
 async function runCalib(m) {
-  hideResult(); title.textContent = "CALIBRATION";
+  hideResult(); title.textContent = m.label || "CALIBRATION";
   const tok = running = {};
   sub.textContent = "measuring display refresh…";
   const hz = await planFlicker(m.freq);
@@ -532,6 +547,7 @@ async function runScan(m) {
   if (m.mux) return runMuxScan(m);
   hideResult(); title.textContent = ""; sub.textContent = "";
   const tok = running = {};
+  shown = []; lostQueue = [];
   await planFlicker(m.freq);
   const gw = m.gridW, gh = m.gridH, target = m.target;
   // board: centered, 84% of the smaller span, aspect from grid
@@ -546,13 +562,15 @@ async function runScan(m) {
   let nDone = 0;
   for (let ps = 0; ps < passes && running === tok; ps++)
   for (let ry = 0; ry < gh && running === tok; ry++) {
-    const gy = ps % 2 === 1 ? gh - 1 - ry : ry;
+    const gyRow = ps % 2 === 1 ? gh - 1 - ry : ry;
     const xs = [...Array(gw).keys()];
     if ((ry + ps) % 2 === 1) xs.reverse();
     if (passes > 1) sub.textContent = `pass ${ps + 1}/${passes}`;
     for (let xi = 0; xi < xs.length; xi++) {
-      const gx = xs[xi];
       if (await holdWhilePaused()) { xi--; continue; }
+      // a position shown to a frozen computer is shown again first
+      const fromQueue = lostQueue.length > 0;
+      const [gx, gy] = fromQueue ? lostQueue.shift() : [xs[xi], gyRow];
       const lum = target[gy][gx];
       // fixed patch size (m.patch x a 6x4-grid cell) so a finer grid only
       // adds positions (overlapping), never shrinks the flickering area
@@ -588,10 +606,13 @@ async function runScan(m) {
         black(); dot(x0 + (gx + 0.5) * cwid, y0 + (gy + 0.5) * chgt);
         await sleep(1000);
         sub.textContent = keep;
+        if (fromQueue) lostQueue.unshift([gx, gy]);
         xi--; continue;
       }
-      if (halted()) { xi--; continue; }
+      if (halted()) { if (fromQueue) lostQueue.unshift([gx, gy]); xi--; continue; }
       if (running !== tok) break;
+      shown.push({ gx, gy, t0, t1: now() });
+      if (fromQueue) { xi--; continue; }   // the row's own position is still to come
       nDone++;
       if (restEvery > 0 && nDone % restEvery === 0 && nDone < total) {
         // a rest break: mark it in the log so it is not scored as a position
@@ -610,7 +631,7 @@ async function runScan(m) {
         sub.textContent = passes > 1 ? `pass ${ps + 1}/${passes}` : "";
       }
     }
-    send({ type: "row", y: gy });
+    send({ type: "row", y: gyRow });
   }
   black();
   send({ type: "scan_done" });
@@ -637,6 +658,7 @@ function showSignal(m) {
 }
 
 function showMuse(m) {
+  lastBeat = now();
   const badge = document.getElementById("muse");
   if (!m.rate || m.rate < 40) {
     badge.innerHTML = `<span style="color:#ff6666">MUSE: NO DATA</span>` +

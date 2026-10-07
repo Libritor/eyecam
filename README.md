@@ -575,6 +575,27 @@ python xr_session.py --muse --mode planes --color-target eight --color-grid-w 8 
 python colour_gate.py                      # both paths on the phantom, eight colours
 ```
 
+**Planes: each colour its own calibration.** The black/white calibration's
+weights lean on the ear electrodes, which carry the white response but only
+noise for a dim colour (first complete headset run, 2026-10-07: blue r 0.21
+with them, 0.55 from Oz alone on the same cells). `--plane-calib 4` (the
+default) therefore runs four black/colour ON-OFF blocks per plane at the
+calibrated frequency before the scans; a plane whose own line is found
+(permutation p < 0.05) is decoded with its own channel weights, and a colour
+that gives no response is said so on the page before five minutes are spent
+on it (`planes_calib.json`). The colour planes are thresholded with Otsu on
+the log of the scores, so one very strong cell cannot pull the threshold
+above the other lit cells; the result line counts each plane: "(R 29, G 24,
+B 21)".
+
+**A frozen computer.** On battery a laptop may enter standby mid-scan and
+freeze the driver and the recorder while the headset page keeps going (that
+run: five standbys, 135 s of holes in the EEG). The driver now holds the PC
+awake and logs any late heartbeat tick as "PC FROZE"; the page treats a
+heartbeat missing for 3 s as a hold, shows PAUSED, and shows the position
+again when the driver is back. `freeze_gate.py` suspends the driver for 8 s
+mid-scan on the phantom and checks all of that.
+
 ![Eight pure colours shown to the phantom and decoded with rotating tags](docs/figures/fig15_colour_gate_smooth_phantom.png)
 
 *`colour_gate.py smooth` on the phantom (response peaked at 11.5 Hz, blue
@@ -748,6 +769,7 @@ and the small result files for each session are in `docs/results`.
 | `smoothcolor.py` | smooth-flicker colour: tag placement from a sweep, decoder, the labelled balance and brightness-curve constants |
 | `smooth_gate.py` | gate: `--mode smooth` end to end on the phantom in a headless browser |
 | `colour_gate.py` | gate: `--mode smooth` with rotating tags and `--mode planes` on the eight pure colours, phantom, headless browser |
+| `freeze_gate.py` | gate: the driver and its recorder suspended for 8 s mid-scan on the phantom; the page must hold, show the position again, and the plane still decode |
 | `muse_stream.py`, `lsl_to_osc.py` | Muse over this PC's Bluetooth via muselsl (`--muse`), and an LSL-to-OSC bridge |
 | `phantom_subject.py` | synthetic subject for end-to-end tests, including colour tags and audio |
 | `targets.py` | text, pixel-font, image and colour targets |

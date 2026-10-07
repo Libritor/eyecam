@@ -371,6 +371,9 @@ class Driver:
         self.bwb_codes = []         # page's delivered (Hz, phase) codes
         self.color_passes = []      # per pass: which frequency each colour used
         self.frames = 0
+        self.freezes = []           # seconds this process was frozen (standby)
+        self.pt_lag_min = None      # page clock -> receipt clock, no buffering
+        self.late_frames = 0        # frames buffered through a freeze
         self.spec = None
         if args.spectator:
             host, port = args.spectator.rsplit(":", 1)
@@ -428,6 +431,20 @@ class Driver:
         if typ == "assr_done" and getattr(self, "pc_audio", None):
             self.pc_audio.stop()
         if typ == "frame":
+            # frames buffered while this PC was frozen arrive in a burst
+            # seconds after the page sent them: their receipt time is wrong,
+            # so they are logged as "late" with no position and never form
+            # a scored visit (the page shows those positions again)
+            try:
+                lag = t - float(m.get("pt"))
+            except (TypeError, ValueError):
+                lag = None
+            if lag is not None:
+                if self.pt_lag_min is None or lag < self.pt_lag_min:
+                    self.pt_lag_min = lag
+                if lag - self.pt_lag_min > 2.0 and m["stage"] in ("scan", "color"):
+                    m = dict(m, stage="late", gx=-1, gy=-1, lum=0, fl=0)
+                    self.late_frames += 1
             if m["stage"] == "scan":
                 pos = (m["gx"], m["gy"])
                 if pos != getattr(self, "cur_pos", None):
@@ -504,6 +521,7 @@ class Driver:
     async def adopt(self, ws):
         old = self.page
         self.page = ws
+        self.pt_lag_min = None      # a new page has its own clock
         print(f"active page: #{self.pages.index(ws) + 1} of {len(self.pages)}")
         if old is not None and old is not ws:
             try:
@@ -572,6 +590,19 @@ class Driver:
 
     async def run(self):
         a = self.args
+        # hold this PC awake: on battery it enters Modern Standby after 3
+        # idle minutes and FREEZES the driver and the recorder while the
+        # headset page keeps scanning (vr_planes7: five standbys, 135 s of
+        # holes in the EEG, blue and green planes scanned blind)
+        awake = False
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                awake = bool(ctypes.windll.kernel32.SetThreadExecutionState(0x80000003))
+            except Exception as exc:
+                print("could not hold the PC awake:", repr(exc))
+        print("holding this PC awake for the session" if awake
+              else "NOTE: this PC is not held awake - keep it on mains power")
         target = targets.load_target(a.target, a.grid_w, a.grid_h)
         np.save(os.path.join(self.session, "target.npy"), target)
 
@@ -640,7 +671,18 @@ class Driver:
 
             async def heartbeat():
                 nonlocal ip0
+                last_tick = time.monotonic()
                 while True:
+                    # a tick that comes seconds late means this process was
+                    # frozen (standby): nothing was recorded meanwhile. The
+                    # page notices the missing heartbeat on its own, holds,
+                    # and shows the position again; here it is just logged.
+                    tick = time.monotonic()
+                    if tick - last_tick > 3.0:
+                        self.freezes.append(round(tick - last_tick, 1))
+                        print(f"PC FROZE for {tick - last_tick:.0f} s (standby?): no EEG "
+                              "was recorded; the page holds and redoes the position")
+                    last_tick = tick
                     tail.poll()
                     # this computer hopping to another Wi-Fi mid-run breaks
                     # the phone's stream: say so, with the address to use
@@ -1050,10 +1092,17 @@ class Driver:
             if merge_task:
                 merge_task.cancel()
                 recorder.poll_merge()  # flush what is already buffered
+            result["freezes"] = list(self.freezes)
+            result["late_frames"] = self.late_frames
             with open(os.path.join(self.session, "xr_session.json"),
                       "w") as f:
                 json.dump(result, f, indent=1)
             recorder.stop()
+            if awake:
+                try:
+                    ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
+                except Exception:
+                    pass
 
     def measured_cols(self, log_name, cols=(4, 6, 7)):
         """Delivered frequency per flicker column from page-clock rising edges."""
@@ -1414,6 +1463,82 @@ class Driver:
             raise ValueError("--plane-spc takes one value or three: R,G,B")
         unit = {0: [1, 0, 0], 1: [0, 1, 0], 2: [0, 0, 1]}
         names = ["red", "green", "blue"]
+        hexes = {0: "#ff0000", 1: "#00ff00", 2: "#0000ff"}
+        names_eeg = csv_header(os.path.join(self.session, "eeg.csv")) or CH_NAMES
+        pcal = {}
+        if a.plane_calib > 0:
+            # each colour's own black/<colour> ON-OFF blocks at the calibrated
+            # frequency. The black/white calibration's weights lean on the ear
+            # electrodes, which carry the white response but only noise for a
+            # dim colour (vr_planes7: blue r 0.21 with them, 0.55 from Oz
+            # alone), so a plane whose own response is found is decoded with
+            # its own weights; a colour with no response is said so up front.
+            for k in order:
+                if ctarget[:, :, k].max() <= 0.02:
+                    continue
+                log = f"calib_{names[k]}_log.csv"
+                self.blocks, self.block_hz, self.block_cls = [], [], []
+                self.spectate(type="stage", stage="calibrate", detail=f"{names[k]} plane")
+                print(f"calibrating the {names[k]} plane: {a.plane_calib} "
+                      f"black/{names[k]} blocks at {self.stim_freq:.1f} Hz")
+                self.open_log(log)
+                await self.send(cmd="start_calib", blocks=a.plane_calib, onS=a.calib_on,
+                                offS=a.calib_off, freq=a.freq,
+                                colors=[hexes[k], "#000000"], size=a.calib_size,
+                                label=f"{names[k].upper()} CALIBRATION")
+                await self.wait_for(
+                    "calib_done",
+                    timeout=a.plane_calib * (a.calib_on + a.calib_off + 2) + 60)
+                self.close_log()
+                await asyncio.sleep(0.7)
+                entry = dict(blocks=a.plane_calib, passed=False, p=None, best=None,
+                             stat=None, weights=None, channels=None)
+                lres = None
+                try:
+                    line = score_sweep(self.session, self.blocks,
+                                       [self.stim_freq] * len(self.blocks), log_name=log)
+                    lres = next(iter(line["results"].values()), None)
+                except Exception as exc:
+                    print(f"{names[k]} calibration scoring failed: {exc!r}")
+                if lres:
+                    wl = {n: max(cc["diff"], 0.0) for n, cc in lres["channels"].items()}
+                    tot = sum(wl.values())
+                    entry.update(p=lres["p"], best=lres["best"], stat=lres["stat"],
+                                 channels=lres["channels"],
+                                 weights=({n: v / tot for n, v in wl.items()}
+                                          if tot > 0 else None),
+                                 passed=bool(lres["p"] < a.plane_calib_p and tot > 0))
+                pcal[names[k]] = entry
+                if entry["passed"]:
+                    wtxt = " ".join(f"{n} {w:.2f}" for n, w in entry["weights"].items())
+                    line_txt = (f"{names[k]}: {self.stim_freq:.1f} Hz response found, "
+                                f"p = {entry['p']:.3f}, best {entry['best']}; "
+                                f"weights {wtxt}")
+                elif entry["p"] is not None:
+                    line_txt = (f"{names[k]}: NO clear {self.stim_freq:.1f} Hz response "
+                                f"(p = {entry['p']:.3f}) - this plane will use the "
+                                "black/white weights")
+                else:
+                    line_txt = f"{names[k]}: calibration not scorable - black/white weights"
+                print("plane calibration " + line_txt)
+                await self.send(cmd="calib_result", passed=bool(entry["passed"]),
+                                table=line_txt)
+                await asyncio.sleep(2.5)
+            with open(os.path.join(self.session, "planes_calib.json"), "w") as f:
+                json.dump(pcal, f, indent=1)
+            result["planesCalib"] = {c: dict(passed=e["passed"], p=e["p"], best=e["best"])
+                                     for c, e in pcal.items()}
+
+        def plane_weights(k):
+            """This plane's own channel weights, or None for the black/white
+            calibration's."""
+            e = pcal.get(names[k])
+            if e and e.get("passed") and e.get("weights"):
+                w = np.array([float(e["weights"].get(n, 0.0)) for n in names_eeg])
+                if w.sum() > 0:
+                    return w
+            return None
+
         logs = {}
         for k in order:
             plane = ctarget[:, :, k]
@@ -1449,7 +1574,10 @@ class Driver:
         def planes_grid(shift_s=0.0):
             grid = np.zeros((gh, gw, 3))
             for k, log in logs.items():
-                g, _ = reconstruct.run(self.session, calibration=cal_path,
+                w = plane_weights(k)
+                g, _ = reconstruct.run(self.session,
+                                       calibration="" if w is not None else cal_path,
+                                       weights=w,
                                        stim_freq=self.stim_freq, method=a.recon_method,
                                        vblend=False, cursor_log=log, save=False,
                                        shift_s=shift_s)
@@ -1490,7 +1618,7 @@ class Driver:
                 alone = []
                 for k in logs:
                     tt, g = ctarget[:, :, k] > 0.5, grid[:, :, k]
-                    thr = smoothcolor.otsu(g)
+                    thr = smoothcolor.otsu_log(g)
                     rk = res["r_plane_raw"][k]
                     alone.append(f"{names[k]} plane: r = {rk:.2f}, "
                                  f"{int(((g > thr) == tt).sum())} of {tt.size} positions right")
@@ -1961,6 +2089,13 @@ async def main():
                          "(the dim blue earns a longer dwell, e.g. 6,6,10)")
     ap.add_argument("--plane-passes", type=int, default=1,
                     help="--mode planes: passes per plane")
+    ap.add_argument("--plane-calib", type=int, default=4,
+                    help="--mode planes: black/<colour> calibration blocks per plane "
+                         "before the scans (0 = none); a plane whose own response is "
+                         "found is decoded with its own channel weights")
+    ap.add_argument("--plane-calib-p", type=float, default=0.05,
+                    help="--plane-calib: permutation p below which a plane's own "
+                         "weights are used (4 blocks: the smallest possible p is 0.014)")
     ap.add_argument("--plane-order", default="2,0,1",
                     help="--mode planes: order of the planes (0 R, 1 G, 2 B); "
                          "the dimmest first, while the subject is fresh")

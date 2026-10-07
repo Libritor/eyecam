@@ -3,13 +3,45 @@
 Written 2026-10-06. Branch `colour` (= `all-on-pc` + Khalil's smooth colour +
 Minu's analysis, merged; see README "Colour beyond black, white and blue").
 
+## 2026-10-07: the first complete three-plane run, and what it found
+
+`runs/vr_planes7` (Quest 3S, MuseLog over Wi-Fi, 12 Hz, `eight`, 10 / 6 / 6 s
+per position): calibration Oz d' 5.7; red plane r 0.76 and 29 of 32 right,
+green 0.60 and 22, blue 0.27 and 17; 11 of 32 pure-colour cells, because the
+colour is only right where all three planes are. The diagnosis is in
+`runs/vr_planes7/planes7_diagnosis.png`:
+
+- The laptop, on battery, entered Modern Standby five times during the scan
+  (Windows event log, Kernel-Power 506 / 507) and froze the driver and the
+  recorder for 11 to 64 s each time while the headset kept scanning: 135 s
+  of holes, ten positions of blue and green scanned blind. Red had none and
+  was the plane that worked. Fixed: the driver holds the PC awake and logs
+  any freeze as "PC FROZE"; the page treats a heartbeat missing for 3 s as
+  a hold and shows the position again (`freeze_gate.py`). Keep the laptop
+  on mains anyway.
+- The black/white calibration's channel weights put 0.57 on the ears, which
+  carry the white response but only noise for blue: blue on the clean cells
+  r 0.21 with them, 0.55 from Oz alone. Fixed: `--plane-calib 4` (default)
+  runs four black/colour blocks per plane before the scans and decodes each
+  plane with its own weights when its own response is found (p < 0.05); a
+  colour without a response is announced on the page before five minutes
+  are spent on it.
+- One very strong cell dragged the automatic threshold above the other blue
+  cells. Fixed: Otsu on the log of the scores for the colour planes (blue
+  17 -> 21 of 32 on the same EEG, red unchanged); the result line now counts
+  each plane: "(R 29, G 24, B 21)".
+
+Next run: the planes command below (the per-colour calibration adds about
+3 min), laptop on mains, phone screen on.
+
 ## The colour session, in order (one day, one electrode placement)
 
 Wet the Oz electrode and check it on the page badge before anything else: the
 two voided colour runs so far were both a floating Oz.
 
 1. **Planes, eight colours** (3 scans, about 20 min with `--plane-spc 6,6,10`
-   on an 8 by 4 grid; the scoring that gave the legible "NO").
+   on an 8 by 4 grid plus 3 min of per-colour calibration; the scoring that
+   gave the legible "NO").
    ```
    python xr_session.py --muse --mode planes --color-target eight --color-grid-w 8 --color-grid-h 4 \
        --freq 12 --calib-blocks 6 --calib-on 8 --calib-off 8 --calib-style bw --calib-size 1 \
@@ -46,6 +78,10 @@ two voided colour runs so far were both a floating Oz.
 - Link watch: the run pauses and says so on the page when the computer
   changes network, the page loses the driver, or the EEG stops; it resumes
   by itself when EEG returns. Tested by pulling the stream.
+- Frozen computer: the PC is held awake; a heartbeat missing for 3 s holds
+  the scan and the position is shown again (`freeze_gate.py`: driver and
+  recorder suspended 8 s mid-scan). Per-colour calibration (`--plane-calib`)
+  and the log-domain threshold for the colour planes (`colour_gate.py planes`).
 - `--rest-every N`, `--color-passes` rotation in `--mode full`, `muse_ble.py`
   / `eyecam.py` (Muse straight to the PC over Bluetooth).
 

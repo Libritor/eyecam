@@ -305,6 +305,14 @@ def otsu(v):
     return thr
 
 
+def otsu_log(v):
+    """Otsu on the log of the scores, a power ratio's natural scale: one very
+    strong cell can no longer drag the threshold above the other lit cells
+    (vr_planes7 blue: 17 -> 21 of 32 right, red unchanged)."""
+    v = np.asarray(v, float).ravel()
+    return float(np.exp(otsu(np.log(np.maximum(v, 1e-9)))))
+
+
 def metrics(rgb, target, grid=None):
     """Agreement of the decoded picture with the one shown. With the response
     grid, a pure-colour cell is judged by each plane's own automatic (Otsu)
@@ -322,12 +330,15 @@ def metrics(rgb, target, grid=None):
     pure = ((t <= 0.25) | (t >= 0.75)).all(axis=2)
     if pure.any():
         if grid is not None:
-            on = np.stack([grid[:, :, k] > otsu(grid[:, :, k]) for k in range(3)], axis=2)
+            on = np.stack([grid[:, :, k] > otsu_log(grid[:, :, k]) for k in range(3)], axis=2)
         else:
             on = rgb > 0.5
         same = (on == (t > 0.5)).all(axis=2)
         res["pure_cells"] = int(pure.sum())
         res["pure_right"] = int(same[pure].sum())
+        # each plane on its own: the colour is only right where all three are
+        res["plane_right"] = [int((on[:, :, k] == (t[:, :, k] > 0.5))[pure].sum())
+                              for k in range(3)]
     return res
 
 
@@ -353,6 +364,8 @@ def summary(res):
     text = "colour r = %.2f (R %.2f, G %.2f, B %.2f)" % (res["r_all"], *res["r_planes"])
     if "pure_cells" in res:
         text += f", {res['pure_right']} of {res['pure_cells']} pure-colour cells right"
+        if res.get("plane_right"):
+            text += " (R %d, G %d, B %d)" % tuple(res["plane_right"])
     hr = res.get("hue_right")
     if hr and hr[1]:
         text += f", hue right on {hr[0]} of {hr[1]} coloured cells"
