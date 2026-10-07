@@ -763,7 +763,7 @@ class Driver:
                 if nowm > deadline:
                     raise TimeoutError(
                         f"no usable EEG on {eeg_src} "
-                        f"(rate {rate:.0f} Hz, ears_ok={ears_ok}; "
+                        f"(rate {rate:.0f} Hz, ears ok: {bool(ears_ok(q)) if rate else False}; "
                         f"source: {osc_target})")
                 await asyncio.sleep(0.25)
             print(f"signal ok ({rate:.0f} Hz, ears good)")
@@ -1484,6 +1484,19 @@ class Driver:
             res["comparison"] = comp
             text = smoothcolor.summary(res)
             good = res["r_all"] >= 0.6 and res["r_all"] > max(nulls or [0])
+            if len(logs) < 3:
+                # a single plane (--plane-order 0): judge it on its own, the
+                # way the black/white picture is judged
+                alone = []
+                for k in logs:
+                    tt, g = ctarget[:, :, k] > 0.5, grid[:, :, k]
+                    thr = smoothcolor.otsu(g)
+                    rk = res["r_plane_raw"][k]
+                    alone.append(f"{names[k]} plane: r = {rk:.2f}, "
+                                 f"{int(((g > thr) == tt).sum())} of {tt.size} positions right")
+                    good = rk is not None and rk >= 0.6
+                res["alone"] = alone
+                text = "; ".join(alone) + "   (" + text + ")"
         except Exception as exc:
             print("colour plane decoding failed:", repr(exc))
             res, rgb, comp, text, good = dict(error=repr(exc)), None, None, f"decoding failed: {exc}", False
