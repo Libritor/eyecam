@@ -35,8 +35,10 @@ What carried it (decoding the blue log again in pieces):
   still passes for a real suspension).
 
 Next: the same planes command. The eight wrong cells are four green and four
-blue; `--plane-passes 1,2,2` (a second pass of green and blue, about 6 min
-more) or `--plane-revisit 0,10,10` are the cheap ways to buy them.
+blue, so `--plane-passes 1,2,2` is now the default: a second pass of green and
+blue (about 8.5 min more, a rest break between the passes with
+`--rest-every 32`), on top of blue's ten revisits. `--plane-revisit 0,10,10`
+is the other cheap lever. Session: about 30 min.
 
 ## 2026-10-07: the first complete three-plane run, and what it found
 
@@ -70,7 +72,9 @@ Next run: the planes command below, laptop on mains, phone screen on. The
 blue fixes are on by default (`--plane-patch 1,1,2`, `--plane-sweep 6,7.2,9,12`
 for blue, `--plane-revisit 0,0,10`): blue's calibration is a 3 min sweep, it is
 scanned at its best frequency with a double-size patch, and its ten least
-certain positions are shown again (about 2 min). Session: about 22 min.
+certain positions are shown again (about 2 min); green and blue get a second
+pass (`--plane-passes 1,2,2`, about 8.5 min, since 2026-10-10). Session: about
+30 min.
 
 ## The colour session, in order (one day, one electrode placement)
 

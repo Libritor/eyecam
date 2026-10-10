@@ -56,7 +56,7 @@ def run_one(mode):
     else:
         cmd = ["--mode", "planes", "--freq", "15", "--calib-blocks", "4",
                "--calib-on", "5", "--calib-off", "5", "--calib-style", "bw",
-               "--calib-size", "1", "--plane-spc", "5,5,8", "--plane-passes", "1"]
+               "--calib-size", "1", "--plane-spc", "5,5,8", "--plane-passes", "1,2,2"]
     procs = []
     try:
         driver = subprocess.Popen([sys.executable, "xr_session.py"] + cmd + common + extra, cwd=ROOT)
@@ -73,9 +73,9 @@ def run_one(mode):
         procs.append(subprocess.Popen(
             [sys.executable, "phantom_subject.py", "--session", session,
              "--host", "127.0.0.1", "--port", str(OSC), "--aux",
-             "--tuning", f"{PEAK}:{WIDTH}", "--color-gain", GAIN, "--max-seconds", "1200"],
+             "--tuning", f"{PEAK}:{WIDTH}", "--color-gain", GAIN, "--max-seconds", "1800"],
             cwd=ROOT))
-        code = driver.wait(timeout=1200)
+        code = driver.wait(timeout=1800)
         with open(os.path.join(full, "xr_session.json")) as f:
             res = json.load(f)
     finally:

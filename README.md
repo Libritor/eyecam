@@ -680,7 +680,11 @@ frequency with that sweep's channel weights (`planes_calib.json`, `per_freq`).
 `--plane-revisit 0,0,10` shows, after the blue pass, the ten positions whose
 scores sit nearest blue's own threshold again, the picture never consulted,
 and averages the visits (Minu's adaptive-pass analysis: the accuracy of three
-passes in half the time). `--plane-passes R,G,B` sets full passes per plane.
+passes in half the time). `--plane-passes R,G,B` sets full passes per plane;
+the default is `1,2,2`, a second pass of green and blue (the odd pass runs
+bottom-to-top, the visits are averaged, about 8.5 min more), because
+`vr_planes9`'s eight wrong cells were four green and four blue. With
+`--rest-every 32` a rest break falls between the two passes.
 The page's `start_scan` takes a `cells` list for the revisit.
 On 2026-10-10 (`vr_planes9`) the sweep put blue at 9 Hz (+5.5 against +4.1
 at 12 Hz, every frequency tried above its threshold) and the blue plane came
