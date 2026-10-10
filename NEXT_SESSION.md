@@ -3,6 +3,41 @@
 Written 2026-10-06. Branch `colour` (= `all-on-pc` + Khalil's smooth colour +
 Minu's analysis, merged; see README "Colour beyond black, white and blue").
 
+## 2026-10-10: the best colour run so far (`runs/vr_planes9`)
+
+The merged code (Minu's certainty scanning and HFPM palette, commit a4eac48)
+with every fix on; laptop on mains, Quest on the cable, MuseLog over Wi-Fi.
+White calibration Oz d' 5.6 (p 0.001). Blue sweep: 6 Hz +4.2, 7.2 Hz +4.4,
+9 Hz +5.5, 12 Hz +4.1 (all p <= 0.007), so blue was scanned at 9 Hz with the
+patch doubled, 10 s per position, and its ten least certain positions were
+shown again. Red and green calibrations p 0.014 each. 21 min from the white
+calibration to the end of the green plane (blue 7 min with the revisits).
+
+Result: colour r 0.79 (R 0.90, G 0.79, B 0.69); 24 of 32 pure-colour cells
+right (R 32, G 28, B 28); hue right on 19 of 24; shifted-EEG null 0.32.
+`vr_planes8` three days earlier: 18 of 32 (R 29, G 27, B 24), hue 14 of 24.
+Figures: `runs/vr_planes9/planes9_colour_picture.png` and
+`planes9_planes_figure.png` (`analysis/planes_figures.py`).
+
+What carried it (decoding the blue log again in pieces):
+
+- Blue from the first pass alone (9 Hz, patch 2x): 27 of 32, r 0.63. With
+  the ten revisits: 28, r 0.67. With the white calibration's weights instead
+  of blue's own: 28, r 0.66. The frequency and the patch did the work; the
+  revisits added one cell; the per-colour weights changed nothing on a day
+  when Oz carried every plane.
+- Red 29 -> 32 and green 27 -> 28 with no change to their settings: the Oz
+  contact (white calibration d' 5.6 against 0.8 on `vr_planes8`). Wet Oz.
+- The driver printed "PC FROZE for 5 s" right after it scored the white
+  calibration; the EEG has no hole there (the recorder is its own process).
+  That was the driver scoring, not standby. The heartbeat now tells the two
+  apart by CPU time and prints "driver busy" instead (`freeze_gate.py`
+  still passes for a real suspension).
+
+Next: the same planes command. The eight wrong cells are four green and four
+blue; `--plane-passes 1,2,2` (a second pass of green and blue, about 6 min
+more) or `--plane-revisit 0,10,10` are the cheap ways to buy them.
+
 ## 2026-10-07: the first complete three-plane run, and what it found
 
 `runs/vr_planes7` (Quest 3S, MuseLog over Wi-Fi, 12 Hz, `eight`, 10 / 6 / 6 s

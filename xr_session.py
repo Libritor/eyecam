@@ -677,18 +677,26 @@ class Driver:
 
             async def heartbeat():
                 nonlocal ip0
-                last_tick = time.monotonic()
+                last_tick, last_cpu = time.monotonic(), time.process_time()
                 while True:
                     # a tick that comes seconds late means this process was
                     # frozen (standby): nothing was recorded meanwhile. The
                     # page notices the missing heartbeat on its own, holds,
                     # and shows the position again; here it is just logged.
-                    tick = time.monotonic()
-                    if tick - last_tick > 3.0:
-                        self.freezes.append(round(tick - last_tick, 1))
-                        print(f"PC FROZE for {tick - last_tick:.0f} s (standby?): no EEG "
-                              "was recorded; the page holds and redoes the position")
-                    last_tick = tick
+                    # A late tick with the CPU time to match is this process
+                    # scoring (a calibration, a plane) between stages: the
+                    # recorder is a separate process and kept recording.
+                    tick, cpu = time.monotonic(), time.process_time()
+                    gap = tick - last_tick
+                    if gap > 3.0:
+                        if cpu - last_cpu > 0.5 * gap:
+                            print(f"driver busy for {gap:.0f} s (scoring); the recorder "
+                                  "kept recording, nothing was lost")
+                        else:
+                            self.freezes.append(round(gap, 1))
+                            print(f"PC FROZE for {gap:.0f} s (standby?): no EEG "
+                                  "was recorded; the page holds and redoes the position")
+                    last_tick, last_cpu = tick, cpu
                     tail.poll()
                     # this computer hopping to another Wi-Fi mid-run breaks
                     # the phone's stream: say so, with the address to use

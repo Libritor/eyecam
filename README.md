@@ -682,11 +682,19 @@ scores sit nearest blue's own threshold again, the picture never consulted,
 and averages the visits (Minu's adaptive-pass analysis: the accuracy of three
 passes in half the time). `--plane-passes R,G,B` sets full passes per plane.
 The page's `start_scan` takes a `cells` list for the revisit.
+On 2026-10-10 (`vr_planes9`) the sweep put blue at 9 Hz (+5.5 against +4.1
+at 12 Hz, every frequency tried above its threshold) and the blue plane came
+out 28 of 32 right (r 0.69) against 24 (r 0.45) three days earlier; the pass
+alone gave 27, the revisits one more, and the white calibration's weights the
+same 28. `analysis/planes_figures.py <session>` draws the colour picture and
+the three planes, scored as the driver scores them.
 
 **A frozen computer.** On battery a laptop may enter standby mid-scan and
 freeze the driver and the recorder while the headset page keeps going (that
 run: five standbys, 135 s of holes in the EEG). The driver now holds the PC
-awake and logs any late heartbeat tick as "PC FROZE"; the page treats a
+awake and logs any late heartbeat tick as "PC FROZE" (a late tick with the
+CPU time to match is the driver itself scoring between stages, reported as
+"driver busy", nothing lost); the page treats a
 heartbeat missing for 3 s as a hold, shows PAUSED, and shows the position
 again when the driver is back. `freeze_gate.py` suspends the driver for 8 s
 mid-scan on the phantom and checks all of that.
@@ -791,6 +799,7 @@ and scoring uses that.
 | Only the fixated square counts | with three tagged squares on screen, the one under fixation responds and the two a third of the panel away do not |
 | Smaller squares are not higher resolution | 12 by 8 cell-sized squares at 8 s give a line below the noise flanks; the response scales with flickering area |
 | Colour on 2026-10-01, an hour into the session | 15 of 24 cells with the right hue (planes R 0.38, G 0.28, B 0.70); Oz response had dropped from 192 to 5.5 at 12 Hz |
+| Three colour planes on the Quest 3S (2026-10-10, `vr_planes9`) | 24 of 32 pure-colour cells and the hue right on 19 of 24; colour r 0.79 (R 0.90, G 0.79, B 0.69); planes R 32, G 28, B 28 of 32; shifted nulls reach 0.32. Blue scanned at 9 Hz after its sweep (+5.5 against +4.1 at 12 Hz) with the patch doubled: 27 of 32 from the single pass, 28 with the ten revisits; blue's own weights and the white calibration's gave the same 28. Three days earlier with the same code but without the blue fixes and a poor Oz contact: 18 of 32, hue 14 of 24 |
 | 40 Hz tagged music | not detected through headset speakers (p = 0.13 to 0.69), nor with the cup at the vertex and headphones (19 tagged and 19 plain blocks, p = 0.32; any response is below about 0.3 uV) |
 
 ![Response curve and spectrum](docs/figures/fig3_response_curve.png)
@@ -798,6 +807,8 @@ and scoring uses that.
 ![Calibration blocks in VR](docs/figures/fig6_run2_calibration_blocks.png)
 
 !["NO" read from the EEG, per pass](docs/figures/fig11_pix_NO.png)
+
+![Eight colours read from the EEG on the Quest 3S, 2026-10-10](docs/figures/fig17_vr_planes9_colour.png)
 
 The practical consequence: Mann's choice of 15 Hz is right for staying clear of
 alpha but is on the weak side of this subject's response curve, and a stock
