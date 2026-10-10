@@ -1,0 +1,81 @@
+{
+ "mode": "browser",
+ "gridW": 12,
+ "gridH": 8,
+ "secondsPerCell": 4.0,
+ "calibBlocks": 6,
+ "calibStyle": "bw",
+ "calibSize": 1.0,
+ "g0": {
+  "ok": true,
+  "rows": 6911,
+  "fps": 72.0,
+  "edges": 582,
+  "reason": ""
+ },
+ "stimFreqActual": 12.0,
+ "calibPassed": true,
+ "best": "AUX",
+ "weights": {
+  "TP9": 0.27394341349125684,
+  "AF7": 0.07736613357175899,
+  "AF8": 0.0,
+  "TP10": 0.22449067473414963,
+  "AUX": 0.4241997782028346
+ },
+ "choice": "bw",
+ "planesCalib": {
+  "blue": {
+   "passed": true,
+   "p": 0.002197802197802198,
+   "best": "AUX"
+  },
+  "red": {
+   "passed": true,
+   "p": 0.014285714285714285,
+   "best": "AUX"
+  },
+  "green": {
+   "passed": true,
+   "p": 0.014285714285714285,
+   "best": "AUX"
+  }
+ },
+ "planes": {
+  "r_all": 0.7947020032744565,
+  "hue_right": [
+   19,
+   24
+  ],
+  "r_planes": [
+   0.9023740023881975,
+   0.7901792934749613,
+   0.6850874068572265
+  ],
+  "mean_abs_error": 0.24947461017709474,
+  "pure_cells": 32,
+  "pure_right": 24,
+  "plane_right": [
+   32,
+   28,
+   28
+  ],
+  "r_plane_raw": [
+   0.9015628848204511,
+   0.7867441020685656,
+   0.6692906147700711
+  ],
+  "r_null": [
+   -0.0917181752927028,
+   0.3204575120252292,
+   -0.19358369910958745,
+   0.2296966357533265
+  ],
+  "comparison": "C:\\Users\\alexa\\eyecam\\runs/vr_planes9\\planes_comparison.png"
+ },
+ "ok": true,
+ "freezes": [
+  4.5
+ ],
+ "late_frames": 0
+}
