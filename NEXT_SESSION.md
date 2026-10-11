@@ -30,6 +30,24 @@ is worn and the trigger pulled.
    5 / 5 / 8 s per position, one pass each, a rest break every 40. Same
    figure script.
 
+4. **A real photograph, who is it?** Two short runs for another sitting, or
+   today if the eyes allow. First the step wedge, about 7 min
+   (`.\quest_run.ps1 -Run wedge`, then `python analysis/wedge_readout.py
+   runs/vr_wedge1`): the response against flicker brightness, which says
+   how many grey levels the eye separates. Then the photo, about 25 min
+   (`.\quest_run.ps1 -Run photo`): one of the four portraits in
+   `targets_img/photos/` (Mann's paper portrait, Lincoln, Einstein, Tesla),
+   cut to 12 by 12 in black and white the way the 2019 paper thresholded
+   its Fig. 1, drawn at random and sealed by
+   `targets_img/make_photo_gallery.py --draw`. Afterwards
+   `python analysis/photo_readout.py runs/vr_photo1 --seal targets_img/photo_today_seal.json`
+   names the person from the EEG picture alone by correlation against the
+   whole gallery, then opens the seal. On the clean targets the four are
+   told apart 100% of the time with a quarter of the cells flipped, so a
+   picture as good as last night's colour runs should name the right one.
+   `--levels 3` on the gallery script if the wedge separates three shades.
+   Gate: `python photo_gate.py` (phantom, about five minutes).
+
 Do the vision pair first (short, fresh eyes), the eight colours second,
 the officer after a real break; on 2026-10-10 the blink rate had doubled by
 the second run of the evening, so stop when the eyes say so and keep the

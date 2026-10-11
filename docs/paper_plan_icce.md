@@ -126,6 +126,28 @@ and the mouth are single cells and may or may not come through. The 12 by 14
 version is a second sitting on another day (about 60 min at the same
 dwells), the one for the paper's hero figure if the 8 by 10 works.
 
+## A real photograph, and "recognised" as a number
+
+The 2019 paper's Fig. 1 is a photograph thresholded to black and white,
+scanned for 85 minutes, and recognisable as a head because the large regions
+survive. The same thing at our grid: `targets_img/make_photo_gallery.py`
+cuts each photo in `targets_img/photos/` to the head, averages it per scan
+position and rounds it to two levels (Otsu on the cell means; `--levels 3`
+or `4` once the step wedge says the eye separates more shades). Four
+portraits are in: the paper's own, Lincoln, Einstein and Tesla, the last
+three public-domain prints. 12 by 12 is 144 positions, about 25 minutes
+with the certainty revisits.
+
+"Recognised" is then a forced choice rather than an impression: one photo
+is drawn at random and sealed, and `analysis/photo_readout.py` names the
+person by correlating the EEG picture with every target in the gallery,
+then opens the seal. On the clean targets the four are separated 100% of
+the time with a quarter of the cells flipped (pairwise correlations between
+them -0.35 to +0.39), so last night's error rate leaves room. One sealed
+draw is one trial; four draws over four sittings make it a result, and a
+human panel (people who know the faces, shown the EEG picture, asked who)
+is the paper's version of the 2019 figure. Phantom gate: `photo_gate.py`.
+
 ## Next steps, in order
 
 1. One clean colour run of `eight` on a fresh day, Oz wet, ear badges
@@ -145,11 +167,14 @@ dwells), the one for the paper's hero figure if the 8 by 10 works.
    Landolt test, the simplest acuity decision there is; the E is the
    four-alternative one. Both come from one scan. A double-size ring is
    ready for a threshold series.
-5. Two more subjects (Minu, Khalil) for the colour profile and the blink
+5. The step wedge (7 min) and then a sealed photo from the gallery (25 min):
+   the paper's Fig. 1 redone on consumer hardware, with the forced choice
+   as the number. Repeat the draw on later sittings.
+6. Two more subjects (Minu, Khalil) for the colour profile and the blink
    readout: n = 3 is the floor for a screening claim at a conference.
-6. The eye-strain prompt (JITAI): a page message when the blink-release
+7. The eye-strain prompt (JITAI): a page message when the blink-release
    pattern says the eyes are drying; a day of work, and the sentence that
    makes the paper Fletcher's kind.
-7. Write the paper from the figures that exist (`docs/figures/fig17_vr_planes9_colour.png`,
+8. Write the paper from the figures that exist (`docs/figures/fig17_vr_planes9_colour.png`,
    `state_of_flash_ssvep_fatigue.png`, `state_of_flash_eyes.png`), aim at
    ICCE-Berlin 2027 (May), with ICCE 2028 as the fallback.

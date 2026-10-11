@@ -13,3 +13,8 @@ targets_img/mann_preview.png
 
 # the drawn vision target and its sealed answer (per session, never committed)
 targets_img/vision_today*
+# the drawn photo and its sealed answer; the paper's portrait stays out like the rest of it
+targets_img/photo_today*
+targets_img/photos/mann.png
+targets_img/photo_mann_*.png
+targets_img/photo_gallery_preview.png

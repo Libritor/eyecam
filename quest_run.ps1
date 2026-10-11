@@ -6,11 +6,13 @@
 #   .\quest_run.ps1 -Run vision            # tumbling E + O/U pair (about 15 min)
 #   .\quest_run.ps1 -Run eight             # the eight colours by planes (about 25 min)
 #   .\quest_run.ps1 -Run officer           # the police officer, 8 x 10 (about 33 min)
+#   .\quest_run.ps1 -Run wedge             # the step wedge, 12 levels x 4 rows (about 7 min)
+#   .\quest_run.ps1 -Run photo             # one of the gallery photos, sealed, 12 x 12 (about 25 min)
 #   .\quest_run.ps1 -Run custom -Extra "--mode visual --choice bw --target pix:NO --grid-w 9 --grid-h 5 --spc 8"
 #
 # -Session names the folder under runs/ (default: <run><n>, the next free number).
 param(
-    [ValidateSet("vision", "eight", "officer", "custom")] [string] $Run = "vision",
+    [ValidateSet("vision", "eight", "officer", "wedge", "photo", "custom")] [string] $Run = "vision",
     [string] $Session = "",
     [string] $Extra = "",
     [int] $SignalTimeout = 7200,
@@ -29,6 +31,12 @@ switch ($Run) {
     "officer" { $args_ = @("--mode", "planes", "--color-target", "targets_img/officer_8x10.png", "--color-grid-w", "8",
                            "--color-grid-h", "10", "--plane-spc", "5,5,8", "--plane-passes", "1", "--rest-every", "40");
                 $prefix = "vr_officer" }
+    "wedge"   { $args_ = @("--mode", "visual", "--choice", "bw", "--target", "targets_img/wedge_12x4.png",
+                           "--grid-w", "12", "--grid-h", "4", "--spc", "8", "--certainty-max-passes", "2",
+                           "--rest-every", "48"); $prefix = "vr_wedge" }
+    "photo"   { $args_ = @("--mode", "visual", "--choice", "bw", "--target", "targets_img/photo_today.png",
+                           "--grid-w", "12", "--grid-h", "12", "--spc", "8", "--certainty-max-passes", "2",
+                           "--rest-every", "48"); $prefix = "vr_photo" }
     "custom"  { $args_ = @(); $prefix = "vr_custom" }
 }
 if ($Extra -ne "") { $args_ += ($Extra -split " ") }
@@ -39,6 +47,9 @@ if ($Session -eq "") {
 }
 if ($Run -eq "vision" -and -not (Test-Path "targets_img\vision_today.png")) {
     python targets_img\make_ou_targets.py --draw
+}
+if ($Run -eq "photo" -and -not (Test-Path "targets_img\photo_today.png")) {
+    python targets_img\make_photo_gallery.py --draw
 }
 $busy = netstat -ano | Select-String ":8082 .*LISTENING"
 if ($busy) { "port 8082 still held: $busy"; exit 2 }
@@ -61,3 +72,5 @@ Start-Sleep 10
 Get-Content $log | Where-Object { $_ -notmatch 'pygame|Hello' } | Select-Object -Last 6
 "when it is done: python analysis/vision_readout.py runs/$Session --seal targets_img/vision_today_seal.json   (vision)"
 "                 python analysis/planes_figures.py runs/$Session --label $Session                            (colour)"
+"                 python analysis/wedge_readout.py runs/$Session                                              (wedge)"
+"                 python analysis/photo_readout.py runs/$Session --seal targets_img/photo_today_seal.json     (photo)"
