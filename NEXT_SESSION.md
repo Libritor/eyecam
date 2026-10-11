@@ -3,6 +3,40 @@
 Written 2026-10-06. Branch `colour` (= `all-on-pc` + Khalil's smooth colour +
 Minu's analysis, merged; see README "Colour beyond black, white and blue").
 
+## Tomorrow (2026-10-11): three runs, one launcher
+
+Everything below is phantom-checked. Laptop on mains, Quest on the USB
+cable, MuseLog streaming to this PC on port 5000, Oz wet, and look at the
+ear badges on the page before pulling the trigger (a loose TP10 cost blue's
+second pass on 2026-10-10). `quest_run.ps1` starts the driver hidden, pushes
+the page to the Quest and prints the log; each run begins when the headset
+is worn and the trigger pulled.
+
+1. **Vision pair, about 15 min** (`.\quest_run.ps1 -Run vision`): a tumbling
+   E and a ring that is either closed (O) or open at the bottom (U), side by
+   side on a 12 by 7 grid, 8 s per position, one pass plus the least certain
+   positions once more. The launcher draws one of the eight combinations at
+   random (`targets_img/make_ou_targets.py --draw`) and seals the answer in
+   `targets_img/vision_today_seal.json`. When it is done:
+   `python analysis/vision_readout.py runs/vr_vision1 --seal targets_img/vision_today_seal.json`
+   decides which way the E points (4 choices) and O or U (2 choices) from the
+   EEG picture alone, then opens the seal and says right or wrong. This is
+   the acuity read-out for the paper: no letters named, no button pressed.
+2. **The eight colours, about 25 min** (`.\quest_run.ps1 -Run eight`): the
+   benchmark, with blue once and green twice (the current default). Then
+   `python analysis/planes_figures.py runs/vr_planes11 --label planes11`.
+3. **The officer, about 33 min** (`.\quest_run.ps1 -Run officer`, after a
+   break): `targets_img/officer_8x10.png`, 80 positions in four colours,
+   5 / 5 / 8 s per position, one pass each, a rest break every 40. Same
+   figure script.
+
+Do the vision pair first (short, fresh eyes), the eight colours second,
+the officer after a real break; on 2026-10-10 the blink rate had doubled by
+the second run of the evening, so stop when the eyes say so and keep the
+officer for another day if needed. A second ring size (`ou_big_o_12.png`,
+`ou_big_u_12.png`, 12 by 12, double-size optotype) is there for a
+threshold series later.
+
 ## 2026-10-10, two hours later: the second run (`runs/vr_planes10`)
 
 Same code with `--plane-passes 1,2,2` (green and blue scanned twice), the

@@ -10,3 +10,6 @@ targets_img/paper_reference.png
 targets_img/mann_highcontrast_720.png
 targets_img/mann_photo_*.png
 targets_img/mann_preview.png
+
+# the drawn vision target and its sealed answer (per session, never committed)
+targets_img/vision_today*

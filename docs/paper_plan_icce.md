@@ -72,8 +72,24 @@ all apply; the hardware is the kind the conference is about.
 
 ## Where to submit, honestly
 
-- ICCE 2027 (Las Vegas, 8-11 January 2027): the paper deadline was
-  15 September 2026 and has passed; acceptances go out 31 October 2026.
+- ICCE 2027 (Las Vegas, 8-11 January 2027), the target: the technical
+  paper deadline (15 September 2026 on the site, 15 August in the CFP) has
+  passed, acceptances go out 31 October. What may still be open: the
+  **demos and posters** track (two-page IEEE-format abstracts, published in
+  IEEE Xplore, submitted through EDAS) and the **workshop papers** (two
+  pages, EDAS). The 2027 pages for both still show the 2022 cycle's dates
+  (posters and demos 20 November, workshop papers 31 October, camera-ready
+  mid/late November), so the real 2027 dates must be confirmed on EDAS
+  (https://edas.info/N29720, login needed) or with the demo/poster chairs
+  before anything else. If a poster or demo slot exists, a two-page abstract
+  with two figures (the eight colours read from the EEG; the blink
+  suppress-and-release under flicker) is the realistic ICCE 2027 deliverable,
+  and a live demo (headset, headband, the picture building up on a laptop
+  screen) is exactly what that track is for. Tracks that fit: Consumer
+  Systems for Healthcare and Wellbeing (CSH), Virtual Reality, Augmented
+  Reality and Metaverse (VAM), Advanced Sensors (SEA), Human-Machine
+  Interaction (HMI). Conference theme: "Human-Centric AI for Intelligent
+  Living".
 - ICCE-Berlin 2027 (September 2027, with IFA): no 2027 call yet; the 2025
   call closed 30 May 2025, so expect a late-May 2027 deadline. The right
   target if the data are in by April 2027.
@@ -121,7 +137,14 @@ dwells), the one for the paper's hero figure if the 8 by 10 works.
    against its calibration; `analysis/planes_passes.py` showed blue's two
    passes read 26 of 32 without the ears against 19 with them). Small
    change, gated on the phantom with an injected artifact.
-4. The tumbling-E run (targets exist): the acuity read-out for contribution 3.
+4. The acuity read-out run, now one 15-minute scan: a tumbling E and a ring
+   that is either closed (O) or open at the bottom (U) side by side
+   (`targets_img/make_ou_targets.py`, drawn at random and sealed;
+   `analysis/vision_readout.py` decides E direction and O/U from the EEG
+   picture and then opens the seal). The O/U is the two-alternative
+   Landolt test, the simplest acuity decision there is; the E is the
+   four-alternative one. Both come from one scan. A double-size ring is
+   ready for a threshold series.
 5. Two more subjects (Minu, Khalil) for the colour profile and the blink
    readout: n = 3 is the floor for a screening claim at a conference.
 6. The eye-strain prompt (JITAI): a page message when the blink-release
