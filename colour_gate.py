@@ -56,7 +56,7 @@ def run_one(mode):
     else:
         cmd = ["--mode", "planes", "--freq", "15", "--calib-blocks", "4",
                "--calib-on", "5", "--calib-off", "5", "--calib-style", "bw",
-               "--calib-size", "1", "--plane-spc", "5,5,8", "--plane-passes", "1,2,2"]
+               "--calib-size", "1", "--plane-spc", "5,5,8", "--plane-passes", "1,2,1"]
     procs = []
     try:
         driver = subprocess.Popen([sys.executable, "xr_session.py"] + cmd + common + extra, cwd=ROOT)

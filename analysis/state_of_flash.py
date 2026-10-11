@@ -94,11 +94,20 @@ def stim_freq(d):
     return 12.0, False
 
 
-def timeline(d, t):
+def timeline(d, t, f0=None):
     """Per EEG sample: what was on the screen (state) and which stage it was."""
     state = np.full(len(t), PRE, np.int8)
     stage = np.full(len(t), 0, np.int8)        # 0 none, 1 calibration, 2 scan, 3 other
     first, last = np.inf, -np.inf
+    # a colour plane scanned at its own frequency (planes_meta.json
+    # freq_delivered, e.g. blue at 9 Hz from its sweep) puts a line inside
+    # theta or alpha: a tagged stage, like a colour sweep log
+    plane_hz = {}
+    try:
+        pm = json.load(open(os.path.join(d, "planes_meta.json")))
+        plane_hz = {str(k): float(v) for k, v in (pm.get("freq_delivered") or {}).items()}
+    except Exception:
+        pass
     for p in sorted(glob.glob(os.path.join(d, "*_log.csv"))):
         kind = os.path.basename(p).replace("_log.csv", "")
         try:
@@ -107,6 +116,12 @@ def timeline(d, t):
             continue
         if len(L) < 10 or L.shape[1] < 5:
             continue
+        if kind.startswith("plane_"):
+            hz = plane_hz.get(kind.split("_")[1])
+            if hz is not None and f0 is not None and abs(hz - f0) > 0.3:
+                kind = "color"
+        if kind.endswith("_sweep"):
+            kind = "color"
         lt = L.iloc[:, 0].to_numpy(float)
         gx = L.iloc[:, 1].to_numpy(float)
         lum = L.iloc[:, 3].to_numpy(float)
@@ -296,7 +311,7 @@ def analyse(d):
     name = os.path.basename(os.path.normpath(d))
     t, X, names, fs = load_eeg(d)
     f0, known = stim_freq(d)
-    state, stage, first, last = timeline(d, t)
+    state, stage, first, last = timeline(d, t, f0 if known else None)
     if not np.isfinite(first):
         return None
     df = epochs(t, X, names, fs, f0, state, stage, first, d)

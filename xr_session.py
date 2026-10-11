@@ -2359,11 +2359,13 @@ async def main():
     ap.add_argument("--plane-spc", default="8",
                     help="--mode planes: seconds per position, one value or R,G,B "
                          "(the dim blue earns a longer dwell, e.g. 6,6,10)")
-    ap.add_argument("--plane-passes", default="1,2,2",
+    ap.add_argument("--plane-passes", default="1,2,1",
                     help="--mode planes: full passes per plane, one value or R,G,B; "
                          "odd passes run bottom-to-top and the visits are averaged. "
-                         "Default 1,2,2: green and blue, the planes that still miss "
-                         "cells, get a second pass (vr_planes9)")
+                         "Default 1,2,1: green gets a second pass (28 -> 31 of 32 on "
+                         "vr_planes10); blue keeps one pass plus its revisits, since its "
+                         "9 Hz tag is the first to drown when alpha climbs late in a "
+                         "session (blue's second pass on vr_planes10 carried nothing)")
     ap.add_argument("--plane-patch", default="1,1,2",
                     help="--mode planes: flicker patch size per plane in units of a "
                          "6x4-grid cell, one value or R,G,B (blue is the weakest "

@@ -48,6 +48,57 @@ The recordings contain no EEG sign that the 12 Hz flicker makes the subject drow
 - Drowsiness after a session, rather than during it, is not something a within-session contrast can see.
 - One subject.
 
+## 2026-10-10: two colour runs in one evening, and the SSVEP as a fatigue meter
+
+Two 8 by 4 colour-plane sessions on the Quest 3S, the first at 17:57
+(`vr_planes9`, 21 min of stimulation) and the second at 19:50 (`vr_planes10`,
+30 min), the subject reporting afterwards that the flicker had left them
+"feeling some type of way". Three readings of the EEG, the blue plane (9 Hz)
+and the blue sweep kept out of the spectral markers as tagged stages:
+
+**The classic markers.** Theta/alpha on Oz did not climb in either run:
+Theil-Sen drift over the flicker epochs -0.15 log10 per 10 min in the first
+run, +0.01 in the second (dark epochs -0.08 and -0.03). The acute contrast,
+flicker against the nearest dark cell, was 0 in the first run and -0.1 in the
+second (alpha a little higher under flicker, not theta). No sleep-onset
+signature.
+
+**Alpha on the ears climbed through the second run.** TP9/TP10 alpha (8-10.5
+Hz) drifted +0.15 log10 per 10 min over flicker epochs and +0.17 over dark
+epochs in the second run, threefold over the half hour, with theta/alpha on
+the ears +0.1 per 10 min; in the first run the same markers fell (-0.10 and
+-0.02). Oz alpha stayed flat in both (-0.03, -0.01). Eyes-open alpha rising
+with time on task is the usual early-drowsiness or relaxed-wakefulness sign;
+the Oz cup, sitting on the SSVEP generator, may simply not show it.
+
+**The SSVEP itself faded, in two ways** (`analysis/flash_fatigue.py`,
+`figures/state_of_flash_ssvep_fatigue.png`; `analysis/planes_passes.py`):
+
+- The runs began in the same state: the colour calibrations matched (red
+  +5.8, green +3.9, blue +5.0 against +5.0, +4.3, +5.5; white calibration Oz
+  d' 4.4 against 5.6).
+- Blue, scanned first at 9 Hz, kept a clean Oz contact throughout and still
+  lost its contrast in its second pass (minute 13-19): the lit cells fell from
+  0.25 to 0.20 while the dark cells rose from 0.14 to 0.18, the 9 Hz power of
+  the dark cells climbing with the alpha above. Pass 1 alone read 24 of 32,
+  pass 2 alone 21 (r 0.01), the two averaged 19. The 9 Hz tag is the first
+  casualty of a climbing alpha.
+- Red and green, scanned at minutes 20-30, read at half the first run's
+  response (red 0.37 falling to 0.19 within its three minutes, against
+  0.56-0.74 two hours earlier; green 0.16-0.23 against 0.33-0.39). But the Oz
+  contact's own noise rose from minute 20 (1-40 Hz RMS 10 to 80 uV, mains
+  pick-up 20 to 50 uV), so for these two the simpler explanation is the
+  electrode, not the subject. Green still averaged to 31 of 32 over its two
+  passes.
+
+So the one thing in this evening's data that reads like a State of Flash is
+a slow rise of alpha on the ear channels through the second half hour of
+flicker, with the alpha-adjacent tag losing its contrast as it rose. It is
+one subject, one evening, the second run of the day, no control condition
+and no sleepiness scale; the study below is still what would settle it. For
+the camera, the practical rule is the one in NEXT_SESSION.md: blue first and
+short, and a second run in the same evening is a different subject.
+
 ## What is known about flicker near the alpha rhythm
 
 Flicker at 10 Hz is the classic probe of the alpha rhythm. Stimulating from 1

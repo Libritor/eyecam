@@ -3,6 +3,43 @@
 Written 2026-10-06. Branch `colour` (= `all-on-pc` + Khalil's smooth colour +
 Minu's analysis, merged; see README "Colour beyond black, white and blue").
 
+## 2026-10-10, two hours later: the second run (`runs/vr_planes10`)
+
+Same code with `--plane-passes 1,2,2` (green and blue scanned twice), the
+run that was to buy the eight missing cells. It did not: colour r 0.66
+(R 0.79, G 0.82, B 0.44), 20 of 32 cells (R 29, G 31, B 23), hue 16 of 24,
+null 0.42. `analysis/planes_passes.py` decodes each plane pass by pass:
+
+- green: pass 1 28, pass 2 26, both averaged 31 of 32. The second pass works.
+- blue: pass 1 24 (r 0.55), pass 2 21 (r 0.01: lit cells 0.20 against dark
+  0.18, no response at all), both 19, with the revisits 23. Averaging a dead
+  pass with a live one cost five cells.
+- red: 29 (32 two hours earlier); its response fell from 0.45 to 0.15 within
+  its three minutes, at minute 20-23 of the run.
+
+Why: not the start of the run. The white calibration gave Oz d' 4.4 (5.6
+before) and the colour calibrations matched the first run's (red +5.8, green
++3.9, blue +5.0 against +5.0, +4.3, +5.5). The run then faded in two ways,
+`docs/state_of_flash.md` and `docs/figures/state_of_flash_ssvep_fatigue.png`:
+
+- State of Flash: alpha on the ear channels climbed log10 +0.15 per 10 min
+  (threefold over the half hour) in flicker and dark epochs alike, theta/alpha
+  on the ears +0.1 per 10 min, while Oz theta/alpha stayed flat and the
+  first run had drifted the other way (ears' alpha -0.1 per 10 min). Blue's
+  9 Hz tag sits at the edge of alpha and the ears carry 0.37 of blue's
+  weights: as alpha rose, the dark cells' 9 Hz score rose from 0.14 to 0.18
+  and the plane's contrast was gone by its second pass (minute 13-19), on a
+  clean Oz contact.
+- The Oz contact: 1-40 Hz RMS about 10 uV from minute 1 to 20, then rising
+  to 80 uV by minute 30, mains pick-up 20 -> 50 uV. Red and green were
+  scanned in those minutes. Wet Oz again before a second run, or run the
+  colours first.
+
+Default changed to `--plane-passes 1,2,1`: green twice, blue once plus its
+revisits (blue is scanned first, before alpha climbs; 5 min saved). Session:
+about 25 min. A second run in the same evening is a different subject state:
+treat it as one.
+
 ## 2026-10-10: the best colour run so far (`runs/vr_planes9`)
 
 The merged code (Minu's certainty scanning and HFPM palette, commit a4eac48)
@@ -34,11 +71,11 @@ What carried it (decoding the blue log again in pieces):
   apart by CPU time and prints "driver busy" instead (`freeze_gate.py`
   still passes for a real suspension).
 
-Next: the same planes command. The eight wrong cells are four green and four
-blue, so `--plane-passes 1,2,2` is now the default: a second pass of green and
-blue (about 8.5 min more, a rest break between the passes with
-`--rest-every 32`), on top of blue's ten revisits. `--plane-revisit 0,10,10`
-is the other cheap lever. Session: about 30 min.
+Next: the same planes command. The eight wrong cells were four green and four
+blue; the second run that evening (above) showed a second pass of green buys
+its cells and a second pass of blue does not, so the default is now
+`--plane-passes 1,2,1` (a rest break falls between green's passes with
+`--rest-every 32`), on top of blue's ten revisits. Session: about 25 min.
 
 ## 2026-10-07: the first complete three-plane run, and what it found
 
@@ -72,9 +109,8 @@ Next run: the planes command below, laptop on mains, phone screen on. The
 blue fixes are on by default (`--plane-patch 1,1,2`, `--plane-sweep 6,7.2,9,12`
 for blue, `--plane-revisit 0,0,10`): blue's calibration is a 3 min sweep, it is
 scanned at its best frequency with a double-size patch, and its ten least
-certain positions are shown again (about 2 min); green and blue get a second
-pass (`--plane-passes 1,2,2`, about 8.5 min, since 2026-10-10). Session: about
-30 min.
+certain positions are shown again (about 2 min); green gets a second pass
+(`--plane-passes 1,2,1`, about 3 min, since 2026-10-10). Session: about 25 min.
 
 ## The colour session, in order (one day, one electrode placement)
 
