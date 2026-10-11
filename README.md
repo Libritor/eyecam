@@ -811,6 +811,7 @@ and scoring uses that.
 | Colour on 2026-10-01, an hour into the session | 15 of 24 cells with the right hue (planes R 0.38, G 0.28, B 0.70); Oz response had dropped from 192 to 5.5 at 12 Hz |
 | Three colour planes on the Quest 3S (2026-10-10, `vr_planes9`) | 24 of 32 pure-colour cells and the hue right on 19 of 24; colour r 0.79 (R 0.90, G 0.79, B 0.69); planes R 32, G 28, B 28 of 32; shifted nulls reach 0.32. Blue scanned at 9 Hz after its sweep (+5.5 against +4.1 at 12 Hz) with the patch doubled: 27 of 32 from the single pass, 28 with the ten revisits; blue's own weights and the white calibration's gave the same 28. Three days earlier with the same code but without the blue fixes and a poor Oz contact: 18 of 32, hue 14 of 24 |
 | The same evening, two hours later (`vr_planes10`, green and blue scanned twice) | 20 of 32 cells, hue 16 of 24, colour r 0.66 (R 0.79, G 0.82, B 0.44); planes R 29, G 31, B 23. Green's two passes averaged to 31 (28 and 26 alone); blue's second pass carried no response and averaging it in cost five cells. The colour calibrations at the start matched the first run's (red +5.8, green +3.9, blue +5.0 against +5.0, +4.3, +5.5), so the run started in the same state. Blue's second pass was lost to the right ear electrode coming loose at minute 11 (with the ears dropped the two passes read 26 of 32), the Oz contact's noise rose from minute 20 under red and green, and the Oz response itself fell by half between blue's passes (`docs/state_of_flash.md`, with the subject's eyes and forehead report against the EEG) |
+| The acuity read-out on a person (2026-10-11, `vr_vision1`) | a tumbling E and an O/U ring side by side on 12 by 7, one of eight combinations drawn at random and sealed before the scan; 168 visits at 8 s (every cell twice), 22 min. Picture r 0.89 (shifted nulls up to 0.34), 80 of 84 cells after the automatic threshold. `analysis/vision_readout.py` on the EEG picture alone: E points up (margin 0.24 over the runner-up), ring is U (margin 0.22); both agree with the seal, a 1 in 8 chance. No letter was named and no button pressed |
 | 40 Hz tagged music | not detected through headset speakers (p = 0.13 to 0.69), nor with the cup at the vertex and headphones (19 tagged and 19 plain blocks, p = 0.32; any response is below about 0.3 uV) |
 
 ![Response curve and spectrum](docs/figures/fig3_response_curve.png)
@@ -820,6 +821,8 @@ and scoring uses that.
 !["NO" read from the EEG, per pass](docs/figures/fig11_pix_NO.png)
 
 ![Eight colours read from the EEG on the Quest 3S, 2026-10-10](docs/figures/fig17_vr_planes9_colour.png)
+
+![The sealed E and ring read from the EEG, 2026-10-11](docs/figures/fig18_vr_vision1_acuity.png)
 
 The practical consequence: Mann's choice of 15 Hz is right for staying clear of
 alpha but is on the weak side of this subject's response curve, and a stock

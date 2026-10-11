@@ -12,7 +12,10 @@ second pass on 2026-10-10). `quest_run.ps1` starts the driver hidden, pushes
 the page to the Quest and prints the log; each run begins when the headset
 is worn and the trigger pulled.
 
-1. **Vision pair, about 15 min** (`.\quest_run.ps1 -Run vision`): a tumbling
+1. **Vision pair, about 15 min** (`.\quest_run.ps1 -Run vision`). DONE 12:28,
+   `runs/vr_vision1`: E up and ring U both named right from the EEG alone
+   (r 0.89, 80 of 84 cells; 168 visits, 22 min, lowest certainty 65%).
+   The read-out as planned: a tumbling
    E and a ring that is either closed (O) or open at the bottom (U), side by
    side on a 12 by 7 grid, 8 s per position, one pass plus the least certain
    positions once more. The launcher draws one of the eight combinations at
