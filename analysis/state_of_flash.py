@@ -116,17 +116,18 @@ def timeline(d, t, f0=None):
             continue
         if len(L) < 10 or L.shape[1] < 5:
             continue
+        off_freq = kind.endswith("_sweep")
         if kind.startswith("plane_"):
             hz = plane_hz.get(kind.split("_")[1])
-            if hz is not None and f0 is not None and abs(hz - f0) > 0.3:
-                kind = "color"
-        if kind.endswith("_sweep"):
-            kind = "color"
+            off_freq = hz is not None and f0 is not None and abs(hz - f0) > 0.3
         lt = L.iloc[:, 0].to_numpy(float)
         gx = L.iloc[:, 1].to_numpy(float)
         lum = L.iloc[:, 3].to_numpy(float)
         audio = L.iloc[:, 11].to_numpy(float) if L.shape[1] > 11 else np.zeros(len(L))
-        if kind in ("color", "mux", "smooth", "bwb"):
+        if off_freq:                            # lit at 6 / 7.2 / 9 Hz: tagged; black: dark
+            s = np.where(lum > 0.05, TAGGED, DARK)
+            sg = 1 if kind.endswith("_sweep") else 2
+        elif kind in ("color", "mux", "smooth", "bwb"):
             s = np.where(gx >= 0, TAGGED, DARK)
             sg = 3
         elif kind in ("ccal", "bwb_cal"):

@@ -2363,9 +2363,9 @@ async def main():
                     help="--mode planes: full passes per plane, one value or R,G,B; "
                          "odd passes run bottom-to-top and the visits are averaged. "
                          "Default 1,2,1: green gets a second pass (28 -> 31 of 32 on "
-                         "vr_planes10); blue keeps one pass plus its revisits, since its "
-                         "9 Hz tag is the first to drown when alpha climbs late in a "
-                         "session (blue's second pass on vr_planes10 carried nothing)")
+                         "vr_planes10); blue keeps one pass plus its revisits (its second "
+                         "pass on vr_planes10 was lost to a loose ear electrode: a pass is "
+                         "only worth averaging in when the electrodes held through it)")
     ap.add_argument("--plane-patch", default="1,1,2",
                     help="--mode planes: flicker patch size per plane in units of a "
                          "6x4-grid cell, one value or R,G,B (blue is the weakest "

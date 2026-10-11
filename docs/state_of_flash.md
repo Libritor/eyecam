@@ -52,24 +52,23 @@ The recordings contain no EEG sign that the 12 Hz flicker makes the subject drow
 
 Two 8 by 4 colour-plane sessions on the Quest 3S, the first at 17:57
 (`vr_planes9`, 21 min of stimulation) and the second at 19:50 (`vr_planes10`,
-30 min), the subject reporting afterwards that the flicker had left them
-"feeling some type of way". Three readings of the EEG, the blue plane (9 Hz)
-and the blue sweep kept out of the spectral markers as tagged stages:
+30 min). Three readings of the EEG, the blue plane (9 Hz) and the blue sweep
+kept out of the spectral markers as tagged stages:
 
 **The classic markers.** Theta/alpha on Oz did not climb in either run:
 Theil-Sen drift over the flicker epochs -0.15 log10 per 10 min in the first
-run, +0.01 in the second (dark epochs -0.08 and -0.03). The acute contrast,
+run, +0.01 in the second (dark epochs -0.04 in both). The acute contrast,
 flicker against the nearest dark cell, was 0 in the first run and -0.1 in the
 second (alpha a little higher under flicker, not theta). No sleep-onset
 signature.
 
-**Alpha on the ears climbed through the second run.** TP9/TP10 alpha (8-10.5
-Hz) drifted +0.15 log10 per 10 min over flicker epochs and +0.17 over dark
-epochs in the second run, threefold over the half hour, with theta/alpha on
-the ears +0.1 per 10 min; in the first run the same markers fell (-0.10 and
--0.02). Oz alpha stayed flat in both (-0.03, -0.01). Eyes-open alpha rising
-with time on task is the usual early-drowsiness or relaxed-wakefulness sign;
-the Oz cup, sitting on the SSVEP generator, may simply not show it.
+**No alpha rise on any electrode that held.** A first reading of the second
+run showed the ear channels' alpha climbing threefold over the half hour.
+That was the right ear electrode (TP10) coming loose at minute 11.2: 51 % of
+its epochs over 150 uV in minutes 10-15, 23 uV RMS against 7 uV before, and
+three times TP9 even in the epochs that pass the artifact gate. Per channel,
+alpha on the dark cells drifted TP10 +0.28, TP9 -0.02, AF7 +0.05, AF8 +0.03,
+Oz -0.03 log10 per 10 min. Alpha was flat everywhere else.
 
 **The SSVEP itself faded, in two ways** (`analysis/flash_fatigue.py`,
 `figures/state_of_flash_ssvep_fatigue.png`; `analysis/planes_passes.py`):
@@ -77,27 +76,120 @@ the Oz cup, sitting on the SSVEP generator, may simply not show it.
 - The runs began in the same state: the colour calibrations matched (red
   +5.8, green +3.9, blue +5.0 against +5.0, +4.3, +5.5; white calibration Oz
   d' 4.4 against 5.6).
-- Blue, scanned first at 9 Hz, kept a clean Oz contact throughout and still
-  lost its contrast in its second pass (minute 13-19): the lit cells fell from
-  0.25 to 0.20 while the dark cells rose from 0.14 to 0.18, the 9 Hz power of
-  the dark cells climbing with the alpha above. Pass 1 alone read 24 of 32,
-  pass 2 alone 21 (r 0.01), the two averaged 19. The 9 Hz tag is the first
-  casualty of a climbing alpha.
+- Blue, scanned first at 9 Hz, read as dead in its second pass (minute 13-19;
+  pass 1 alone 24 of 32, pass 2 alone 21, averaged 19). The loose ear
+  electrode carries 0.15 of blue's weights and lifted the dark cells' score
+  from 0.14 to 0.18; with the ear channels dropped the two passes together
+  read 26 of 32. The response on Oz alone still fell from 0.34 to 0.19 between
+  the passes, on a clean Oz contact: a real fading, cause open (adaptation,
+  time on task).
 - Red and green, scanned at minutes 20-30, read at half the first run's
   response (red 0.37 falling to 0.19 within its three minutes, against
-  0.56-0.74 two hours earlier; green 0.16-0.23 against 0.33-0.39). But the Oz
+  0.56-0.74 two hours earlier; green 0.16-0.23 against 0.33-0.39). The Oz
   contact's own noise rose from minute 20 (1-40 Hz RMS 10 to 80 uV, mains
-  pick-up 20 to 50 uV), so for these two the simpler explanation is the
-  electrode, not the subject. Green still averaged to 31 of 32 over its two
-  passes.
+  pick-up 20 to 50 uV), so for these two the electrode is the simpler
+  explanation. Green still averaged to 31 of 32 over its two passes.
 
-So the one thing in this evening's data that reads like a State of Flash is
-a slow rise of alpha on the ear channels through the second half hour of
-flicker, with the alpha-adjacent tag losing its contrast as it rose. It is
-one subject, one evening, the second run of the day, no control condition
-and no sleepiness scale; the study below is still what would settle it. For
-the camera, the practical rule is the one in NEXT_SESSION.md: blue first and
-short, and a second run in the same evening is a different subject.
+So the evening's drowsiness markers are null; what the evening did show is
+in the next section, and for the camera the rule is in NEXT_SESSION.md: a
+second run in the same evening is a different subject, and a pass is only
+worth averaging in when the electrodes held through it.
+
+## 2026-10-10, the subject's report: eyes irritated, a slight forehead ache, not drowsy
+
+After the two runs the subject reported no drowsiness, irritated eyes and a
+slight forehead ache. Four marker families were measured on the two runs and
+on a reference day (`vr_planes8`, 2026-10-07, no report), and every finding
+was then recomputed independently by two further analyses whose brief was
+to refute it (19 of those checks completed): blinks and eye movements
+(`analysis/flash_eog.py`), forehead muscle (`analysis/flash_frontalis.py`),
+frontal theta and beta (`analysis/flash_frontal_theta.py`), and the things
+that mimic them, contact, movement, stimulus leakage, jaw muscle, the pre-run
+baseline (`analysis/flash_confounds.py`). Figures `figures/state_of_flash_eyes.png`,
+`state_of_flash_forehead.png`, `state_of_flash_frontal_theta.png`,
+`state_of_flash_confounds.png`; every number in
+`docs/results/state_of_flash_2026-10-10/`.
+
+**Eyes irritated: supported, between the runs.**
+
+- A blink on a Muse under the headset is not a frontal event. Every channel
+  is referenced to Fpz, so a blink appears as one identical negative pulse of
+  about 60 uV on TP9, TP10 and the Oz cup, and only as a 3-16 uV gradient on
+  AF7/AF8. The repo's 100 uV frontal blink detector therefore counts nothing
+  (0.0-0.3 per minute); a far-channel detector, built independently by the
+  measurer and by a refuter, agrees to the decimal.
+- Blink rate on task: run 1 6-7 per minute, run 2 11-12, reference day 3-4.
+  Run 2 ran at twice run 1 at matched minutes (+5 to +6 per minute, 19 of 21
+  minutes, p < 0.001) from its first minutes (14 against 4.5 per minute in
+  minutes 0-5), and the rate was flat within each run.
+- While a 12 Hz cell flickered the subject nearly stopped blinking (2-4 per
+  minute, against 30 per minute at the rest prompts) and let a burst go the
+  moment the cell went dark (29-36 per minute in the first second). That
+  suppress-then-release pattern is eyes held open on a bright target, which
+  is how a cornea dries; it was present on the reference day at a lower level
+  and strongest in run 2.
+- No long or slow blinks at any point (0-1 % over 400 ms), amplitude and
+  duration unchanged, bursts fell through run 2. Horizontal eye movements
+  away from the cell rose fivefold through run 2 (low confidence; AF7-AF8 is
+  a crude EOG).
+- Reading: the eyes were already blinking twice as fast when run 2 began,
+  after 21 minutes of flicker and the hour between. A doubled blink rate with
+  an unchanged blink shape is what dry, irritated eyes look like in an EOG.
+  One subject, a between-session difference, time of evening confounded.
+
+**Forehead ache: not in the muscle and not in the EEG.**
+
+- Forehead broadband power (frontalis EMG, 20-45 Hz, stimulus lines and
+  mains cut) sat at 1.5-2.3 uV rms in all three sessions, 10-100x below a
+  sustained contraction. Run 2, the run before the report, had the lowest
+  level and a falling trend; the day-to-day level differences were electrode
+  placement, stage composition and contact, not the forehead.
+- One episode: the left forehead electrode's broadband power tripled for the
+  last three minutes of run 1, a step at the green plane's onset, sustained,
+  broadband, with no contact change by any proxy. Reproduced independently;
+  one electrode, so muscle against a shifting pad is undecidable; nothing
+  like it in run 2.
+- Tonight only, the forehead carried 10-40 % more broadband power while a
+  bright full-field block was lit than while it was black (both forehead
+  electrodes, not the ears or Oz; absent on the reference day). In run 2 this
+  is confined to the first 96 s of white calibration while the contact was
+  still settling; in run 1 the 65-120 Hz band (+41 %) is the stronger piece.
+  Its refuters did not finish, so it stands unverified; if real it is a
+  periocular reaction (squinting) to the bright full-field flashes.
+- Frontal theta did not rise with the flicker (-5 to -13 %), did not climb
+  within either run, and was indistinguishable from the reference day;
+  frontal beta fell through run 2. No mounting effort or tension. A headache
+  has no EEG signature, and the forehead electrodes show nothing that would
+  accompany one. The Quest's facial interface pressing on the forehead, which
+  the EEG cannot see, is the likeliest cause.
+
+**Not drowsy: supported.** No long blinks; no theta rise anywhere (Oz theta
+-0.08 to -0.09 log10 per 10 min, frontal theta flat); frontal theta/alpha
+fell 13-23 % while a cell flickered (alerting, identical on the reference
+day); eye-closure share 4 % tonight against 11 % on the reference day.
+
+**Confounds measured, all verified.** Mains pick-up fell 3-4x on every
+channel in run 2 (the environment or the reference path, not forehead
+contact); whole-head movement on task is rare (1 event in run 1, 0 in run 2);
+no 12 Hz or 9 Hz line reaches the forehead (upper limit 0.37 uV against
+4-5 uV on Oz), so frontal contrasts are not photic driving; no eyes-open
+pre-run baseline exists in any session (the three minutes before the first
+flicker are headset handling); the 1-4 Hz frontal lit/dark gap is the
+blink-rate difference, not cortex; the ear EMG level is contact, not jaw.
+The sweep and the off-frequency blue plane were mislabelled in this script
+(lit sweep blocks counted as dark, black blue cells as tagged); fixed, and
+no acute contrast changed.
+
+| marker | run 1 (17:57) | run 2 (19:50) | reference day | reads as |
+|---|---|---|---|---|
+| blink rate on task, per min | 6.8 | 12.1 | 4.1 | eyes irritated by run 2 |
+| blinks while a 12 Hz cell flickers / after it goes dark | 2-5 / 29 | 4-10 / 36 | 2 / 8 | eyes held open, released on black |
+| blinks over 400 ms | 1 % | 0 % | 0 % | not drowsy |
+| forehead 20-45 Hz, uV rms | 2.3 | 1.7 | 2.1 | no frontalis tension |
+| left forehead, last 3 min of run 1 | x2.7 | x0.3 | x0.4 | one episode, undecidable |
+| frontal theta drift, log10 per 10 min | -0.10 | +0.01 | -0.19 | no effort build-up |
+| Oz theta drift, log10 per 10 min | -0.09 | -0.08 | -0.43 | not drowsy |
+| alpha drift on the dark cells (TP9 / Oz / TP10) | -0.06 / -0.02 / 0.00 | -0.02 / -0.03 / +0.28 | | TP10 loose from minute 11 of run 2 |
 
 ## What is known about flicker near the alpha rhythm
 

@@ -22,23 +22,32 @@ before) and the colour calibrations matched the first run's (red +5.8, green
 +3.9, blue +5.0 against +5.0, +4.3, +5.5). The run then faded in two ways,
 `docs/state_of_flash.md` and `docs/figures/state_of_flash_ssvep_fatigue.png`:
 
-- State of Flash: alpha on the ear channels climbed log10 +0.15 per 10 min
-  (threefold over the half hour) in flicker and dark epochs alike, theta/alpha
-  on the ears +0.1 per 10 min, while Oz theta/alpha stayed flat and the
-  first run had drifted the other way (ears' alpha -0.1 per 10 min). Blue's
-  9 Hz tag sits at the edge of alpha and the ears carry 0.37 of blue's
-  weights: as alpha rose, the dark cells' 9 Hz score rose from 0.14 to 0.18
-  and the plane's contrast was gone by its second pass (minute 13-19), on a
-  clean Oz contact.
+- The right ear electrode (TP10) came loose at minute 11.2 of the run (51 %
+  of its epochs over 150 uV in minutes 10-15, 23 uV RMS against 7 before),
+  exactly as blue's second pass began; it carries 0.15 of blue's weights and
+  the dark cells' 9 Hz score rose with it (0.14 -> 0.18). With the ear
+  channels dropped from the decode the two blue passes read 26 of 32 (19
+  with them). The blue response on Oz alone still fell from 0.34 to 0.19
+  between the passes: a real fading on a clean contact, cause open. An
+  "alpha rise on the ears" reported before this check was that electrode;
+  alpha on every electrode that held was flat.
 - The Oz contact: 1-40 Hz RMS about 10 uV from minute 1 to 20, then rising
   to 80 uV by minute 30, mains pick-up 20 -> 50 uV. Red and green were
   scanned in those minutes. Wet Oz again before a second run, or run the
   colours first.
 
 Default changed to `--plane-passes 1,2,1`: green twice, blue once plus its
-revisits (blue is scanned first, before alpha climbs; 5 min saved). Session:
-about 25 min. A second run in the same evening is a different subject state:
-treat it as one.
+revisits (blue is scanned first; 5 min saved). A loose-channel guard in the
+decode (drop a channel whose RMS triples against its calibration) would make
+a second blue pass safe again; until then check the ear badges on the page
+before any second run. Session: about 25 min. A second run in the same
+evening is a different subject state: treat it as one.
+
+The subject's report after this evening (not drowsy; eyes irritated; slight
+forehead ache) against the EEG is in `docs/state_of_flash.md`: blink rate
+doubled between the runs with the blink shape unchanged (irritated eyes,
+supported), no forehead muscle tension or effort theta (the ache is not in the
+EEG; the headset's facial interface is the likely cause), no drowsiness sign.
 
 ## 2026-10-10: the best colour run so far (`runs/vr_planes9`)
 

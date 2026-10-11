@@ -684,10 +684,12 @@ passes in half the time). `--plane-passes R,G,B` sets full passes per plane;
 the default is `1,2,1`: a second pass of green (the odd pass runs
 bottom-to-top, the visits are averaged, about 3 min more; 28 -> 31 of 32 on
 `vr_planes10`), blue left at one pass plus its revisits. Blue's second pass
-was tried on `vr_planes10`, the second run of that evening, and carried
-nothing (lit cells 0.20 against dark 0.18, r 0.01): its 9 Hz tag is the
-first to drown when alpha climbs late in a session (`docs/state_of_flash.md`),
-and averaging a dead pass with a live one cost five cells. With
+was tried on `vr_planes10`, the second run of that evening, and read as dead
+(lit cells 0.20 against dark 0.18, r 0.01): the right ear electrode had come
+loose at minute 11 of the run and carried 0.15 of blue's weights; with the
+ear channels dropped the two blue passes read 26 of 32, and the Oz response
+alone had fallen by half between the passes (`docs/state_of_flash.md`). A
+pass is only worth averaging in when the electrodes held through it. With
 `--rest-every 32` a rest break falls between two passes.
 The page's `start_scan` takes a `cells` list for the revisit.
 On 2026-10-10 (`vr_planes9`) the sweep put blue at 9 Hz (+5.5 against +4.1
@@ -808,7 +810,7 @@ and scoring uses that.
 | Smaller squares are not higher resolution | 12 by 8 cell-sized squares at 8 s give a line below the noise flanks; the response scales with flickering area |
 | Colour on 2026-10-01, an hour into the session | 15 of 24 cells with the right hue (planes R 0.38, G 0.28, B 0.70); Oz response had dropped from 192 to 5.5 at 12 Hz |
 | Three colour planes on the Quest 3S (2026-10-10, `vr_planes9`) | 24 of 32 pure-colour cells and the hue right on 19 of 24; colour r 0.79 (R 0.90, G 0.79, B 0.69); planes R 32, G 28, B 28 of 32; shifted nulls reach 0.32. Blue scanned at 9 Hz after its sweep (+5.5 against +4.1 at 12 Hz) with the patch doubled: 27 of 32 from the single pass, 28 with the ten revisits; blue's own weights and the white calibration's gave the same 28. Three days earlier with the same code but without the blue fixes and a poor Oz contact: 18 of 32, hue 14 of 24 |
-| The same evening, two hours later (`vr_planes10`, green and blue scanned twice) | 20 of 32 cells, hue 16 of 24, colour r 0.66 (R 0.79, G 0.82, B 0.44); planes R 29, G 31, B 23. Green's two passes averaged to 31 (28 and 26 alone); blue's second pass carried no response and averaging it in cost five cells. The colour calibrations at the start matched the first run's (red +5.8, green +3.9, blue +5.0 against +5.0, +4.3, +5.5), so the run started in the same state and faded: the ears' alpha climbed threefold over the half hour (`docs/state_of_flash.md`) and the Oz contact's noise rose from minute 20 |
+| The same evening, two hours later (`vr_planes10`, green and blue scanned twice) | 20 of 32 cells, hue 16 of 24, colour r 0.66 (R 0.79, G 0.82, B 0.44); planes R 29, G 31, B 23. Green's two passes averaged to 31 (28 and 26 alone); blue's second pass carried no response and averaging it in cost five cells. The colour calibrations at the start matched the first run's (red +5.8, green +3.9, blue +5.0 against +5.0, +4.3, +5.5), so the run started in the same state. Blue's second pass was lost to the right ear electrode coming loose at minute 11 (with the ears dropped the two passes read 26 of 32), the Oz contact's noise rose from minute 20 under red and green, and the Oz response itself fell by half between blue's passes (`docs/state_of_flash.md`, with the subject's eyes and forehead report against the EEG) |
 | 40 Hz tagged music | not detected through headset speakers (p = 0.13 to 0.69), nor with the cup at the vertex and headphones (19 tagged and 19 plain blocks, p = 0.32; any response is below about 0.3 uV) |
 
 ![Response curve and spectrum](docs/figures/fig3_response_curve.png)
