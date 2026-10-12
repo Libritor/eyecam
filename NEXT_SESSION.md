@@ -25,7 +25,10 @@ is worn and the trigger pulled.
    decides which way the E points (4 choices) and O or U (2 choices) from the
    EEG picture alone, then opens the seal and says right or wrong. This is
    the acuity read-out for the paper: no letters named, no button pressed.
-2. **The eight colours, about 25 min** (`.\quest_run.ps1 -Run eight`): the
+2. **The eight colours, about 25 min**. DONE 2026-10-12 10:40-11:13,
+   `runs/vr_planes11`: 23 of 32, hue 16 of 24, r 0.75; red 32, green 31,
+   blue 23 (lost on the right half of the field with the electrodes
+   holding; Oz alone 25). Oz d' 1.8 on white, the weakest sitting. As planned: (`.\quest_run.ps1 -Run eight`): the
    benchmark, with blue once and green twice (the current default). Then
    `python analysis/planes_figures.py runs/vr_planes11 --label planes11`.
 3. **The officer, about 33 min** (`.\quest_run.ps1 -Run officer`, after a

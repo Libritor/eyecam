@@ -1,0 +1,40 @@
+{
+ "logs": {
+  "blue": "plane_blue_log.csv",
+  "red": "plane_red_log.csv",
+  "green": "plane_green_log.csv"
+ },
+ "spc": [
+  6.0,
+  6.0,
+  10.0
+ ],
+ "passes": [
+  1,
+  2,
+  1
+ ],
+ "patch": [
+  1.0,
+  1.0,
+  2.0
+ ],
+ "revisit": [
+  0,
+  0,
+  10
+ ],
+ "freq_requested": {
+  "red": 12.0,
+  "green": 12.0,
+  "blue": 9.0
+ },
+ "freq_delivered": {
+  "blue": 9.0,
+  "red": 12.0,
+  "green": 12.0
+ },
+ "freq": 12.0,
+ "method": "paper",
+ "target": "eight"
+}

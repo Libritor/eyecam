@@ -44,15 +44,32 @@ def write_rows(path, head, rows):
         w.writerows(rows)
 
 
-def score(S, log, weights, cal, freq, target_plane, pure, shift=0.0):
-    info = {}
+def score(S, log, weights, cal, freq, target_plane, pure, shift=0.0, info=None):
+    info = {} if info is None else info
     g, _ = reconstruct.run(S, calibration=cal, weights=weights, stim_freq=freq,
                            method="paper", vblend=False, cursor_log=log, save=False,
                            shift_s=shift, info=info)
     g = np.asarray(g, float)
-    on = g > smoothcolor.otsu_log(g)
-    right = int((on == target_plane)[pure].sum())
-    r = float(np.corrcoef(target_plane.ravel().astype(float), g.ravel())[0, 1])
+    if g.shape != target_plane.shape:
+        # a piece that visited only part of the grid (the revisits) comes back
+        # as a smaller grid: put it on the full grid, unvisited cells NaN
+        full = np.full(target_plane.shape, np.nan)
+        full[:g.shape[0], :g.shape[1]] = g
+        g = full
+    seen = np.isfinite(g)
+    if info.get("scores"):
+        # only the cells this piece actually visited count (a revisit piece
+        # leaves the rest of its grid at zero, which is not "dark")
+        seen = np.zeros(g.shape, bool)
+        for (gy, gx, _v) in info["scores"]:
+            if 0 <= gy < g.shape[0] and 0 <= gx < g.shape[1]:
+                seen[gy, gx] = True
+        seen &= np.isfinite(g)
+    on = np.zeros(g.shape, bool)
+    on[seen] = g[seen] > smoothcolor.otsu_log(g[seen])
+    right = int((on == target_plane)[pure & seen].sum())
+    r = float(np.corrcoef(target_plane[seen].astype(float), g[seen])[0, 1]) if seen.sum() > 2 else float("nan")
+    info["n_scored"] = int((pure & seen).sum())
     return right, r, info.get("scores", [])
 
 
@@ -103,17 +120,19 @@ def main(sessions):
                     sub.extend(body[s0:s1])
                 tmp = f"_pieces_{pname}_{label.replace(' ', '_')}.csv"
                 write_rows(os.path.join(S, tmp), head, sub)
-                right, r, scores = score(S, tmp, w, "" if w is not None else cal, freq, tplane, pure)
+                inf = {}
+                right, r, scores = score(S, tmp, w, "" if w is not None else cal, freq, tplane, pure, info=inf)
+                n_scored = inf.get("n_scored", int(pure.sum()))
                 nulls = [score(S, tmp, w, "" if w is not None else cal, freq, tplane, pure, shift=s)[1]
                          for s in (37.0, 91.0)]
                 os.remove(os.path.join(S, tmp))
                 lit = [v for (gy, gx, v) in scores if tplane[gy, gx]]
                 dark = [v for (gy, gx, v) in scores if not tplane[gy, gx]]
-                out[pname][label] = dict(right=right, r=r, null=max(nulls),
+                out[pname][label] = dict(right=right, of=n_scored, r=r, null=max(nulls),
                                          lit_median=float(np.median(lit)) if lit else None,
                                          dark_median=float(np.median(dark)) if dark else None,
                                          n_visits=len(sel))
-                print(f"{pname:6s} {label:26s} {right:3d}/{int(pure.sum()):<3d} {r:+.2f} {max(nulls):+.2f}  "
+                print(f"{pname:6s} {label:26s} {right:3d}/{n_scored:<3d} {r:+.2f} {max(nulls):+.2f}  "
                       f"lit {np.median(lit) if lit else float('nan'):.2f}  dark "
                       f"{np.median(dark) if dark else float('nan'):.2f}")
         json.dump(out, open(os.path.join(S, f"{name}_passes.json"), "w"), indent=1)
