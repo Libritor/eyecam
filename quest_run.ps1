@@ -44,7 +44,7 @@ switch ($Run) {
                 $img = [System.Drawing.Image]::FromFile((Resolve-Path $Target)); $gw = $img.Width; $gh = $img.Height; $img.Dispose()
                 $args_ = @("--mode", "planes", "--color-target", $Target, "--color-grid-w", "$gw", "--color-grid-h", "$gh",
                            "--plane-spc", "5,5,8", "--plane-passes", "1", "--rest-every", "48"); $prefix = "vr_cphoto"
-                "colour poster $Target is $gw x $gh: about $([math]::Round($gw * $gh * 18 / 60)) min" }
+                "colour poster $Target is ${gw} x ${gh}, about $([math]::Round($gw * $gh * 18 / 60)) min" }
     "custom"  { $args_ = @(); $prefix = "vr_custom" }
 }
 if ($Extra -ne "") { $args_ += ($Extra -split " ") }
