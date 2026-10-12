@@ -66,7 +66,10 @@ ART_UV, MOVE_PAD_S = 150.0, 1.0
 LONG_MS, BURST_S = 400.0, 1.0
 H_FLOOR, SACCADE_S = 20.0, 0.6
 C_LIT, C_DARK, C_INK, C_GRID = "#2a78d6", "#eb6834", "#3a3a37", "#ecebe5"
-C_SESS = {"vr_planes9": "#1baf7a", "vr_planes10": "#4a3aa7", "vr_planes8": "#8a8a85"}
+C_SESS = {"vr_planes9": "#1baf7a", "vr_planes10": "#4a3aa7", "vr_planes8": "#8a8a85",
+          "vr_vision1": "#d9a400", "vr_planes11": "#c8102e"}
+TAG = ""        # suffix for the output files when the sessions are given on the command line
+PALETTE = ["#1baf7a", "#4a3aa7", "#d9a400", "#c8102e", "#0e7c86", "#8a8a85"]
 STAGE_LABEL = {"calib": "white calib 12 Hz", "calib_blue_sweep": "blue sweep", "calib_red": "red calib",
                "calib_green": "green calib", "calib_blue": "blue calib", "plane_blue": "blue plane",
                "plane_red": "red plane", "plane_green": "green plane"}
@@ -709,7 +712,7 @@ def figure(results, store):
             ax.errorbar(j + 0.22, r, yerr=[[max(r - ci[0], 0)], [max(ci[1] - r, 0)]], color=C_INK, capsize=2, lw=0.8)
         ax.text(j + 0.22, r + 0.5, f"{wi.get('minutes_valid', 0):.1f} min", ha="center", fontsize=6, color="#6b6a66")
     ax.set_xticks(xs)
-    ax.set_xticklabels(["run 1", "run 2", "ref day"])
+    ax.set_xticklabels([lab for _, lab in SESSIONS], rotation=15 if len(SESSIONS) > 3 else 0, fontsize=7)
     ax.set_ylabel("blinks per minute")
     ax.set_title("Lit vs dark vs rest (95 % block bootstrap)", loc="left")
     ax.legend(fontsize=6.5, loc="upper left")
@@ -821,7 +824,7 @@ def figure(results, store):
 
     fig.suptitle("State of Flash, the eyes: blinks through the flicker sessions of 2026-10-10 (run 1 at 17:57, run 2 at 19:50) "
                  "against the reference day; 95 % block-bootstrap intervals", x=0.01, ha="left", fontsize=10)
-    fig.savefig(os.path.join(OUT, "flash_eog.png"), dpi=140, bbox_inches="tight")
+    fig.savefig(os.path.join(OUT, f"flash_eog{TAG}.png"), dpi=140, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -880,10 +883,25 @@ def main():
                            slow="0.1-0.5 Hz power in 20 s Hann segments, median per window, log10 uV^2",
                            artifacts="two or more channels > 150 uV (1-40 Hz) or a railed sample, +-1 s, excluded",
                            uncertainty="block bootstrap over 30 s blocks (2000 draws), Theil-Sen 95 % slope intervals, sign-flip permutation over paired 1-min bins"))
-    json.dump(clean(out), open(os.path.join(OUT, "flash_eog.json"), "w"), indent=1)
+    json.dump(clean(out), open(os.path.join(OUT, f"flash_eog{TAG}.json"), "w"), indent=1)
     figure(results, store)
-    print(f"\nwrote {os.path.join(OUT, 'flash_eog.json')} and flash_eog.png")
+    print(f"\nwrote {os.path.join(OUT, f'flash_eog{TAG}.json')} and flash_eog{TAG}.png")
 
 
 if __name__ == "__main__":
+    # python analysis/flash_eog.py tag=_all vr_planes8="reference day" vr_planes9="run 1" ...
+    # (the first session named is the level reference, as vr_planes8 was)
+    args = sys.argv[1:]
+    if args:
+        sess = []
+        for a in args:
+            k, _, v = a.partition("=")
+            if k == "tag":
+                TAG = v
+            else:
+                sess.append((k, v or k))
+        if sess:
+            SESSIONS = sess
+            for j, (k, _) in enumerate(sess):
+                C_SESS.setdefault(k, PALETTE[j % len(PALETTE)])
     main()

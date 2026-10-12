@@ -224,3 +224,33 @@ The stimulus page already does everything needed; what is missing is the design 
 5. **More than one person.** The effect, if there is one, is a claim about people, not about this subject's electrode.
 
 Three sessions of that design take under an hour each and would turn "it seems to make me sleepy" into a number with an interval around it.
+
+## 2026-10-12 addendum: five sittings, and the name State of Strobe
+
+Two daytime sittings were added to the two evening sittings and the
+reference night (`vr_vision1`, the grey acuity scan of 2026-10-11 at 12:05,
+and `vr_planes11`, the colour sitting of 2026-10-12 at 10:40), and the
+pooled drowsiness analysis rerun over 21 sessions. The paper draft that
+draws the conclusions is `docs/paper/strobe2027/` (not in git). The scripts
+now take sessions on the command line (`flash_eog.py tag=_all name=label ...`,
+`flash_frontal_theta.py tag=_all "label=name" ...`), and
+`analysis/strobe_summary.py` draws the five sittings at a glance.
+
+| sitting | task min | blinks/min on task | release, first second / 1-4 s | Oz theta/alpha drift, flicker / dark | SSVEP, first to last quarter |
+|---|---|---|---|---|---|
+| 10-07 night (reference) | 16.9 | 4.1 | 8 / 3 | -0.39 / -0.44 | |
+| 10-10 17:57 | 20.9 | 7.8 | 27 / 10 | -0.15 / -0.04 | red 0.74 to 0.59, green flat, blue up |
+| 10-10 19:50 | 30.2 | 12.0 | 36 / 19 | +0.01 / -0.04 | red 0.37 to 0.19, blue 0.25 to 0.20 |
+| 10-11 12:05 grey | 24.9 | 4.7 | 18 / 4 | -0.21 / -0.16 | |
+| 10-12 10:40 | 25.6 | 5.8 | 8 / 6 | +0.06 / +0.05 | red 0.53 to 0.69, green and blue flat |
+
+Pooled over 21 sessions the acute contrast is null (Oz theta/alpha +0.001,
+95 % CI -0.064 to +0.065, calibration; +0.006 in the scans), the drift is the
+electrode settling (the same slope over flicker and dark epochs, absent on the
+ears), and eye closure is lower under flicker (-0.026, p 0.016). The daytime
+sittings, each the first of its day, blinked at the reference level and rose by
+about half within the sitting; the evening doubling is what a second sitting
+does after a first. The release burst on black was strongest in the evening
+and in the grey scan, and almost absent on the morning of 10-12. The SSVEP
+faded through the second evening sitting and held through the morning one
+even on the weakest Oz calibration (d' 1.8).

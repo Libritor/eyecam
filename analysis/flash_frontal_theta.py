@@ -718,4 +718,17 @@ def main():
 
 
 if __name__ == "__main__":
+    # python analysis/flash_frontal_theta.py tag=_all "run 1=vr_planes9" "run 2=vr_planes10" reference=vr_planes8
+    # (the sessions labelled "run 1", "run 2" and "reference" fill the comparison tables)
+    args = sys.argv[1:]
+    if args:
+        sess = []
+        for a in args:
+            k, _, v = a.partition("=")
+            if k == "tag":
+                NAME = NAME + v
+            else:
+                sess.append((k, v))
+        if sess:
+            SESSIONS = sess
     sys.exit(main())
