@@ -8,12 +8,14 @@
 #   .\quest_run.ps1 -Run officer           # the police officer, 8 x 10 (about 33 min)
 #   .\quest_run.ps1 -Run wedge             # the step wedge, 12 levels x 4 rows (about 7 min)
 #   .\quest_run.ps1 -Run photo             # one of the gallery photos, sealed, 12 x 12 (about 25 min)
+#   .\quest_run.ps1 -Run cphoto -Target targets_img/<name>_12x14.png   # a colour poster from make_colour_photo.py
 #   .\quest_run.ps1 -Run custom -Extra "--mode visual --choice bw --target pix:NO --grid-w 9 --grid-h 5 --spc 8"
 #
 # -Session names the folder under runs/ (default: <run><n>, the next free number).
 param(
-    [ValidateSet("vision", "eight", "officer", "wedge", "photo", "custom")] [string] $Run = "vision",
+    [ValidateSet("vision", "eight", "officer", "wedge", "photo", "cphoto", "custom")] [string] $Run = "vision",
     [string] $Session = "",
+    [string] $Target = "",
     [string] $Extra = "",
     [int] $SignalTimeout = 7200,
     [int] $Linger = 900
@@ -37,6 +39,12 @@ switch ($Run) {
     "photo"   { $args_ = @("--mode", "visual", "--choice", "bw", "--target", "targets_img/photo_today.png",
                            "--grid-w", "12", "--grid-h", "12", "--spc", "8", "--certainty-max-passes", "2",
                            "--rest-every", "48"); $prefix = "vr_photo" }
+    "cphoto"  { if ($Target -eq "" -or -not (Test-Path $Target)) { "cphoto needs -Target <png at grid size>"; exit 4 }
+                Add-Type -AssemblyName System.Drawing
+                $img = [System.Drawing.Image]::FromFile((Resolve-Path $Target)); $gw = $img.Width; $gh = $img.Height; $img.Dispose()
+                $args_ = @("--mode", "planes", "--color-target", $Target, "--color-grid-w", "$gw", "--color-grid-h", "$gh",
+                           "--plane-spc", "5,5,8", "--plane-passes", "1", "--rest-every", "48"); $prefix = "vr_cphoto"
+                "colour poster $Target is $gw x $gh: about $([math]::Round($gw * $gh * 18 / 60)) min" }
     "custom"  { $args_ = @(); $prefix = "vr_custom" }
 }
 if ($Extra -ne "") { $args_ += ($Extra -split " ") }
