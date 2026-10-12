@@ -67,7 +67,9 @@ foreach ($i in 1..40) { try { (Invoke-WebRequest -UseBasicParsing "http://127.0.
 adb reverse tcp:8082 tcp:8082 | Out-Null
 adb shell input keyevent KEYCODE_WAKEUP
 Start-Sleep 1
-adb shell "am start -a android.intent.action.VIEW -d 'http://127.0.0.1:8082/?k=quest' com.oculus.browser" | Select-Object -First 1
+# -f 0x10000000 (new task): without it a browser that restored last night's tab shows that tab
+# and never loads the session page; with it the page opens in front (2026-10-12)
+adb shell "am start -a android.intent.action.VIEW -d 'http://127.0.0.1:8082/?k=quest' -f 0x10000000 com.oculus.browser" | Select-Object -First 1
 Start-Sleep 10
 Get-Content $log | Where-Object { $_ -notmatch 'pygame|Hello' } | Select-Object -Last 6
 "when it is done: python analysis/vision_readout.py runs/$Session --seal targets_img/vision_today_seal.json   (vision)"
