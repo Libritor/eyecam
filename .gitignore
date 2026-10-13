@@ -18,4 +18,14 @@ targets_img/photo_today*
 targets_img/photos/mann.png
 targets_img/photo_mann_*.png
 targets_img/photo_gallery_preview.png
-docs/paper/
+# paper drafts are tracked; their LaTeX build artifacts and page previews are not
+docs/paper/**/*.aux
+docs/paper/**/*.bbl
+docs/paper/**/*.blg
+docs/paper/**/*.log
+docs/paper/**/*.out
+docs/paper/**/*.fls
+docs/paper/**/*.fdb_latexmk
+docs/paper/**/*.synctex.gz
+docs/paper/**/page*.png
+docs/paper/**/*_preview.png

@@ -1,0 +1,84 @@
+{
+ "file": "SteveEarAsAHydraulophone.csv",
+ "fs_optical_after_decimation": 32.0,
+ "channels": {
+  "LEFT": {
+   "peak_hz": 1.0666666666666667,
+   "bpm": 64.0,
+   "prominence": 109.30497813960862,
+   "rel_amplitude": 0.011637855399889398,
+   "bpm_per_20s": [
+    63.0,
+    66.0,
+    66.0,
+    60.0,
+    63.0,
+    63.0,
+    66.0,
+    63.0,
+    66.0,
+    63.0,
+    78.0,
+    60.0,
+    63.0,
+    60.0,
+    63.0,
+    63.0,
+    63.0,
+    66.0
+   ],
+   "breathing_hz": 0.125
+  },
+  "RIGHT": {
+   "peak_hz": 1.0666666666666667,
+   "bpm": 64.0,
+   "prominence": 85.91080391927589,
+   "rel_amplitude": 0.009483866088287423,
+   "bpm_per_20s": [
+    63.0,
+    66.0,
+    66.0,
+    60.0,
+    63.0,
+    63.0,
+    66.0,
+    63.0,
+    66.0,
+    63.0,
+    78.0,
+    60.0,
+    63.0,
+    60.0,
+    63.0,
+    63.0,
+    63.0,
+    66.0
+   ],
+   "breathing_hz": 0.125
+  },
+  "LEFT_INNER_haemo": {
+   "dHbO_first_to_last_min": 0.0872839365001981,
+   "dHbR_first_to_last_min": -0.0009290037681766762,
+   "dHbO_sd": 0.035856763819007,
+   "dHbR_sd": 0.011635372482972044
+  },
+  "LEFT_OUTER_haemo": {
+   "dHbO_first_to_last_min": 0.10776726459819219,
+   "dHbR_first_to_last_min": -0.02466621594870544,
+   "dHbO_sd": 0.05894270671875326,
+   "dHbR_sd": 0.03058671310821139
+  },
+  "RIGHT_INNER_haemo": {
+   "dHbO_first_to_last_min": 0.08262862617509338,
+   "dHbR_first_to_last_min": -0.012130440903477039,
+   "dHbO_sd": 0.03159085717692965,
+   "dHbR_sd": 0.010739112668452991
+  },
+  "RIGHT_OUTER_haemo": {
+   "dHbO_first_to_last_min": 0.09431420599642759,
+   "dHbR_first_to_last_min": -0.02692079239152087,
+   "dHbO_sd": 0.06130045190517072,
+   "dHbR_sd": 0.029973088306926975
+  }
+ }
+}
