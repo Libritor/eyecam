@@ -153,7 +153,7 @@ def main():
     fig, axes = plt.subplots(2, 1, figsize=(8, 5.2), sharex=True)
     for j, c in enumerate(("TP9", "AF7")):
         fs_, ts_, S = specgrams[c]; sel = fs_ <= 128
-        im = axes[j].pcolormesh(ts_ / 60.0, fs_[sel], 10 * np.log10(S[sel] + 1e-6), cmap="Greys", vmin=-15, vmax=20, shading="auto")
+        im = axes[j].pcolormesh(ts_ / 60.0, fs_[sel], 10 * np.log10(S[sel] + 1e-6), cmap="Greys", vmin=-15, vmax=20, shading="auto", rasterized=True)   # the mesh is a pixel grid; text and axes stay vector
         axes[j].set_ylabel("frequency, Hz", fontsize=9, color=MUTED)
         style(axes[j], f"{'a' if j == 0 else 'b'}. {c}")
         axes[j].grid(False)
