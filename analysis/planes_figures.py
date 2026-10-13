@@ -19,6 +19,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+plt.rcParams.update({"pdf.fonttype": 42, "ps.fonttype": 42})
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import smoothcolor  # noqa: E402
@@ -84,6 +85,7 @@ def main():
     fig.tight_layout()
     p1 = os.path.join(a.session, f"{label}_colour_picture.png")
     fig.savefig(p1, dpi=110)
+    fig.savefig(p1[:-4] + ".pdf")          # vector copy with real text, for the paper
     plt.close(fig)
 
     fig, axs = plt.subplots(3, 3, figsize=(10.8, 8))
@@ -107,6 +109,7 @@ def main():
     fig.tight_layout()
     p2 = os.path.join(a.session, f"{label}_planes_figure.png")
     fig.savefig(p2, dpi=100)
+    fig.savefig(p2[:-4] + ".pdf")
     plt.close(fig)
     print(p1)
     print(p2)
