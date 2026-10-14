@@ -2,13 +2,16 @@
 
 Stimulus (xr_stimulus.html, --mode bwb): class 0 is black and does not
 flicker; every other class is a palette colour with its own code, and its cell
-flickers (a bright tint of) that colour against black with that code. The
-default palette is white and blue (the original black / white / blue scan).
+flickers WHITE against black with that code. The scan is monochrome: every
+code has the same full luminance contrast, so the colour is carried by the
+code alone and a dark colour (navy, brown, deep red) is as easy to see as a
+light one. The decoded image paints the true colours. The default palette is
+white and blue (the original black / white / blue scan).
 A code is a frame-exact frequency AND a phase offset in whole frames (hybrid
 frequency-phase modulation, as in the JFPM spellers decoded with FBCCA); the
 phase restarts at each cell onset, so the response to a code has a known
 phase in every window. Several colours can share one frequency and differ in
-phase only: the colour comes from the code, not from the hue on screen.
+phase only.
 
 Per window (one scan cell visit, or a slice of a calibration block) and per
 code k, four features:
@@ -80,29 +83,15 @@ def palette_codes(n, refresh=72.0, lo=12.0, hi=15.0):
     return out
 
 
-LUMA = np.array([0.2126, 0.7152, 0.0722])     # linear-light luminance weights
+FLICKER = "#ffffff"        # every code flickers white: same contrast for every colour
 
 
-def _lin(c):
-    c = np.asarray(c, float)
-    return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+def show_of(colours):
+    """What each class shows when lit: black, then the monochrome flicker for
+    every palette colour. On screen the classes differ only in their code."""
+    return ["#000000"] + [FLICKER] * len(colours)
 
 
-def _srgb(c):
-    c = np.clip(np.asarray(c, float), 0, 1)
-    return np.where(c <= 0.0031308, 12.92 * c, 1.055 * c ** (1 / 2.4) - 0.055)
-
-
-def tint_of(colour, tint):
-    """Linear-light colour a cell flickers: the palette colour mixed with
-    white, `tint` 0 = the pure colour, 1 = white. Brighter flicker drives a
-    bigger SSVEP; the colour itself is carried by the code, not the hue."""
-    c = _lin(PALETTE[colour])
-    return c + tint * (1 - c)
-
-
-def tint_hex(colour, tint):
-    return "#" + "".join(f"{int(round(v * 255)):02x}" for v in _srgb(tint_of(colour, tint)))
 FB_EDGES = [6.0, 14.0, 22.0]       # sub-band lower edges (Hz); upper edge 50 Hz
 N_HARM = 3
 LATENCY = 0.12                     # visual pathway delay (s)
@@ -555,6 +544,12 @@ def main():
     print(summary(res))
     print(f"confusion (rows = shown {'/'.join(res['colours'])}, cols = decoded):",
           res.get("confusion"))
+    import mesh3d
+    if mesh3d.is_mesh(meta.get("target")):          # a 3D object: paint it back on
+        obj = mesh3d.from_spec(meta["target"], meta.get("mesh_layout") or "atlas",
+                               meta.get("colours"))
+        mesh3d.export_from_session(args.session, obj, tg, meta.get("colours"), summary(res))
+        print(f"3D result: {args.session}/mesh_viewer.html, mesh_comparison.png, mesh_decoded.obj")
 
 
 if __name__ == "__main__":

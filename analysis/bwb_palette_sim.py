@@ -16,9 +16,11 @@ log-normal gain. Two things the live run adds are modelled explicitly:
   timing wobble  every visit's response is shifted by N(0, sigma) seconds:
                  frame timing, EEG timestamps and the brain's own latency
                  drift. 10 ms is 43 degrees at 12 Hz.
-  brightness     a cell flickers a tint of its colour (linear mix with white,
-                 --tint 0 = the pure colour, 1 = white); response amplitude
-                 ~ sqrt(luminance). This is an assumption, not a measurement.
+  brightness     the live scan is monochrome: every code flickers white
+                 (--tint 1, the default). --tint < 1 replays the older
+                 coloured flicker, a linear mix of the colour with white
+                 (0 = the pure colour); response amplitude ~ sqrt(luminance).
+                 This is an assumption, not a measurement.
 
 Scored on the shown picture only: cells right and whether the whole picture
 is right, after 1-3 fixed passes and with the quality rule (one pass, then 4 more visits at a time to the least certain
@@ -46,9 +48,15 @@ ORDER = ["white", "red", "green", "blue", "yellow", "cyan", "magenta", "orange",
 codes_for = bwb.palette_codes            # the live session's own assignment
 
 
+LUMA = np.array([0.2126, 0.7152, 0.0722])     # linear-light luminance weights
+
+
 def gain_of(colour, tint):
-    """SSVEP amplitude relative to white: sqrt of the tint's luminance (assumed)."""
-    return float(np.sqrt(bwb.LUMA @ bwb.tint_of(colour, tint)))
+    """SSVEP amplitude relative to white: sqrt of the luminance of the colour
+    mixed toward white by `tint` (assumed); 1 for the monochrome scan."""
+    c = np.asarray(bwb.PALETTE[colour], float)
+    c = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+    return float(np.sqrt(LUMA @ (c + tint * (1 - c))))
 
 
 class Subject:
@@ -146,7 +154,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--colours", type=int, default=4, help="colour codes (black is extra)")
     ap.add_argument("--jitter-ms", type=float, default=5.0)
-    ap.add_argument("--tint", type=float, default=0.5)
+    ap.add_argument("--tint", type=float, default=1.0,
+                    help="1 = monochrome (live); < 1 = older coloured flicker")
     ap.add_argument("--scale", type=float, default=0.6)
     ap.add_argument("--spc", type=float, default=4.0, help="seconds per cell visit")
     ap.add_argument("--reps", type=int, default=4, help="calibration blocks per class")

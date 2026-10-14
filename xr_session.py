@@ -913,7 +913,7 @@ class Driver:
                                                   detail=f"the original scan: {a.target}, "
                                                          f"{a.passes} pass(es), {a.spc:g} s per position"),
                                              dict(value="bwb", label="Colour",
-                                                  detail=f"{a.bwb_colours} by frequency-phase codes; "
+                                                  detail=f"{a.bwb_colours or 'default colours'} by frequency-phase codes; "
                                                          f"{a.bwb_target}, {a.bwb_passes} pass(es)")])
                     m = await self.wait_for("choice", timeout=a.signal_timeout)
                     choice = m.get("value", "bw")
@@ -1049,22 +1049,29 @@ class Driver:
                 json.dump(result, f, indent=1)
             recorder.stop()
 
-    async def certainty_scan(self, scan_kw, log_name, grid_w, grid_h, spc, state):
+    async def certainty_scan(self, scan_kw, log_name, grid_w, grid_h, spc, state, mask=None):
         """One full pass, then the least certain squares again, --certainty-batch
         at a time, until every square is at least --certainty sure (adaptive.py)
         or each has --certainty-max-passes visits. state() -> (certainty grid,
-        visits grid, may_stop). Returns the per-batch timeline."""
+        visits grid, may_stop). mask: the squares to scan (a 3D object's grid
+        has holes); default all. Returns the per-batch timeline."""
         import adaptive
         a = self.args
-        P = grid_w * grid_h
+        P = grid_w * grid_h if mask is None else int(mask.sum())
         self.open_log(log_name)
-        await self.send(cmd="start_scan", passes=1, **scan_kw)
+        if mask is None:
+            await self.send(cmd="start_scan", passes=1, **scan_kw)
+        else:
+            import mesh3d
+            await self.send(cmd="start_scan", cells=mesh3d.scan_cells(mask), **scan_kw)
         await self.wait_for("scan_done", timeout=P * spc * 2 + 120)
         self.close_log()
         timeline = []
         while True:
             await asyncio.sleep(0.7)                  # the last visit's EEG lands
             cert, n, may_stop = await asyncio.to_thread(state)
+            if mask is not None:          # holes: never visited, never wanted
+                cert = np.where(mask, cert, 1.0)
             low = int((cert < a.certainty).sum())
             timeline.append(dict(visits=int(n.sum()), minutes=round(n.sum() * spc / 60, 2),
                                  min_certainty=round(float(cert.min()), 4), below=low))
@@ -1073,7 +1080,9 @@ class Driver:
             if may_stop and low == 0:
                 print("every square is certain enough: scan done")
                 break
-            cells = adaptive.pick(cert, n, a.certainty_batch, a.certainty_max_passes)
+            cap = a.certainty_max_passes
+            cells = adaptive.pick(cert, n if mask is None else np.where(mask, n, cap),
+                                  a.certainty_batch, cap)
             if not cells:
                 print(f"every square has {a.certainty_max_passes} visits: stopping "
                       f"with {low} squares below {a.certainty:.0%}")
@@ -1348,12 +1357,23 @@ class Driver:
         """Colour palette: calibrate one frequency-phase code per colour and the
         no-flicker black class on one scan-sized patch, then scan a class
         picture and decode every cell with FBCCA + phase templates (bwb.py).
-        Each colour flickers a bright tint of itself (--bwb-tint); the colour
-        is read from the code, not from the hue."""
+        The scan is monochrome: every colour flickers white, so the colour is
+        read from the code alone and no hue is dimmer than another.
+        A mesh: target (mesh3d.py) is a 3D object unfolded into the scan grid;
+        only its cells are visited, and the decoded grid is painted back on
+        the mesh."""
         import random
         import bwb
+        import mesh3d
         a = self.args
-        colours = [c.strip() for c in str(a.bwb_colours).split(",") if c.strip()]
+        colours = [c.strip() for c in str(a.bwb_colours or "").split(",") if c.strip()]
+        obj = None
+        if mesh3d.is_mesh(a.bwb_target):
+            obj = mesh3d.from_spec(a.bwb_target, a.mesh_layout, colours or None)
+            colours = colours or obj.colours
+            print(f"3D object {obj.name}: {len(obj.cells)} cells unfolded onto a "
+                  f"{obj.grid_w} x {obj.grid_h} grid ({obj.layout}); {obj.note}")
+        colours = colours or ["white", "red", "green", "blue"]
         bad = [c for c in colours if c not in bwb.PALETTE or c == "black"]
         if bad or len(set(colours)) < len(colours):
             raise ValueError(f"--bwb-colours: unknown or repeated {bad or colours}; "
@@ -1369,14 +1389,18 @@ class Driver:
             raise ValueError(f"{len(codes)} codes for {len(colours)} colours "
                              f"(--bwb-codes needs one Hz:deg per --bwb-colours entry)")
         names = ["black"] + colours
-        show = ["#000000"] + [bwb.tint_hex(c, a.bwb_tint) for c in colours]
-        print("colour codes requested:", ", ".join(
-            f"{c} {d['hz']:.2f} Hz @ {d['phaseDeg']:.0f} deg ({h})"
-            for c, d, h in zip(colours, codes, show[1:])))
-        ctarget = targets.bwb_target(a.bwb_target, a.bwb_grid_w, a.bwb_grid_h,
-                                     fg=a.bwb_fg, bg=a.bwb_bg, colours=colours,
-                                     border=a.bwb_border)
+        show = bwb.show_of(colours)
+        print("colour codes requested (all flicker white):", ", ".join(
+            f"{c} {d['hz']:.2f} Hz @ {d['phaseDeg']:.0f} deg" for c, d in zip(colours, codes)))
+        if obj is not None:
+            ctarget = obj.target(colours)
+        else:
+            ctarget = targets.bwb_target(a.bwb_target, a.bwb_grid_w, a.bwb_grid_h,
+                                         fg=a.bwb_fg, bg=a.bwb_bg, colours=colours,
+                                         border=a.bwb_border)
         gh, gw = ctarget.shape
+        # a mesh's grid can have holes (cells on no face): never visited
+        mask = obj.mask if obj is not None and not obj.mask.all() else None
         np.save(os.path.join(self.session, "target_bwb.npy"), ctarget)
         geom = dict(gridW=gw, gridH=gh, patch=a.patch, board=a.board)
 
@@ -1415,19 +1439,25 @@ class Driver:
             print(f"scan: one pass, then the least certain squares until every "
                   f"square is {a.certainty:.0%} certain (--bwb-passes is not used)")
             timeline, cert, n = await self.certainty_scan(
-                scan_kw, "bwb_log.csv", gw, gh, a.bwb_spc, colour_state)
+                scan_kw, "bwb_log.csv", gw, gh, a.bwb_spc, colour_state, mask)
             result["certainty"] = dict(min_certainty=float(cert.min()), visits=int(n.sum()),
                                        minutes=timeline[-1]["minutes"], timeline=timeline)
         else:
             self.open_log("bwb_log.csv")
-            await self.send(cmd="start_scan", passes=a.bwb_passes, **scan_kw)
+            if mask is None:
+                await self.send(cmd="start_scan", passes=a.bwb_passes, **scan_kw)
+            else:
+                await self.send(cmd="start_scan", cells=mesh3d.scan_cells(mask, a.bwb_passes),
+                                **scan_kw)
+            n_cells = gw * gh if mask is None else int(mask.sum())
             await self.wait_for("scan_done",
-                                timeout=gw * gh * a.bwb_spc * a.bwb_passes * 2 + 120)
+                                timeout=n_cells * a.bwb_spc * a.bwb_passes * 2 + 120)
             self.close_log()
         await asyncio.sleep(0.7)
         with open(os.path.join(self.session, "bwb_meta.json"), "w") as f:
             json.dump(dict(codes=delivered, blocks=blocks, spc=a.bwb_spc, colours=colours,
-                           show=show, tint=a.bwb_tint), f, indent=1)
+                           show=show, target=a.bwb_target,
+                           mesh_layout=a.mesh_layout if obj is not None else None), f, indent=1)
 
         # ---- decode
         print(f"decoding {len(names)} colours...")
@@ -1445,14 +1475,24 @@ class Driver:
             print(f"confusion (rows = shown {'/'.join(names)}, cols = decoded):",
                   res["confusion"])
         result["bwb"] = {k: v for k, v in res.items() if k != "classes"}
-        comp = os.path.join(self.session, "bwb_comparison.png")
+        mesh_pl = None
+        if obj is not None and "classes" in res:
+            try:                          # paint the decoded grid back on the object
+                mesh_pl = await asyncio.to_thread(
+                    mesh3d.export_from_session, self.session, obj, ctarget, colours, text)
+                result["mesh"] = dict(object=obj.name, layout=obj.layout, cells=len(obj.cells))
+                print(f"3D result: {self.session}/mesh_viewer.html, mesh_decoded.obj")
+            except Exception as exc:
+                print("3D export failed:", repr(exc))
+        comp = os.path.join(self.session, "mesh_comparison.png" if mesh_pl
+                            else "bwb_comparison.png")
         if os.path.exists(comp):          # shown vs decoded, side by side
             with open(comp, "rb") as f:
                 png = "data:image/png;base64," + base64.b64encode(f.read()).decode()
         else:
             png = rgb_to_data_url(rgb) if rgb is not None else ""
         await self.send(cmd="color_result", png=png, text=text, good=bool(good),
-                        wide=os.path.exists(comp))
+                        wide=os.path.exists(comp), mesh=mesh_pl)
         self.spectate(type="log", msg=text)
         result["ok"] = True
         recorder.stop()
@@ -1671,10 +1711,11 @@ def local_ip():
 def http_page(connection, request):
     if request.path.startswith("/ws"):
         return None
-    with open(os.path.join(ROOT, "xr_stimulus.html"), "rb") as f:
+    js = request.path.split("?")[0] == "/mesh_view.js"      # the 3D result's renderer
+    with open(os.path.join(ROOT, "mesh_view.js" if js else "xr_stimulus.html"), "rb") as f:
         body = f.read()
     return Response(200, "OK", Headers([
-        ("Content-Type", "text/html; charset=utf-8"),
+        ("Content-Type", "text/javascript; charset=utf-8" if js else "text/html; charset=utf-8"),
         ("Content-Length", str(len(body))),
         ("Connection", "close")]), body)
 
@@ -1807,10 +1848,11 @@ async def main():
                     help="squares revisited between certainty checks")
     ap.add_argument("--certainty-max-passes", type=int, default=6,
                     help="most visits any one square gets")
-    ap.add_argument("--bwb-colours", default="white,red,green,blue",
+    ap.add_argument("--bwb-colours", default=None,
                     help="--mode bwb: palette colours besides black, in code order "
                          "(white red green blue yellow cyan magenta orange purple pink "
-                         "lime teal brown grey). Up to 11 at 72 fps")
+                         "lime teal brown grey). Up to 11 at 72 fps. Default "
+                         "white,red,green,blue, or the colours a mesh: object uses")
     ap.add_argument("--bwb-codes", default="",
                     help="frequency-phase codes 'Hz:deg,...', one per colour (snapped to "
                          "whole display frames; the page reports what it delivers). "
@@ -1818,11 +1860,14 @@ async def main():
                          "white 12:0, red 12:180, green 14.4:0, blue 14.4:144 at 72 fps")
     ap.add_argument("--bwb-refresh", type=float, default=72.0,
                     help="panel rate the default codes are planned for")
-    ap.add_argument("--bwb-tint", type=float, default=0.5,
-                    help="how far each colour's flicker is mixed toward white "
-                         "(0 = pure colour, 1 = white): brighter flicker, bigger response")
     ap.add_argument("--bwb-target", default="bands",
-                    help="bands | checker | text:X | pix:X | image path")
+                    help="bands | checker | text:X | pix:X | image path | a 3D object: "
+                         "mesh:die, mesh:rubik, mesh:globe, mesh:donut, mesh:obj:<file.obj> "
+                         "(optionally :n cells a face edge, e.g. mesh:globe:5)")
+    ap.add_argument("--mesh-layout", default="atlas", choices=["atlas", "net"],
+                    help="how a mesh: object is unfolded into the scan grid: atlas = "
+                         "faces packed with no empty cells; net = a cube's cross "
+                         "(neighbours stay neighbours; half the grid is skipped)")
     ap.add_argument("--bwb-fg", default=None,
                     help="text:/pix: targets: glyph colour (default the first palette "
                          "colour); pix: takes one per letter, e.g. red,green")
