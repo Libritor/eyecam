@@ -59,9 +59,25 @@ def hold_awake():
             ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED)
 
 
+def read_audio(path):
+    """(mono float32, fs). soundfile for wav / flac / mp3; anything else (m4a, aac,
+    opus, webm) through the ffmpeg that imageio-ffmpeg bundles."""
+    try:
+        data, fs = sf.read(path, dtype="float32", always_2d=True)
+        return data.mean(axis=1), int(fs)
+    except Exception as e:                                   # noqa: BLE001
+        try:
+            import imageio_ffmpeg
+        except ImportError:
+            raise SystemExit(f"cannot read {path} ({e}); pip install imageio-ffmpeg for m4a/aac/opus") from None
+        fs = 48000
+        out = subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-v", "error", "-i", path, "-f", "f32le",
+                              "-ac", "1", "-ar", str(fs), "-"], capture_output=True, check=True).stdout
+        return np.frombuffer(out, dtype=np.float32).copy(), fs
+
+
 def load_clip(path, start_s, clip_s, fs_out):
-    data, fs = sf.read(path, dtype="float32", always_2d=True)
-    x = data.mean(axis=1)
+    x, fs = read_audio(path)
     a, b = int(start_s * fs), int((start_s + clip_s) * fs)
     if b > len(x):
         raise SystemExit(f"{path} is {len(x) / fs:.1f} s long; --start {start_s} + --clip {clip_s} runs past the end")
@@ -157,7 +173,7 @@ def signal_check(eeg_path, ip_text, auto, timeout_s=180):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--song", required=True, help="wav / flac / mp3 file")
+    ap.add_argument("--song", required=True, help="wav / flac / mp3 file (m4a / aac / opus through imageio-ffmpeg)")
     ap.add_argument("--start", type=float, default=30.0, help="seconds into the song the clip begins")
     ap.add_argument("--clip", type=float, default=30.0, help="clip length in seconds")
     ap.add_argument("--reps", type=int, default=24)
