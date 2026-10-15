@@ -43,10 +43,6 @@ CROPS = {
     "lincoln": (0.05, 0.03, 0.89, 0.68),
     "einstein": (0.10, 0.02, 0.90, 0.62),
     "tesla": (0.11, 0.03, 0.81, 0.55),
-    # the police officer (a public-domain official portrait, Rockville MD):
-    # head and shoulders, so the cap-less head, the dark uniform and the
-    # badge are all in the frame
-    "officer": (0.16, 0.05, 0.86, 0.75),
 }
 
 

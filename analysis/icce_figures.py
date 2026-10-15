@@ -161,7 +161,7 @@ def acuity(out_dir):
 
 def gallery(out_dir):
     P = dict(photos())
-    cols = [("mann", "the 2019 portrait"), ("officer", "police officer"), ("tesla", "Tesla")]
+    cols = [("mann", "the 2019 portrait"), ("lincoln", "Lincoln"), ("tesla", "Tesla")]
     fig, axes = plt.subplots(2, 4, figsize=(7.2, 3.9))
     for j, (name, lab) in enumerate(cols):
         im = ImageOps.exif_transpose(Image.open(P[name])).convert("L")
