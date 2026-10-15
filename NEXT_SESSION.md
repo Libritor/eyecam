@@ -236,3 +236,20 @@ two voided colour runs so far were both a floating Oz.
 - Blinks are about 1 % of our scan recordings; the closed-eye detector flags
   59 % of truly closed and 31 % of truly open time; masked re-scores of three
   sessions: 0.784 to 0.781, 0.778 to 0.779, 0.722 to 0.689.
+
+## 2026-10-15: a 3D object through the planes scan (branch `mesh-bridge`, worktree C:\Users\alexa\eyecam-mesh)
+
+Meny's branch (Minu, 3D objects as texture atlases for the frequency-phase scan,
+simulation only) is merged here, plus `mesh_planes.py`, which puts the same
+objects through the planes mode the sittings have validated. Gate passed on the
+phantom: planes r 0.99, 54 of 54 cells, time-shifted EEG 0.06; painted back on
+the die 54 of 54 (black 20, white 33, red 1). About 20 min on a real head.
+Run from this worktree, after the sealed photo and a break:
+
+    .\quest_run.ps1 -Run cphoto -Target targets_img\mesh_die_9x6.png
+    python mesh_planes.py paint runs\vr_cphoto1 mesh:die
+
+Result: runs\vr_cphoto1\mesh_comparison.png (shown, decoded, certainty, three
+views each), mesh_decoded.obj, mesh_viewer.html. The globe (96 cells, mostly
+blue, the weak plane) and the donut (96 cells, four colours) are 29 min each
+and come after the die works.
