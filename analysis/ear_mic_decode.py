@@ -391,6 +391,8 @@ def main():
     figure(S, res, ctrl, single, ev, y, want, os.path.join(S, "ear_mic_figure"))
     print(f"\nverdict: {out['verdict']}")
     print(f"wrote ear_mic_results.json, ear_mic_figure.pdf/.png, brain_envelope_noise.wav, true_envelope_noise.wav, brain_envelope_carrier.wav in {S}")
+    from ear_mic_player import write_player
+    print(f"listen: open {write_player(S)} (original, true envelope, brain envelope, one under the other)")
 
 
 if __name__ == "__main__":
