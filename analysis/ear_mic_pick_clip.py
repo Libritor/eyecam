@@ -51,7 +51,7 @@ def main():
         loud = 20 * np.log10(level[int(s * fs):int((s + args.clip) * fs)].mean() + 1e-12)
         rows.append((depth, loud, s))
     rows.sort(reverse=True)
-    print(f"{os.path.basename(args.song)}: {dur / 60:.0f} min {dur % 60:.0f} s, windows of {args.clip:.0f} s")
+    print(f"{os.path.basename(args.song)}: {int(dur // 60)} min {dur % 60:.0f} s, windows of {args.clip:g} s")
     print("  modulation  level   --start")
     for depth, loud, s in rows[:5]:
         print(f"  {depth:8.3f}  {loud:6.1f} dB  {s:5.0f}   ({int(s // 60)}:{int(s % 60):02d} to {int((s + args.clip) // 60)}:{int((s + args.clip) % 60):02d})")
