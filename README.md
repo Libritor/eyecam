@@ -456,9 +456,15 @@ colours plus black. Several colours share a frequency and differ only in
 phase, so no colour has to use a rate this subject responds to weakly (red at
 7.2 Hz barely registered in the frequency-tagged colour scan).
 
-The colour is read from the code, not from the hue on screen, so each cell
-flickers a **bright tint** of its colour (`--bwb-tint`, mixed toward white)
-for a bigger response, and the decoded image paints the true colour.
+The colour is read from the code, not from the hue on screen, so the scan is
+**monochrome**: every colour's cell flickers white against black, and the
+decoded image paints the true colour. A coloured flicker would make some
+codes harder to pick up than others for reasons that have nothing to do with
+the code. At 12–15 Hz the SSVEP is driven mostly by luminance contrast. Pure
+blue has 7 % of white's luminance and dark red, brown or purple are dim too,
+so their cells would give a weaker response. With white everywhere, every
+code has the same full contrast and the classes differ only in frequency and
+phase.
 
 The phase restarts at every cell, so the response arrives with a known phase.
 `bwb.py` scores each cell two ways:
@@ -496,7 +502,6 @@ python analysis/bwb_palette_sim.py --colours 6 --jitter-ms 5    # offline simula
 |---|---|
 | `--bwb-colours` | Palette besides black, in code order (default `white,red,green,blue`). Names: white red green blue yellow cyan magenta orange purple pink lime teal brown grey. |
 | `--bwb-codes` | `Hz:deg` per colour. Default: assigned between 12 and 15 Hz for `--bwb-refresh` (72): white 12 Hz @ 0°, red 12 @ 180°, green 14.4 @ 0°, blue 14.4 @ 144°. The page snaps each to whole frames and the decoder uses what was delivered; the driver warns if two colours land on one code. |
-| `--bwb-tint` | 0 = flicker the pure colour, 1 = white; default 0.5 |
 | `--bwb-target` | `bands` (default), `checker`, `text:X`, `pix:X` (colour 1 on colour 2 with black rows), or an image file snapped to the palette |
 | `--bwb-fg`, `--bwb-bg` | Glyph and background colour for `text:`/`pix:` targets, with a one-cell background margin. For example `--bwb-target pix:N --bwb-fg blue --bwb-bg white` is a blue N on white, 7×6 cells. |
 | `--bwb-grid-w/-h`, `--bwb-spc`, `--bwb-passes` | Scan size, seconds per cell, repeat passes |
@@ -510,8 +515,8 @@ calibration's cross-validated accuracy is also stored, but it is only the
 classifier's own check on its training blocks.
 
 **Simulated** (`analysis/bwb_palette_sim.py`: the synthetic subject of the
-"NO" analysis, decoded by `bwb.py` itself; 6×4 cells, 4 s visits, tint 0.5,
-40 runs each). Cells right out of 24 after two passes (3.2 min of scanning):
+"NO" analysis, decoded by `bwb.py` itself; 6×4 cells, 4 s visits, 40 runs each; these
+tables were run with the older half-white tint, not the monochrome scan). Cells right out of 24 after two passes (3.2 min of scanning):
 
 | Colours + black | timing wobble 0 ms | 5 ms | 10 ms | 15 ms |
 |---|---|---|---|---|
@@ -535,9 +540,16 @@ per visit) decides how many colours fit. 10 ms is 43° at 12 Hz, close to the
 measured yet**; the way to find how many colours work is to scan a known
 picture and count the cells that come out right. Other results:
 
-- **Tint.** At 4 colours, all 24 cells right after two passes in 98 % of runs
-  at tint 0.5 against 65 % with pure colours. The brightness model (response ~
-  √luminance) is assumed, not measured.
+- **Monochrome vs coloured flicker** (5 ms wobble, 40 runs; `--tint 1` is
+  the monochrome scan, 0.5 the previous half-white tint, 0 pure colours).
+  Whole picture right after two passes, 4 colours: 100 % monochrome, 98 % at
+  0.5, 65 % pure. Stopping on 99 % certainty, 4 colours: median 2.5 min and
+  every picture right (monochrome), against 2.7 min and 95 % (0.5), and
+  3.5 min and 98 %, with 22 % of runs hitting the visit cap (pure). At 6
+  colours the gain is small (42 % whole picture after two passes at both 1
+  and 0.5): there the limit is timing wobble between neighbouring phases, not
+  brightness. The brightness model (response ~ √luminance) is assumed, not
+  measured.
 - **Page clock vs Wi-Fi arrival**, one 11-colour session written to disk with
   Wi-Fi-like delays and decoded through the files: 24 of 24 cells right on the
   page clock, 16 of 24 on arrival times.
@@ -754,6 +766,118 @@ the phantom's response to blue is a number we chose. The plan is one session,
 same day, same electrode: `planes` first (the scoring we trust), then `smooth`
 with rotation, both on `eight`; the path with more right hues on the real EEG
 becomes the default.
+### 3D objects (`--bwb-target mesh:...`)
+
+The colour scan decodes a flat grid of cells. A 3D object is scanned by
+making that grid **the object's texture map**:
+
+1. **Unfold.** The surface is cut into rectangular charts of cells: a cube's
+   six faces, the six faces of a cube-sphere, or a torus as one sheet.
+   `mesh3d.py` packs the charts into the scan grid. `--mesh-layout atlas`
+   (default) packs them with no empty cells (a cube is 3 × 2 faces).
+   `--mesh-layout net` lays a cube out as the familiar cross, so cells that
+   touch on the object also touch on the grid; the empty half of the grid is
+   never shown or scanned.
+2. **Scan.** The subject scans the grid exactly as a 2D picture: one cell at
+   a time, monochrome, each colour's frequency-phase code. Calibration,
+   decoding and the certainty rule (`--certainty`) are unchanged. With
+   `--certainty`, the least certain cells are revisited until every cell on
+   the object is sure.
+3. **Paint back.** The decoded grid becomes the texture. Every cell's colour
+   and certainty go back onto its patch of surface.
+
+Each session folder gets `mesh_comparison.png` (shown, decoded and certainty
+rows, three views each, plus the 2D grid; wrong cells ringed red),
+`mesh_decoded.obj` and `mesh_shown.obj` (textured OBJ + MTL + PNG, opens in
+Blender or Windows 3D Viewer), and `mesh_viewer.html`. The viewer is an
+offline page: turn and zoom both objects and switch between decoded colour
+and certainty. Pointing at a cell on the object finds it on the 2D grid, and
+the other way round. The headset's result screen turns both objects on a
+turntable.
+
+| Object | Cells | Grid (atlas) | Colours + black |
+|---|---|---|---|
+| `mesh:die` | 54 (3 × 3 a face) | 9 × 6 | white, red. Black pips, the 1 in red, opposite faces sum to 7. `mesh:die:5` looks more like a die (150 cells). |
+| `mesh:globe` | 96 (4 × 4 a face) | 12 × 8 | blue ocean, green land, white ice; Africa faces front |
+| `mesh:donut` | 96 (16 × 6) | 16 × 6 | pink icing, brown dough, white and yellow sprinkles |
+| `mesh:rubik` | 54 | 9 × 6 | the six cube colours, stickers scrambled |
+| `mesh:obj:<file.obj>[:n]` | 6 n² | | any star-shaped mesh (see below) |
+
+`:n` after a name sets the cells along a face edge, e.g. `mesh:globe:6`.
+Unless `--bwb-colours` is given, the palette is the object's own.
+
+**Your own mesh** (`mesh:obj:model.obj`): rays from the mesh's centre in the
+directions of a cube-sphere's cells land on its outermost surface. That
+point becomes the cell's position, and the surface colour there (material
+`Kd`, a `map_Kd` texture or vertex colours) is snapped to the nearest palette
+colour. A mesh without colours is coloured in three height bands. This needs
+a star-shaped mesh (every surface point visible from the centre): a head, a
+vase or a rock works, but a mug's handle or a hollow does not. Exporting the
+built-in objects as OBJ and importing them again gives back every cell.
+
+```
+python mesh3d.py globe --out runs/globe_preview          # preview: PNG, OBJ, viewer
+python xr_session.py --muse --mode bwb --bwb-target mesh:die --certainty 0.99
+python xr_session.py --muse --mode bwb --bwb-target mesh:die --mesh-layout net
+python xr_session.py --muse --mode bwb --bwb-target mesh:obj:models/head.obj:5
+python bwb.py --session runs/<session>                   # re-decode; rewrites the 3D files
+python analysis/mesh_scan_sim.py mesh:globe --trials 5    # offline, synthetic subject
+python analysis/mesh_scan_sim.py mesh:die --session runs/sim_die   # through bwb.py --session
+```
+
+**Simulated** (`analysis/mesh_scan_sim.py`: the synthetic subject of the
+palette simulation, 5 ms timing wobble, 4 s visits, monochrome flicker,
+stopping when every cell is 99 % certain or has had 6 visits):
+
+| Object | Colours + black | Runs | Whole object right | Cells right after one pass | Scanning (median, max) | Calibration |
+|---|---|---|---|---|---|---|
+| die | 2 + 1 | 4 | 4 of 4 | 51–54 of 54 | 6.0 min, 8.8 | 1.8 min |
+| globe | 3 + 1 | 5 | 5 of 5 | 88–96 of 96 | 7.2 min, 10.8 | 2.4 min |
+| donut | 4 + 1 | 5 | 5 of 5 | 93–96 of 96 | 7.6 min, 8.0 | 3.0 min |
+| rubik | 6 + 1 | 5 | 4 of 5 | 45–53 of 54 | 7.6 min, 21.6 | 4.2 min |
+
+The die row combines one run in the atlas layout and three in the net
+layout; the net's empty cells were never visited. The Rubik's cube is the
+hard case, for the reason in the palette tables above: with six codes,
+neighbouring phases are close enough for timing wobble to blur them. In its
+worst run, three cells were still wrong when every cell had had its 6 visits.
+A run written to disk in the live session format, with Wi-Fi-like arrival
+delays, and re-decoded by `bwb.py --session` gave the same 54 of 54 for the
+die. **Not yet run on a real headset.**
+
+**Monochrome vs coloured flicker on 3D objects** (same simulation, 10 runs
+per object and flicker, the same noise for each flicker). "First pass" is
+the fair like-for-like number: every flicker gets the same scanning time.
+
+| Object | Flicker | Cells right after one pass | Whole object right | Scanning (median) | Runs hitting the visit cap |
+|---|---|---|---|---|---|
+| die | monochrome | 53.4 / 54 | 10 of 10 | 7.2 min | 1 |
+| | half-white tint | 53.1 | 10 of 10 | 6.8 min | 1 |
+| | pure colour | 53.1 | 10 of 10 | 7.0 min | 0 |
+| globe | monochrome | **94.0 / 96** | **10 of 10** | **8.0 min** | 0 |
+| | half-white tint | 93.2 | 9 of 10 | 8.6 min | 0 |
+| | pure colour | 85.3 | 9 of 10 | 38.4 min | 7 |
+| donut | monochrome | **94.3 / 96** | 9 of 10 | **8.0 min** | 0 |
+| | half-white tint | 94.0 | 10 of 10 | 8.4 min | 1 |
+| | pure colour | 90.6 | 10 of 10 | 11.4 min | 2 |
+| rubik | monochrome | 51.0 / 54 | 6 of 10 | **5.0 min** | 1 |
+| | half-white tint | 50.8 | 6 of 10 | 5.0 min | 1 |
+| | pure colour | 50.2 | 7 of 10 | 13.8 min | 5 |
+
+Monochrome is never worse in the same scanning time, and it helps most where
+a dim colour covers much of the object. The globe is mostly pure blue, which
+responds at about a quarter of white's strength, so pure-colour flicker took
+almost five times as long and most runs ran out of visits. The die
+barely changes, because only its single red pip is dim. The differences in
+"whole object right" are within one or two runs of ten, which is noise at
+this sample size. The two failures on the monochrome side (one donut cell,
+the Rubik's cube) are cells the decoder called 99 % certain while wrong. The
+scan then stops sooner, while a weaker coloured flicker keeps the scan going
+longer and collects more data. That is the overconfidence at six colours
+noted above, not a brightness effect. All of this rests on the assumed
+brightness model (response ~ √luminance).
+
+![globe, simulated](docs/figures/mesh_globe_sim.png)
 
 ### Running in a Quest headset
 
@@ -896,6 +1020,9 @@ and the small result files for each session are in `docs/results`.
 | `muse_stream.py`, `lsl_to_osc.py` | Muse over this PC's Bluetooth via muselsl (`--muse`), and an LSL-to-OSC bridge |
 | `phantom_subject.py` | synthetic subject for end-to-end tests, including colour tags and audio |
 | `targets.py` | text, pixel-font, image and colour targets |
+| `mesh3d.py` | 3D objects for the colour scan: built-in objects and OBJ import, unfolding into the scan grid, painting the decoded grid back on, textured OBJ export, renders |
+| `mesh_view.js`, `mesh_viewer_template.html` | the 3D renderer shared by the headset result screen and the per-session `mesh_viewer.html` |
+| `analysis/mesh_scan_sim.py` | a 3D object scanned end to end on the synthetic subject, optionally written and re-decoded as a live session |
 | `pc_audio.py` | the 40 Hz tagged music played on the PC's audio output |
 | `analysis/run_both.py` | runs two scan variants back to back and pushes the page to the Quest |
 | `analysis/rescore_paper.py`, `decoder_bakeoff.py`, `pix_runs_figure.py` | re-scoring of past scans, decoder comparison, and the per-pass figure |

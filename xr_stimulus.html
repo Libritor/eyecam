@@ -17,12 +17,17 @@
   #result img { image-rendering: pixelated; width: min(70vw, 60vh);
                 border: 1px solid #333; }
   .ok { color: #6fd68b !important; } .warn { color: #f2b04c !important; }
+  #rmesh { display: none; gap: 2vw; }
+  #rmesh figure { margin: 0; text-align: center; color: #9aa0a8; font-size: 14px; }
+  #rmesh canvas { width: min(40vw, 52vh); height: min(40vw, 52vh); display: block; }
 </style>
+<script src="mesh_view.js"></script>
 </head>
 <body>
 <canvas id="cv"></canvas>
 <div id="hud"><b id="title">EyeCamXR</b><div id="sub">connecting…</div></div>
-<div id="result"><img id="rimg"><b id="rtext"></b></div>
+<div id="result"><div id="rmesh"><figure><canvas id="rmS"></canvas>SHOWN</figure>
+<figure><canvas id="rmD"></canvas>DECODED FROM EEG</figure></div><img id="rimg"><b id="rtext"></b></div>
 <div id="muse" style="position:fixed;bottom:10px;left:0;right:0;text-align:center;
      font:13px ui-monospace,monospace;color:#8a8f98;text-shadow:0 1px 3px #000;
      pointer-events:none">MUSE: waiting for data…</div>
@@ -439,14 +444,14 @@ function showSweepResult(m) {
 
 // ---- colour palette (hybrid frequency-phase codes) ----
 // Class 0 (black) does not flicker; class k flickers its display colour
-// (m.show[k], a bright tint of the palette colour) against black with code
-// k-1. A code is a period of a whole number of display frames (72 Hz panel:
+// (m.show[k]: white for every class, the scan is monochrome) against black
+// with code k-1, so the classes differ on screen only in their code. A code is a period of a whole number of display frames (72 Hz panel:
 // 6 frames = 12 Hz, 5 frames = 14.4 Hz; odd periods are on for the longer
 // half) plus a phase of whole frames (60 / 72 degree steps). Several codes may
 // share a period and differ in phase only. What was actually delivered is
 // reported back (bwb_plan) so the decoder builds its references from it. The
 // phase restarts at every cell / block onset.
-const BWB_COLORS = ["#000000", "#ffffff", "#0000ff"];
+const BWB_COLORS = ["#000000", "#ffffff", "#ffffff"];
 async function planBwb(codes) {
   if (!refreshMeasured) { await measureRefresh(); refreshMeasured = true; }
   const plans = [];
@@ -715,7 +720,10 @@ function showResult(m) {
   resultBox.style.display = "flex";
 }
 
-function hideResult() { resultBox.style.display = "none"; }
+function hideResult() {
+  resultBox.style.display = "none";
+  if (typeof meshSpin !== "undefined" && meshSpin) { cancelAnimationFrame(meshSpin); meshSpin = null; }
+}
 
 // ---- after calibration: which picture to scan? (click a button, or key 1 / 2)
 function showChoice(m) {
@@ -940,11 +948,35 @@ async function runMusic(m) {
   send({ type: "assr_done" });
 }
 
+// a 3D object's result: the object shown and the one decoded, turning
+let meshSpin = null;
+function showMeshResult(pl) {
+  const box = document.getElementById("rmesh");
+  if (meshSpin) { cancelAnimationFrame(meshSpin); meshSpin = null; }
+  if (!pl || typeof MeshView === "undefined") { box.style.display = "none"; return false; }
+  const vS = new MeshView(document.getElementById("rmS"), pl.geom);
+  const vD = new MeshView(document.getElementById("rmD"), pl.geom);
+  const shown = pl.cells.map(c => pl.rgb[c.s]);
+  const dec = pl.cells.map(c => c.d === undefined ? [0.5, 0.5, 0.5] : pl.rgb[c.d]);
+  const wrong = new Set(pl.cells.map((c, k) => c.d !== undefined && c.d !== c.s ? k : -1).filter(k => k >= 0));
+  box.style.display = "flex";
+  const t0 = performance.now();
+  const step = t => {
+    for (const v of [vS, vD]) { v.resize(); v.yaw = -0.6 + (t - t0) / 1000 * 0.4; }
+    vS.draw({ colours: shown, bg: "#000" });
+    vD.draw({ colours: dec, outline: wrong, bg: "#000" });
+    meshSpin = requestAnimationFrame(step);
+  };
+  meshSpin = requestAnimationFrame(step);
+  return true;
+}
 function showColorResult(m) {
   running = null; black();
-  title.textContent = "COLOUR RESULT"; title.className = "";
+  title.textContent = m.mesh ? "3D RESULT" : "COLOUR RESULT"; title.className = "";
   sub.textContent = m.text || "";
   const ri = document.getElementById("rimg");
+  const turning = showMeshResult(m.mesh);
+  ri.style.display = turning ? "none" : "";
   ri.src = m.png;
   // shown | decoded comparison: wider, smooth edges for the labels
   ri.style.width = m.wide ? "min(92vw, 150vh)" : "";

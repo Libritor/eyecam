@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<!-- written by mesh3d.py: the object shown, and the same object painted with
+     the colours decoded from the EEG. Self-contained, opens offline. -->
+<style>
+  :root { --bg: #111113; --panel: #1b1b1f; --line: #2c2c33; --text: #e6e6ea; --dim: #9a9aa6;
+          --ok: #6fd68b; --bad: #eb2d2d; --accent: #8ab4ff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 22px 16px 40px; }
+  h1 { font-size: 22px; margin: 0 0 4px; font-weight: 650; }
+  .note { color: var(--dim); margin: 0 0 14px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  .chip { background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+          padding: 4px 12px; font-size: 13px; color: var(--dim); }
+  .chip b { color: var(--text); font-weight: 600; }
+  .views { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+          padding: 12px; min-width: 0; }
+  .card h2 { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim);
+             margin: 0 0 8px; font-weight: 600; }
+  .stage { position: relative; width: 100%; aspect-ratio: 1; }
+  .stage canvas { width: 100%; height: 100%; display: block; border-radius: 8px;
+                  cursor: grab; touch-action: none; }
+  .stage canvas:active { cursor: grabbing; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin: 14px 0; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { background: transparent; color: var(--dim); border: 0; padding: 6px 12px;
+                font: inherit; font-size: 13px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: #2b2f3a; color: var(--text); }
+  label.tog { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--dim);
+              cursor: pointer; }
+  button.plain { background: var(--panel); color: var(--text); border: 1px solid var(--line);
+                 border-radius: 8px; padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+  .lower { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 14px; margin-top: 14px; }
+  @media (max-width: 760px) { .lower { grid-template-columns: 1fr; } }
+  #atlas { width: 100%; display: block; cursor: crosshair; }
+  .legend { display: grid; grid-template-columns: auto 1fr auto auto; gap: 6px 10px;
+            align-items: center; font-size: 13px; }
+  .sw { width: 16px; height: 16px; border-radius: 4px; border: 1px solid #0006; }
+  .legend .h { color: var(--dim); font-size: 12px; }
+  table { border-collapse: collapse; font-size: 12px; margin-top: 12px; }
+  td, th { border: 1px solid var(--line); padding: 3px 7px; text-align: center; }
+  th { color: var(--dim); font-weight: 500; }
+  td.diag { color: var(--ok); }
+  td.off { color: var(--bad); }
+  .scale { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--dim); margin-top: 10px; }
+  .bar { flex: 1; height: 10px; border-radius: 5px;
+         background: linear-gradient(90deg, #440154, #3a528b, #20908d, #5ec962, #fde725); }
+  #tip { position: fixed; pointer-events: none; background: #000d; color: #fff; padding: 6px 9px;
+         border-radius: 6px; font-size: 12px; display: none; z-index: 5; white-space: nowrap; }
+  .hint { color: var(--dim); font-size: 12px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="ttl"></h1>
+  <p class="note" id="note"></p>
+  <div class="chips" id="chips"></div>
+  <div class="views">
+    <div class="card"><h2>Shown</h2><div class="stage"><canvas id="cvS"></canvas></div></div>
+    <div class="card" id="decCard"><h2 id="decTitle">Decoded from EEG</h2><div class="stage"><canvas id="cvD"></canvas></div></div>
+  </div>
+  <div class="controls" id="controls">
+    <span class="seg" id="mode">
+      <button data-m="colour" aria-pressed="true">Decoded colour</button>
+      <button data-m="cert" aria-pressed="false">Certainty</button>
+    </span>
+    <label class="tog"><input type="checkbox" id="ring" checked> Ring wrong cells</label>
+    <label class="tog"><input type="checkbox" id="spin" checked> Auto-rotate</label>
+    <button class="plain" id="reset">Reset view</button>
+  </div>
+  <div class="hint">Drag to turn the object, scroll to zoom. Point at a cell on the object or the grid to find it in the other.</div>
+  <div class="lower">
+    <div class="card"><h2>The 2D grid the subject scanned</h2><canvas id="atlas"></canvas>
+      <div class="hint" id="atlasHint"></div></div>
+    <div class="card"><h2>Palette</h2><div class="legend" id="legend"></div>
+      <div id="conf"></div>
+      <div class="scale" id="scale"><span id="lo"></span><div class="bar"></div><span>100 %</span></div></div>
+  </div>
+</main>
+<div id="tip"></div>
+<script>
+/*MESH_VIEW_JS*/
+</script>
+<script>
+"use strict";
+const DATA = /*DATA*/null;
+const $ = id => document.getElementById(id);
+const K = DATA.names.length, cells = DATA.cells, geom = DATA.geom;
+const decoded = cells.some(c => c.d !== undefined);
+const VIR = [[0.267, 0.005, 0.329], [0.229, 0.322, 0.546], [0.128, 0.567, 0.551],
+             [0.369, 0.789, 0.383], [0.993, 0.906, 0.144]];
+function certRgb(p) {
+  const x = Math.min(1, Math.max(0, (p - 1 / K) / (1 - 1 / K))) * 4;
+  const i = Math.min(3, Math.floor(x)), f = x - i;
+  return VIR[i].map((v, j) => v * (1 - f) + VIR[i + 1][j] * f);
+}
+const GREY = [0.5, 0.5, 0.5];
+const shownCols = cells.map(c => DATA.rgb[c.s]);
+const wrong = new Set(cells.map((c, k) => c.d !== undefined && c.d !== c.s ? k : -1).filter(k => k >= 0));
+let mode = "colour", hi = -1;
+const decCols = () => cells.map(c => c.d === undefined ? GREY
+  : mode === "cert" ? certRgb(c.p ?? 1) : DATA.rgb[c.d]);
+
+// ---- header
+$("ttl").textContent = DATA.name.charAt(0).toUpperCase() + DATA.name.slice(1);
+$("note").textContent = DATA.note + (DATA.summary ? " — " + DATA.summary : "");
+const nDec = cells.filter(c => c.d !== undefined).length;
+const chips = [[`${cells.length}`, "cells on the object"],
+               [`${geom.grid[0]} × ${geom.grid[1]}`, `scan grid (${DATA.layout})`],
+               [`${K - 1} + black`, "colours"]];
+if (decoded) {
+  chips.unshift([`${nDec - wrong.size} / ${nDec}`, "decoded right"]);
+  const ps = cells.filter(c => c.p !== undefined).map(c => c.p);
+  if (ps.length) chips.push([`${(100 * Math.min(...ps)).toFixed(1)} %`, "lowest certainty"]);
+}
+$("chips").innerHTML = chips.map(([b, t]) => `<span class="chip"><b>${b}</b> ${t}</span>`).join("");
+if (!decoded) { $("decCard").style.display = "none"; $("controls").style.display = "none";
+                $("scale").style.display = "none"; }
+$("lo").textContent = `chance ${(100 / K).toFixed(0)} %`;
+
+// ---- legend and confusion
+const counts = DATA.names.map((_, k) => cells.filter(c => c.s === k).length);
+const right = DATA.names.map((_, k) => cells.filter(c => c.s === k && c.d === k).length);
+$("legend").innerHTML = `<span></span><span class="h">colour</span><span class="h">cells</span>` +
+  `<span class="h">${decoded ? "right" : ""}</span>` +
+  DATA.names.map((n, k) => counts[k] ? `<span class="sw" style="background:rgb(${DATA.rgb[k].map(v => v * 255).join(",")})"></span>` +
+    `<span>${n}${k === 0 ? " (no flicker)" : ""}</span><span>${counts[k]}</span>` +
+    `<span>${decoded ? right[k] : ""}</span>` : "").join("");
+if (decoded) {
+  const C = DATA.names.map(() => DATA.names.map(() => 0));
+  cells.forEach(c => { if (c.d !== undefined) C[c.s][c.d]++; });
+  const used = DATA.names.map((_, k) => counts[k] > 0 || C.some(r => r[k] > 0));
+  const idx = DATA.names.map((_, k) => k).filter(k => used[k]);
+  $("conf").innerHTML = `<table><tr><th>shown ↓ decoded →</th>${idx.map(k => `<th>${DATA.names[k]}</th>`).join("")}</tr>` +
+    idx.map(a => `<tr><th>${DATA.names[a]}</th>${idx.map(b => `<td class="${C[a][b] ? (a === b ? "diag" : "off") : ""}">${C[a][b] || ""}</td>`).join("")}</tr>`).join("") +
+    `</table>`;
+}
+
+// ---- 3D views
+const vS = new MeshView($("cvS"), geom), vD = new MeshView($("cvD"), geom);
+const views = decoded ? [vS, vD] : [vS];
+let spin = true, dragging = null;
+function frame() {
+  for (const v of views) v.resize();
+  vS.draw({ colours: shownCols, hi });
+  if (decoded) vD.draw({ colours: decCols(), outline: $("ring").checked ? wrong : new Set(), hi });
+  drawAtlas();
+}
+function setView(f) { for (const v of views) f(v); frame(); }
+for (const v of views) {
+  const c = v.cv;
+  c.addEventListener("pointerdown", e => { dragging = { x: e.clientX, y: e.clientY }; c.setPointerCapture(e.pointerId); });
+  c.addEventListener("pointermove", e => {
+    if (dragging) {
+      const dx = e.clientX - dragging.x, dy = e.clientY - dragging.y;
+      dragging = { x: e.clientX, y: e.clientY };
+      setView(w => { w.yaw += dx * 0.01; w.pitch = Math.max(-1.5, Math.min(1.5, w.pitch + dy * 0.01)); });
+    } else {
+      const r = c.getBoundingClientRect();
+      hover(v.pick(e.clientX - r.left, e.clientY - r.top), e);
+    }
+  });
+  c.addEventListener("pointerup", () => { dragging = null; });
+  c.addEventListener("pointerleave", () => hover(-1));
+  c.addEventListener("wheel", e => { e.preventDefault();
+    setView(w => { w.zoom = Math.max(0.5, Math.min(3, w.zoom * Math.exp(-e.deltaY * 0.001))); }); },
+    { passive: false });
+}
+$("spin").onchange = e => { spin = e.target.checked; };
+$("ring").onchange = frame;
+$("reset").onclick = () => setView(w => { w.yaw = -0.6; w.pitch = 0.45; w.zoom = 1; });
+document.querySelectorAll("#mode button").forEach(b => b.onclick = () => {
+  mode = b.dataset.m;
+  document.querySelectorAll("#mode button").forEach(x => x.setAttribute("aria-pressed", x === b));
+  frame();
+});
+
+// ---- 2D atlas
+const at = $("atlas"), actx = at.getContext("2d");
+const cellAt = new Map(cells.map((c, k) => [geom.cells[k].gx + "," + geom.cells[k].gy, k]));
+let acell = 20;
+function drawAtlas() {
+  const d = window.devicePixelRatio || 1, cssW = at.parentElement.clientWidth - 24;
+  const [gw, gh] = geom.grid;
+  acell = Math.max(6, Math.min(44, cssW / gw));
+  at.style.width = gw * acell + "px"; at.style.height = gh * acell + "px";
+  at.width = Math.round(gw * acell * d); at.height = Math.round(gh * acell * d);
+  actx.setTransform(d, 0, 0, d, 0, 0);
+  actx.clearRect(0, 0, gw * acell, gh * acell);
+  const cols = decoded ? decCols() : shownCols;
+  geom.cells.forEach((g, k) => {
+    const c = cols[k];
+    actx.fillStyle = `rgb(${c.map(v => Math.round(v * 255)).join(",")})`;
+    actx.fillRect(g.gx * acell, g.gy * acell, acell, acell);
+    actx.strokeStyle = "#0008"; actx.lineWidth = 1;
+    actx.strokeRect(g.gx * acell + 0.5, g.gy * acell + 0.5, acell - 1, acell - 1);
+    if (decoded && cells[k].d !== undefined && cells[k].d !== cells[k].s && $("ring").checked) {
+      actx.strokeStyle = "#eb2d2d"; actx.lineWidth = 2.5;
+      actx.strokeRect(g.gx * acell + 2, g.gy * acell + 2, acell - 4, acell - 4);
+    }
+    if (decoded) {   // what was shown, as a small corner tab
+      const s = shownCols[k], t = Math.max(4, acell * 0.28);
+      actx.fillStyle = `rgb(${s.map(v => Math.round(v * 255)).join(",")})`;
+      actx.fillRect(g.gx * acell + acell - t - 2, g.gy * acell + 2, t, t);
+    }
+  });
+  actx.lineWidth = 2; actx.strokeStyle = "#c8c8d0";
+  actx.font = `${Math.max(9, acell * 0.32)}px system-ui`;
+  for (const ch of geom.charts) {
+    actx.strokeRect(ch.x * acell + 1, ch.y * acell + 1, ch.w * acell - 2, ch.h * acell - 2);
+  }
+  if (hi >= 0) {
+    const g = geom.cells[hi];
+    actx.strokeStyle = "#fff"; actx.lineWidth = 3;
+    actx.strokeRect(g.gx * acell + 1.5, g.gy * acell + 1.5, acell - 3, acell - 3);
+  }
+}
+$("atlasHint").textContent = decoded
+  ? "Each square: the decoded colour; the small tab in its corner is the colour that was shown. Outlined blocks are the object's faces."
+  : "Outlined blocks are the object's faces, unfolded; the subject sees one square at a time, flickering white with that colour's code.";
+at.addEventListener("pointermove", e => {
+  const r = at.getBoundingClientRect();
+  const k = cellAt.get(Math.floor((e.clientX - r.left) / acell) + "," + Math.floor((e.clientY - r.top) / acell));
+  hover(k === undefined ? -1 : k, e);
+});
+at.addEventListener("pointerleave", () => hover(-1));
+
+function hover(k, e) {
+  const tip = $("tip");
+  if (k !== hi) { hi = k; if (!spin) frame(); }
+  if (k < 0 || !e) { tip.style.display = "none"; return; }
+  const c = cells[k], g = geom.cells[k];
+  let s = `${g.chart} · grid (${g.gx}, ${g.gy}) · shown <b>${DATA.names[c.s]}</b>`;
+  if (c.d !== undefined) s += ` · decoded <b style="color:${c.d === c.s ? "#6fd68b" : "#ff6b6b"}">${DATA.names[c.d]}</b>`;
+  if (c.p !== undefined) s += ` · ${(100 * c.p).toFixed(1)} % sure`;
+  tip.innerHTML = s; tip.style.display = "block";
+  tip.style.left = Math.min(innerWidth - tip.offsetWidth - 8, e.clientX + 14) + "px";
+  tip.style.top = e.clientY + 14 + "px";
+}
+
+let last = performance.now();
+function tick(t) {
+  if (spin && !dragging) { const dt = (t - last) / 1000; for (const v of views) v.yaw += dt * 0.35; frame(); }
+  last = t;
+  requestAnimationFrame(tick);
+}
+addEventListener("resize", frame);
+frame(); requestAnimationFrame(tick);
+</script>
+</body>
+</html>
