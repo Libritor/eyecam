@@ -13,7 +13,7 @@
 #
 # -Session names the folder under runs/ (default: <run><n>, the next free number).
 param(
-    [ValidateSet("vision", "eight", "officer", "wedge", "photo", "cphoto", "custom")] [string] $Run = "vision",
+    [ValidateSet("vision", "eight", "officer", "wedge", "photo", "cphoto", "grey", "custom")] [string] $Run = "vision",
     [string] $Session = "",
     [string] $Target = "",
     [string] $Extra = "",
@@ -45,6 +45,12 @@ switch ($Run) {
                 $args_ = @("--mode", "planes", "--color-target", $Target, "--color-grid-w", "$gw", "--color-grid-h", "$gh",
                            "--plane-spc", "5,5,8", "--plane-passes", "1", "--rest-every", "48"); $prefix = "vr_cphoto"
                 "colour poster $Target is ${gw} x ${gh}, about $([math]::Round($gw * $gh * 18 / 60)) min" }
+    "grey"    { if ($Target -eq "" -or -not (Test-Path $Target)) { "grey needs -Target <grey png at grid size>"; exit 4 }
+                Add-Type -AssemblyName System.Drawing
+                $img = [System.Drawing.Image]::FromFile((Resolve-Path $Target)); $gw = $img.Width; $gh = $img.Height; $img.Dispose()
+                $args_ = @("--mode", "visual", "--choice", "bw", "--target", $Target, "--grid-w", "$gw", "--grid-h", "$gh",
+                           "--spc", "8", "--certainty-max-passes", "2", "--rest-every", "48"); $prefix = "vr_grey"
+                "grey picture $Target is ${gw} x ${gh}, about $([math]::Round($gw * $gh * 8 / 60)) min a pass (up to two)" }
     "custom"  { $args_ = @(); $prefix = "vr_custom" }
 }
 if ($Extra -ne "") { $args_ += ($Extra -split " ") }

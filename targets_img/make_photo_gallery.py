@@ -44,6 +44,11 @@ CROPS = {
     "einstein": (0.10, 0.02, 0.90, 0.62),
     "tesla": (0.11, 0.03, 0.81, 0.55),
     "bose": (0.40, 0.11, 0.69, 0.37),      # photos_more/bose.png; not in the draw pool (see photos_more/README.md)
+    # colourised portraits for the colour runs (photos_more/, credits in its README)
+    "lincoln_c": (0.20, 0.07, 0.80, 0.63),
+    "einstein_c": (0.10, 0.06, 0.90, 0.70),
+    "tesla_c": (0.28, 0.08, 0.82, 0.64),
+    "mann_c": (0.15, 0.04, 0.85, 0.60),    # the colour studio headshot, kept outside the repo
 }
 
 
