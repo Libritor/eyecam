@@ -43,6 +43,7 @@ CROPS = {
     "lincoln": (0.05, 0.03, 0.89, 0.68),
     "einstein": (0.10, 0.02, 0.90, 0.62),
     "tesla": (0.11, 0.03, 0.81, 0.55),
+    "bose": (0.40, 0.11, 0.69, 0.37),      # photos_more/bose.png; not in the draw pool (see photos_more/README.md)
 }
 
 
