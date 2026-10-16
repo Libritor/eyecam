@@ -236,3 +236,28 @@ two voided colour runs so far were both a floating Oz.
 - Blinks are about 1 % of our scan recordings; the closed-eye detector flags
   59 % of truly closed and 31 % of truly open time; masked re-scores of three
   sessions: 0.784 to 0.781, 0.778 to 0.779, 0.722 to 0.689.
+
+## 2026-10-16: the portrait runs, decided
+
+Bose is the black-and-white portrait; the other four go in colour, one a
+sitting, as a pair of scans (brightness at 12 x 12 by the grey scan, colour
+at 6 x 6 by the planes; `analysis/colour_combine.py` puts them together).
+Targets and credits: `targets_img/*_luma_*.png`, `*_chroma_*.png`,
+`targets_img/photos_more/README.md`. Order, each after the wedge
+(`.\quest_run.ps1 -Run wedge`, 7 min, which says how many grey levels the
+four-level targets may use; `--levels 2` on make_colour_pair.py if only two):
+
+1. Bose, grey, 16 x 16 four levels, 34 min a pass:
+   `.\quest_run.ps1 -Run grey -Target targets_img\bose_luma_16x16.png`
+2. Mann (colour headshot), 19 + 11 min:
+   `.\quest_run.ps1 -Run grey -Target targets_img\mann_c_luma_12x12.png`
+   `.\quest_run.ps1 -Run cphoto -Target targets_img\mann_c_chroma_6x6.png`
+   `python analysis/colour_combine.py runs\vr_grey2 runs\vr_cphoto1 --name mann_c`
+3. Lincoln (colourised 1863 Gardner), same three commands with `lincoln_c`.
+4. Einstein (colourised, DonkeyHotey CC BY 2.0), `einstein_c`.
+5. Tesla (coloured by Ivar van Wooning, CC BY-SA 3.0), `tesla_c`.
+
+Session numbers: the launcher takes the next free `vr_greyN` / `vr_cphotoN`;
+check `runs\` before the combine. The officer (`-Run officer`, 33 min) and
+the sealed plate (`targets_img/make_plate.py --draw`, 30 min) stay as the
+corner-colour runs. Colourised colours are a colourist's, say so in the paper.
