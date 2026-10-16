@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(ROOT, "targets_img"))
 import make_photo_gallery as g  # noqa: E402
 
 OUT = sys.argv[1]
-BOSE = r"C:\Users\alexa\Downloads\bose\bose_1926_meurisse.jpg"
+BOSE = os.path.join(ROOT, "targets_img", "photos_more", "bose.png")
 g.CROPS["bose"] = (0.40, 0.11, 0.69, 0.37)
 
 S, pad, cap = 300, 10, 22
