@@ -261,3 +261,18 @@ Session numbers: the launcher takes the next free `vr_greyN` / `vr_cphotoN`;
 check `runs\` before the combine. The officer (`-Run officer`, 33 min) and
 the sealed plate (`targets_img/make_plate.py --draw`, 30 min) stay as the
 corner-colour runs. Colourised colours are a colourist's, say so in the paper.
+
+## 2026-10-17, 00:30: vr_grey1 (Bose 16 x 16), stopped at the first rest
+
+Calibration strong (AUX line SNR 5-14 on, 0.1-2 off; electrode clean through
+the scan), but the scan response faded to the OFF level after about two
+minutes and never followed the grey; identical white cells swung 20-fold.
+Started at 00:35, so fatigue is the first suspect. Second: on a square board
+the 6 x 4 patch rule drew a tall, narrow rectangle (112 x 168 px of a 1280 x
+800 browser window, 70% of the NO run's patch area). New `--patch-side`
+(square, fraction of the board's shorter side) and `quest_run.ps1 -Run grey`
+now uses 0.3 (about 5 cells of 16, 2.2 x the area). Redo Bose rested:
+`.\quest_run.ps1 -Run grey -Target targets_img\bose_luma_16x16.png`
+(add `-PatchSide 0.4` for a bigger one). The mid-run checks live in the
+scratchpad only (snr_compare / timecourse / first_minutes), to be made a tool
+(`analysis/midrun_check.py`) if this happens again.

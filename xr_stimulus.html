@@ -43,6 +43,14 @@ addEventListener("resize", fit); fit();
 
 function black() { ctx.fillStyle = "#000"; ctx.fillRect(0, 0, cv.width, cv.height); }
 
+// the flicker patch: a square of m.patchSide x the board's shorter side when
+// asked (grey scans, 2026-10-17: the 6x4 rule drew a tall, narrow rectangle on
+// a square board); else m.patch x a 6x4-grid cell; else the grid cell itself
+function patchSize(m, bw, bh, cwid, chgt) {
+  if (m.patchSide) { const s = Math.min(bw, bh) * m.patchSide; return [s, s]; }
+  return [m.patch ? bw / 6 * m.patch : cwid, m.patch ? bh / 4 * m.patch : chgt];
+}
+
 // Wait for a trigger pull, click, key or controller button. In unattended
 // runs (?auto=1) it returns after a second.
 async function waitForPress() {
@@ -345,7 +353,7 @@ async function runMuxScan(m) {
   // across the row so large patches never overlap; patch size is fixed
   // (m.patch x a 6x4-grid cell) regardless of how fine the grid is
   const stride = nStrips;
-  const pw = m.patch ? bw / 6 * m.patch : cwid, ph = m.patch ? bh / 4 * m.patch : chgt;
+  const [pw, ph] = patchSize(m, bw, bh, cwid, chgt);
   for (let gy = 0; gy < gh && running === tok; gy++) {
     const strips = [...Array(nStrips).keys()];
     if (gy % 2 === 1) strips.reverse();
@@ -468,7 +476,7 @@ function bwbGeom(m) {
   const gw = m.gridW, gh = m.gridH;
   const bw = Math.min(cv.width, cv.height * gw / gh) * (m.board || 0.84), bh = bw * gh / gw;
   const x0 = (cv.width - bw) / 2, y0 = (cv.height - bh) / 2, cwid = bw / gw, chgt = bh / gh;
-  const pw = m.patch ? bw / 6 * m.patch : cwid, ph = m.patch ? bh / 4 * m.patch : chgt;
+  const [pw, ph] = patchSize(m, bw, bh, cwid, chgt);
   return { x0, y0, cwid, chgt, pw, ph };
 }
 // draw class cls (0 = black, k = palette colour k) centred at (cx, cy);
@@ -593,7 +601,7 @@ async function runScan(m) {
       const lum = target[gy][gx];
       // fixed patch size (m.patch x a 6x4-grid cell) so a finer grid only
       // adds positions (overlapping), never shrinks the flickering area
-      const pw = m.patch ? bw / 6 * m.patch : cwid, ph = m.patch ? bh / 4 * m.patch : chgt;
+      const [pw, ph] = patchSize(m, bw, bh, cwid, chgt);
       const bwc = m.bw ? ["#ffffff", "#000000"] : null;
       const plane = m.plane || [1, 1, 1];   // --mode planes: this pass's colour
       const t0 = now();
