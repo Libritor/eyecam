@@ -103,8 +103,20 @@ class QuestPlayer:
             if m.get("type") == type_ and (rep is None or m.get("rep") == rep):
                 return m
 
-    def wait_ready(self, timeout):
-        return self.ready.wait(timeout)
+    def wait_ready(self, timeout, nudge_every=20.0):
+        """Wait for the page's "ready"; every `nudge_every` s, if the page is open
+        but its audio context stayed suspended, resume it through the browser's
+        DevTools port (a DevTools evaluation counts as a user gesture)."""
+        t_end = time.monotonic() + timeout
+        while not self.ready.is_set():
+            if self.ready.wait(min(nudge_every, max(0.0, t_end - time.monotonic()))):
+                break
+            if time.monotonic() >= t_end:
+                break
+            note = devtools_nudge(self.port)
+            if note:
+                print("  " + note)
+        return self.ready.is_set()
 
     def sync_clock(self, n=8):
         """(round trip s, page clock minus PC clock s) from the shortest of n ping-pongs."""
@@ -147,6 +159,58 @@ class QuestPlayer:
             self.send(dict(cmd="done"))
         except Exception:                                    # noqa: BLE001
             pass
+
+
+def devtools_nudge(port, quest_serial=None, dev_port=9222):
+    """Through the Quest browser's DevTools socket: keep one tab of our page,
+    close the rest, bring it in front, and if its audio context is suspended
+    (the trigger pull did not count as a user gesture) resume it with a
+    user-gesture evaluation. Returns a one-line note, or "" when nothing to do."""
+    import urllib.request
+    base = ["adb"] + (["-s", quest_serial] if quest_serial else [])
+    try:
+        subprocess.run(base + ["forward", f"tcp:{dev_port}", "localabstract:chrome_devtools_remote"],
+                       check=False, capture_output=True, timeout=10)
+        tabs = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{dev_port}/json", timeout=4).read().decode())
+    except Exception:                                        # noqa: BLE001
+        return ""
+    ours = [t for t in tabs if t.get("type") == "page" and f":{port}/" in t.get("url", "")]
+    if not ours:
+        return "the page is not open in the headset browser"
+    keep = ours[0]
+    for t in ours[1:]:
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{dev_port}/json/close/{t['id']}", timeout=4).read()
+        except Exception:                                    # noqa: BLE001
+            pass
+    try:
+        urllib.request.urlopen(f"http://127.0.0.1:{dev_port}/json/activate/{keep['id']}", timeout=4).read()
+    except Exception:                                        # noqa: BLE001
+        pass
+    probe = ("JSON.stringify({sub: document.getElementById('sub').textContent, "
+             "ctx: (typeof ctx !== 'undefined' && ctx) ? ctx.state : 'none'})")
+
+    async def go():
+        async with websockets.connect(keep["webSocketDebuggerUrl"], max_size=None) as ws:
+            async def ev(i, expr, gesture=False):
+                await ws.send(json.dumps(dict(id=i, method="Runtime.evaluate",
+                                              params=dict(expression=expr, returnByValue=True,
+                                                          awaitPromise=True, userGesture=gesture))))
+                while True:
+                    m = json.loads(await ws.recv())
+                    if m.get("id") == i:
+                        r = m.get("result", {}).get("result", {})
+                        return r.get("value", r.get("description"))
+            st = json.loads(await ev(1, probe))
+            if st.get("ctx") == "suspended":
+                await ev(2, "ctx.resume().then(() => ctx.state)", gesture=True)
+                return f"headset page was '{st.get('sub')}' with audio suspended: resumed it through DevTools"
+            return f"headset page: '{st.get('sub')}' (audio {st.get('ctx')})"
+
+    try:
+        return asyncio.run(go())
+    except Exception as e:                                   # noqa: BLE001
+        return f"devtools: {e}"
 
 
 def adb_open(port):
