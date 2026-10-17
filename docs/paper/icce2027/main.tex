@@ -56,7 +56,14 @@ Fletcher's group has built a decade of diagnostics around sensors a phone alread
 
 \section{System}
 
-\textbf{Hardware.} Muse 2 at 256\,Hz over Bluetooth to a phone, forwarded to the laptop over UDP; a gold cup with paste at Oz on the Muse auxiliary input, held by the headset strap; a Quest 3S; a laptop. Under \$600, nothing modified. \todo{photograph of the set-up}
+\textbf{Hardware.} Muse 2 at 256\,Hz over Bluetooth to a phone, forwarded to the laptop over UDP; a gold cup with paste at Oz on the Muse auxiliary input, held by the headset strap; a Quest 3S; a laptop (Fig.~\ref{fig:setup}). Under \$600, nothing modified.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.4\columnwidth]{setup}
+\caption{The set-up on the subject: the Quest 3S worn over the Muse headband, with the gold cup on the Muse auxiliary input held at Oz at the back of the head, its lead over the shoulder to the headband. The subject is the first author.}
+\label{fig:setup}
+\end{figure}
 
 \textbf{Stimulus.} A web page served by the laptop and opened in the headset's browser. One square flickers between black and white, or black and a colour, at the target position; a dot marks it and the subject follows the dot. The page flips on the display's frame clock, so at 72\,fps the 12\,Hz flicker is exactly three frames on and three off, and 9\,Hz four and four; it measures and reports the delivered frequency, and reports its visibility, since a background tab renders at one frame per second.
 
@@ -68,7 +75,7 @@ Fletcher's group has built a decade of diagnostics around sensors a phone alread
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\columnwidth]{response_curve}
+\includegraphics[width=0.9\columnwidth]{response_curve}
 \caption{The subject's response by frequency on the laptop (left) and the Oz spectrum at 10.4\,Hz flicker (right): a single-bin line with the alpha hump unchanged.}
 \label{fig:sweep}
 \end{figure}
@@ -83,7 +90,7 @@ All results are from one subject, the first author, September to October 2026.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.92\textwidth]{no_word}
+\includegraphics[width=0.8\textwidth]{no_word}
 \caption{``NO'' read from the EEG in the Quest 3S, 12\,Hz, 8\,s per position, with a large square (top) and the paper-sized square (bottom): shown, after each pass, smoothed as in the 2019 paper, and thresholded. Both reach 43 of 45.}
 \label{fig:no}
 \end{figure*}
@@ -107,14 +114,14 @@ sitting & R & G & B & right & hue & $r$ (null) \\
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.92\textwidth]{colour_planes9}
+\includegraphics[width=0.8\textwidth]{colour_planes9}
 \caption{Eight colours on the first colour sitting: shown, decoded with each plane scaled to its range, and snapped to the eight colours with wrong cells marked. 24 of 32.}
 \label{fig:colour9}
 \end{figure*}
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.78\columnwidth]{planes9_per_plane}
+\includegraphics[width=0.7\columnwidth]{planes9_per_plane}
 \caption{The same sitting plane by plane: shown, from the EEG, thresholded. Red 32, green 28, blue 28 of 32; blue at 9\,Hz with the patch doubled.}
 \label{fig:planes}
 \end{figure}
@@ -123,16 +130,25 @@ sitting & R & G & B & right & hue & $r$ (null) \\
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.92\textwidth]{acuity_vision1}
+\includegraphics[width=0.8\textwidth]{acuity_vision1}
 \caption{The sealed pair read from the EEG: shown, one value per position, smoothed, thresholded. The read-out named E up and ring U before the seal was opened; both right.}
 \label{fig:acuity}
 \end{figure*}
 
 \textbf{Toward a real photograph.} The 2019 portrait went in thresholded to two tones and came back a silhouette. We prepare the same at our grid and add a forced choice: four portraits (Fig.~\ref{fig:gallery}) cut to 16 by 16 cells at four grey levels, the block-portrait size at which a face is recognisable \cite{harmon1973masking, harmon1973faces}; one is drawn and sealed, and the read-out names the person by correlation against all four. On the clean targets the choice is right 100\% of the time with a quarter of the cells flipped, chance one in four. A colour photograph does not survive the three planes (its colours sit mid-cube and flip), but a flat illustration in the eight corner colours does (Fig.~\ref{fig:gallery}, right). \todo{wedge result, first sealed photograph, officer scan}
 
+\textbf{A three-dimensional object.} The planes scan reads any colour image at grid size, so an object's texture atlas can go through it and come back painted on the object. A die's six faces were unfolded into a 54-cell atlas of black, white and one red pip, three of the corner colours the planes separate best, and scanned at 5, 5 and 8\,s per cell in one pass with the ten least certain blue cells shown again, 18 minutes in a rested morning sitting. Snapped to the die's three colours, 51 of 54 cells came back right (black 19 of 20, white 31 of 33, the pip in place) and the cube is painted from the EEG (Fig.~\ref{fig:die}); on the stricter rule used for the chart, right in all three planes at once, 35 of 54, with per-plane $r$ of 0.66, 0.67 and 0.70 against a time-shifted null of 0.12. The misses are two white cells read as extra pips and one black cell read white, and the blue plane was again the least certain. \todo{credit the mesh3d author among the co-authors}
+
 \begin{figure}[t]
 \centering
-\includegraphics[width=\columnwidth]{gallery_16}
+\includegraphics[width=0.85\columnwidth]{die}
+\caption{A die read from the eye. Top: the cube as shown, three views, and the flat 9 by 6 atlas the subject actually scanned. Bottom: the same painted with the colours decoded from the EEG, 51 of 54 cells right; a red ring marks a wrong cell.}
+\label{fig:die}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.9\columnwidth]{gallery_16}
 \caption{The photograph gallery: the crop the eye gets over its 16 by 16 four-level target, for Mann's 2019 portrait, Lincoln and Tesla (Einstein completes the set); right, the officer as a flat illustration and its 12 by 14 poster for the colour planes.}
 \label{fig:gallery}
 \end{figure}
@@ -141,14 +157,14 @@ sitting & R & G & B & right & hue & $r$ (null) \\
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.9\columnwidth]{blink_release}
+\includegraphics[width=0.8\columnwidth]{blink_release}
 \caption{Blink release when the cell goes dark: blinks per minute in half-second bins around the moment a flickering cell turns black, two colour sittings against a reference day. Bands are 95\% block-bootstrap intervals.}
 \label{fig:blink}
 \end{figure}
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.9\columnwidth]{ssvep_fatigue_left}
+\includegraphics[width=0.8\columnwidth]{ssvep_fatigue_left}
 \caption{The SSVEP of every lit cell through the two sittings of one evening (top the first, bottom the second), by plane. The blue response fell by half between them.}
 \label{fig:fatigue}
 \end{figure}
@@ -157,7 +173,7 @@ sitting & R & G & B & right & hue & $r$ (null) \\
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\columnwidth]{ear_mic}
+\includegraphics[width=0.85\columnwidth]{ear_mic}
 \caption{The ear as a microphone. a: the loudness envelope of the 25.5\,s scored from each play (grey) and the mean of the 23 held-out reconstructions from the EEG (red), $r = 0.36$. b: each play decoded by a model that never saw it, against the shift null (band) and the shifted-EEG control (crosses).}
 \label{fig:ear}
 \end{figure}
@@ -166,7 +182,7 @@ sitting & R & G & B & right & hue & $r$ (null) \\
 
 What a community health worker would do with this decides the design. The metaveillography lineage says what the readings are: a visual field read from the brain, an acuity read from the brain, and an attention state read from how the field narrows and widens \cite{mann2019eye, garcia2020painting, garcia2021acuity}, all from hardware that costs less than a phone. Three readings come from one sitting under half an hour. A \emph{colour response profile}: the per-colour calibrations are three numbers before any scan (red, green, blue line statistics of +5.0, +4.3, +5.5 on the first sitting), the raw material of an objective colour-vision screen once the stimuli are isoluminant, which our smooth-flicker mode can display, and there is more than one subject. \rf{what a colour screen must report for a worker to act on it} An \emph{acuity read-out}: the sealed optotype, then a threshold series, giving acuity without a verbal response, as the sweep VEP does in a clinic \cite{norcia1985sweep}. An \emph{eye-strain reading and a prompt}: the blink pattern and rate are live from the same headband, and a ``rest your eyes'' message is the simplest just-in-time intervention \cite{nahum2018jitai}. \rf{prompt design and what to log around it}
 
-\textbf{Limits.} One subject. One cell in four wrong on a 32-cell colour chart; a 96-cell picture is an hour. Blue is fragile, and 9\,Hz sits next to alpha. Contact is the largest practical risk: the cup's $\dprime$ ranged from 0.8 to 5.6 across days, and one loose electrode cost a plane. Flicker at 3 to 30\,Hz can provoke seizures in photosensitive epilepsy and the method must not be used with anyone with that history. The eye-strain result is one evening without a control, and the ear result is two sittings with the sound from the headset's own speakers. \rf{field constraints: time per subject, lighting, who holds the laptop} Next: two more subjects, the acuity series, the loose-channel guard, the sealed photograph, the ear's desk control, the prompt.
+\textbf{Limits.} One subject. One cell in four wrong on a 32-cell colour chart; a 96-cell picture is an hour. Blue is fragile, and 9\,Hz sits next to alpha. Contact is the largest practical risk: the cup's $\dprime$ ranged from 0.8 to 5.6 across days, and one loose electrode cost a plane. Flicker at 3 to 30\,Hz can provoke seizures in photosensitive epilepsy and the method must not be used with anyone with that history. The eye-strain result is one evening without a control, and the ear result is two sittings with the sound from the headset's own speakers. \rf{field constraints: time per subject, lighting, who holds the laptop} Next: two more subjects, the acuity series, the loose-channel guard, the sealed photograph, a globe and a torus of 96 cells, the ear's desk control, the prompt.
 
 \section{Conclusion}
 
