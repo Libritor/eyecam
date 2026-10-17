@@ -194,6 +194,8 @@ def main():
     ap.add_argument("--player", choices=["pc", "quest"], default="pc",
                     help="pc = sounddevice through the PC speakers; quest = the headset's browser (quest_audio.py)")
     ap.add_argument("--quest-port", type=int, default=8083, help="--player quest: port the page is served on")
+    ap.add_argument("--quest-auto", action="store_true",
+                    help="--player quest: no trigger pull, the page starts by itself (the desk control, nobody wearing it)")
     args = ap.parse_args()
 
     from osc_acquire import local_ips
@@ -207,7 +209,7 @@ def main():
     if args.player == "quest":
         from quest_audio import QuestPlayer, adb_open
         quest = QuestPlayer(os.path.join(args.session, "clip.wav"), args.quest_port)
-        serial = adb_open(args.quest_port)
+        serial = adb_open(args.quest_port, auto=args.quest_auto)
         dev_name, out_lat = f"Quest browser, WebAudio (adb {serial or 'manual'})", 0.0
         print(f"output: the headset's browser; page on port {args.quest_port}, pushed to the Quest over USB "
               f"({serial or 'no Quest on adb: open it yourself'})")
@@ -227,7 +229,7 @@ def main():
         sync = {}
         if quest:
             print("\nin the headset: pull the trigger to start (sit still, eyes on the dot) ...")
-            if not quest.wait_ready(600):
+            if not quest.wait_ready(1800):
                 raise SystemExit("the headset page never reported ready (is it open and in front?)")
             rtt, off = quest.sync_clock()
             out_lat = float(quest.info.get("outputLatency") or quest.info.get("baseLatency") or 0.0)

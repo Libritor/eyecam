@@ -213,9 +213,11 @@ def devtools_nudge(port, quest_serial=None, dev_port=9222):
         return f"devtools: {e}"
 
 
-def adb_open(port):
+def adb_open(port, auto=False):
     """Push the page to the Quest browser over USB; the Quest is named in case
-    the MuseLog phone is on USB too. Returns the serial, or None without adb."""
+    the MuseLog phone is on USB too. Returns the serial, or None without adb.
+    auto: the page starts without a trigger pull (desk control, nobody wearing
+    it); the audio context is then resumed through DevTools by wait_ready."""
     try:
         out = subprocess.run(["adb", "devices", "-l"], capture_output=True, text=True, timeout=20).stdout
     except (OSError, subprocess.TimeoutExpired):
@@ -226,6 +228,7 @@ def adb_open(port):
     subprocess.run(base + ["reverse", f"tcp:{port}", f"tcp:{port}"], check=False, capture_output=True)
     subprocess.run(base + ["shell", "input", "keyevent", "KEYCODE_WAKEUP"], check=False, capture_output=True)
     time.sleep(1)
-    subprocess.run(base + ["shell", f"am start -a android.intent.action.VIEW -d 'http://127.0.0.1:{port}/' "
+    url = f"http://127.0.0.1:{port}/" + ("?auto=1" if auto else "")
+    subprocess.run(base + ["shell", f"am start -a android.intent.action.VIEW -d '{url}' "
                            f"-f 0x10000000 com.oculus.browser"], check=False, capture_output=True)
     return serial
