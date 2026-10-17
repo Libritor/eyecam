@@ -276,3 +276,20 @@ now uses 0.3 (about 5 cells of 16, 2.2 x the area). Redo Bose rested:
 (add `-PatchSide 0.4` for a bigger one). The mid-run checks live in the
 scratchpad only (snr_compare / timecourse / first_minutes), to be made a tool
 (`analysis/midrun_check.py`) if this happens again.
+
+## 2026-10-17, 01:34: Ear as a Microphone, first real head (runs/ear_mic1)
+
+Alice ch. 1 clip (31.5 s) x 24, played from the Quest browser (--player quest,
+new tonight; the trigger pull left the audio context suspended, fixed in the
+page and backed by a DevTools resume in quest_audio.py). Result: averaged
+reconstruction r 0.18 (null 95% 0.09, p 0.0006), single trial r 0.037
+(p 0.0006); rolled-EEG control r 0.078 (p 0.044, so the clip's own rhythm
+gives a little by itself). Channels: TP9 0.16 and TP10 0.11 carry it, AUX and
+frontals nothing; model-free lag TP9 +344 ms (neural-looking), TP10 -47 ms
+(not). Phantom was 0.65. CAVEAT: the Quest speakers sit beside TP9/TP10.
+Control still to run: same session with the Muse on the desk under the
+headset, nobody wearing it, 6 plays:
+    python ear_mic_session.py --song targets_audio/alice_ch1_rabbit_hole.wav --start 0 --clip 31.5 --reps 6 --session runs/ear_mic_desk --player quest
+    python analysis/ear_mic_decode.py runs/ear_mic_desk
+If that decodes anything, the headset-speaker result is pickup, and the paper
+needs the PC-speaker run (--player pc) instead.
