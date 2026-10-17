@@ -293,3 +293,9 @@ headset, nobody wearing it, 6 plays:
     python analysis/ear_mic_decode.py runs/ear_mic_desk
 If that decodes anything, the headset-speaker result is pickup, and the paper
 needs the PC-speaker run (--player pc) instead.
+Attempted at 01:55 (runs/ear_mic_desk, --quest-auto, prox_close broadcast so
+the Quest stays awake on the desk): the Muse stream stopped 85 s in, before the
+first full clip, so nothing decodable; the phone's MuseLog recording was closed
+at 02:01. Re-run it with the Muse on and MuseLog streaming for the whole 4.5 min.
+Afterwards: adb shell am broadcast -a com.oculus.vrpowermanager.automation_disable
+(done tonight) to give the wear sensor back.
