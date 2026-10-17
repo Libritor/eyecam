@@ -253,3 +253,15 @@ Result: runs\vr_cphoto1\mesh_comparison.png (shown, decoded, certainty, three
 views each), mesh_decoded.obj, mesh_viewer.html. The globe (96 cells, mostly
 blue, the weak plane) and the donut (96 cells, four colours) are 29 min each
 and come after the die works.
+
+## 2026-10-17, 10:45: the die on a real head (runs/vr_cphoto1, this worktree)
+
+First 3D object through the planes scan on a real head: 54-cell atlas of the
+die, 5 / 5 / 8 s per plane, one pass plus the 10 least certain blue positions.
+Planes r 0.64 (R 0.66, G 0.67, B 0.70), 35 of 54 pure-colour cells right by the
+paper's rule (R 48, G 46, B 47 of 54 per plane), the one red pip right;
+time-shifted EEG 0.12. Painted back on the cube: 51 of 54 cells (black 19/20,
+white 31/33, red 1/1). Outputs: mesh_comparison.png, mesh_decoded.obj,
+mesh_viewer.html, die1_planes_figure.png, die1_colour_picture.png. Next: the
+globe and the donut (96 cells, 29 min each), and a paper figure (vector) from
+mesh_comparison once the second object is in.
