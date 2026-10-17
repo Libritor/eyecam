@@ -299,3 +299,15 @@ first full clip, so nothing decodable; the phone's MuseLog recording was closed
 at 02:01. Re-run it with the Muse on and MuseLog streaming for the whole 4.5 min.
 Afterwards: adb shell am broadcast -a com.oculus.vrpowermanager.automation_disable
 (done tonight) to give the wear sensor back.
+
+## 2026-10-17, 11:52: Ear as a Microphone, second real head, morning (runs/ear_mic2)
+
+Same Alice clip x 24 from the headset speakers, rested, all five electrodes
+clean (top one 39 uV). Averaged reconstruction r 0.30 (null 0.09), one play
+0.073. The half-period control arm also rose (0.16, p 0.006): the start and
+stop of each play. Diagnosed and fixed: leaving the first and last 3 s of every
+play out (analysis/ear_mic_decode.py --trim-s, now the default) gives r 0.36
+(single 0.086, 23 plays) with the control at chance (0.035, p 0.29); a
+quarter-period control is at chance too (0.063). Gap jitter raised to 0-3 s
+for the next sessions. Still open: the desk control (speaker pickup) and a
+PC-speaker daytime run for the paper.

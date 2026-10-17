@@ -183,7 +183,7 @@ def main():
     ap.add_argument("--clip", type=float, default=30.0, help="clip length in seconds")
     ap.add_argument("--reps", type=int, default=24)
     ap.add_argument("--gap", type=float, default=2.5, help="silence between repetitions (s)")
-    ap.add_argument("--jitter", type=float, default=1.0, help="random extra gap, uniform 0..jitter (s)")
+    ap.add_argument("--jitter", type=float, default=3.0, help="random extra gap, uniform 0..jitter (s); 3 s so no shift of the play cycle lines up with another (the decoder's control arm)")
     ap.add_argument("--baseline", type=float, default=10.0, help="silence before the first and after the last clip (s)")
     ap.add_argument("--session", default=os.path.join("runs", "ear_mic1"))
     ap.add_argument("--port", type=int, default=5000)
