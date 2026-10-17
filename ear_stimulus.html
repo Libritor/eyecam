@@ -29,11 +29,19 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
 
+function unlockAudio() {
+  // inside the press handler itself: the Quest browser only counts the context
+  // as user-activated when it is created and resumed synchronously here
+  // (2026-10-17: created after an await it stayed "suspended" for good)
+  if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+  try { ctx.resume(); } catch {}
+}
+
 async function waitForPress() {
-  if (location.search.includes("auto=1")) { await sleep(500); return; }
+  if (location.search.includes("auto=1")) { await sleep(500); unlockAudio(); return; }
   await sleep(600);
   await new Promise(res => {
-    const done = () => { clearInterval(gp); res(); };
+    const done = () => { clearInterval(gp); unlockAudio(); res(); };
     addEventListener("pointerdown", done, { once: true });
     addEventListener("keydown", done, { once: true });
     const gp = setInterval(() => {
@@ -70,8 +78,10 @@ function play(rep) {
 async function main() {
   await waitForPress();
   sub.textContent = "loading the clip ...";
-  ctx = new (window.AudioContext || window.webkitAudioContext)();
-  await ctx.resume();
+  unlockAudio();
+  for (let i = 0; i < 100 && ctx.state !== "running"; i++) { try { ctx.resume(); } catch {} await sleep(100); }
+  if (ctx.state !== "running") sub.textContent = "audio is blocked: pull the trigger once more";
+  while (ctx.state !== "running") { await waitForPress(); }
   const r = await fetch("/clip.wav", { cache: "no-store" });
   buf = await ctx.decodeAudioData(await r.arrayBuffer());
   const s = ctx.createBufferSource();          // one silent sample: audio is unlocked
