@@ -8,7 +8,7 @@ IEEEtran.cls and IEEEtran.bst are included so the project builds without relying
 ICCE 2027 rules (icce.org/2027/submission-guidelines): IEEE conference template, US letter,
 2 pages or up to 6 pages, no author biographies, EDAS (edas.info/N35272), PDF eXpress only for
 the final version. Demos and posters are 2-page abstracts in IEEE Xplore (the 2027 page still
-shows the 2022 deadlines; confirm on EDAS). The draft runs exactly 6 pages, the ICCE maximum, with all twelve figures; adding anything means cutting something.
+shows the 2022 deadlines; confirm on EDAS). The draft runs exactly 6 pages, the ICCE maximum, with thirteen figure files in eleven figures; adding anything means cutting something.
 
 Marks in the text:
   red  [TODO: ...]  open items for the first author (results pending, photos, emails, names)
@@ -25,6 +25,7 @@ drawn by analysis/icce_figures.py and analysis/planes_figures.py in the eyecam r
   blink_release.pdf        blink burst when the cell goes dark, two sittings and the reference night
   ssvep_fatigue_left.pdf   the SSVEP of every lit cell through the two sittings of 2026-10-10
   die.pdf                  a die read from the eye: the cube shown and decoded, three views and the atlas (analysis/die_paper_figure.py; the renders are rasters, the labels text)
+  muselog.png              MuseLog on the phone during a recording (a screenshot, raster by nature; shares Fig. 1 with the set-up photo)
   setup.jpg                the set-up photograph: the Quest 3S over the Muse, the Oz cup held at the back of the head (a photograph, raster by nature)
   ear_mic.pdf              the ear as a microphone: the clip's loudness envelope and the brain's (r 0.36), and every play held out (analysis/ear_mic_paper_figure.py)
   The photographs inside gallery_16.pdf are raster by nature; every label, axis and number is text.

@@ -56,12 +56,13 @@ Fletcher's group has built a decade of diagnostics around sensors a phone alread
 
 \section{System}
 
-\textbf{Hardware.} Muse 2 at 256\,Hz over Bluetooth to a phone, forwarded to the laptop over UDP; a gold cup with paste at Oz on the Muse auxiliary input, held by the headset strap; a Quest 3S; a laptop (Fig.~\ref{fig:setup}). Under \$600, nothing modified.
+\textbf{Hardware.} Muse 2 at 256\,Hz over Bluetooth to a phone, forwarded to the laptop over UDP; a gold cup with paste at Oz on the Muse auxiliary input, held by the headset strap; a Quest 3S; a laptop (Fig.~\ref{fig:setup}). Under \$600, nothing modified. The phone runs MuseLog \cite{vicol2026muselog}, the lab's own acquisition app for Android and iOS: it pairs with one or several Muse headbands, records the raw EEG with the auxiliary channel at 256\,Hz, the band powers and, on the Muse S Athena, the fNIRS channels, takes markers, and streams all of it live over OSC on UDP to any computer on the same network, which is how the laptop receives the EEG. A full-rate raw stream was added for this work: the app's decimated stream folded 34 to 49\,Hz onto the SSVEP band. \todo{MuseLog paper citation}
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.4\columnwidth]{setup}
-\caption{The set-up on the subject: the Quest 3S worn over the Muse headband, with the gold cup on the Muse auxiliary input held at Oz at the back of the head, its lead over the shoulder to the headband. The subject is the first author.}
+\includegraphics[width=0.34\columnwidth]{setup}\hfill
+\includegraphics[width=0.24\columnwidth]{muselog}
+\caption{Left: the set-up on the subject, the Quest 3S worn over the Muse headband, with the gold cup on the Muse auxiliary input held at Oz at the back of the head, its lead over the shoulder to the headband; the subject is the first author. Right: MuseLog on the phone during a recording, band powers and fNIRS live, markers, and the OSC stream of the raw EEG to the laptop.}
 \label{fig:setup}
 \end{figure}
 
@@ -71,11 +72,11 @@ Fletcher's group has built a decade of diagnostics around sensors a phone alread
 
 \textbf{Colour by planes.} Red, green and blue are three scans, each black-versus-colour with its own calibration; the three threshold decisions per cell give one of eight colours. Blue is weak (about 0.4 of red in power at the same contrast), so it gets a frequency sweep before the scan (6, 7.2, 9, 12\,Hz; 9\,Hz won on every sitting), a patch two cells wide, and a second visit to its ten least certain cells. Green gets a second pass; red, which has never missed a cell, one.
 
-\textbf{Guards.} Each of these cost a session before it was caught: a laptop on battery entering standby (the driver now holds the machine awake and redoes a position after a gap); the driver's own 20\,s of scoring reported as a freeze (it checks its CPU time first); a browser tab restored from the previous session in front of the new one (a session token and a new-task launch); an orphaned recorder holding the UDP port; an ear electrode coming loose at minute 11 (a loose-channel guard is next). A synthetic subject that emits the right SSVEP for the stimulus log exercises the whole stack without a person.
+\textbf{Guards.} Each cost a session before it was caught: a laptop entering standby on battery, the driver's own scoring read as a freeze, a browser tab restored in front of the new one, an orphaned recorder holding the UDP port, an ear electrode loose from minute 11. The driver now guards against the first four (held awake, a position redone after a gap, its CPU time checked, a session token and a new-task launch); a loose-channel guard is next. A synthetic subject that emits the right SSVEP for the stimulus log exercises the whole stack without a person.
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.9\columnwidth]{response_curve}
+\includegraphics[width=0.84\columnwidth]{response_curve}
 \caption{The subject's response by frequency on the laptop (left) and the Oz spectrum at 10.4\,Hz flicker (right): a single-bin line with the alpha hump unchanged.}
 \label{fig:sweep}
 \end{figure}
@@ -90,7 +91,7 @@ All results are from one subject, the first author, September to October 2026.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.8\textwidth]{no_word}
+\includegraphics[width=0.72\textwidth]{no_word}
 \caption{``NO'' read from the EEG in the Quest 3S, 12\,Hz, 8\,s per position, with a large square (top) and the paper-sized square (bottom): shown, after each pass, smoothed as in the 2019 paper, and thresholded. Both reach 43 of 45.}
 \label{fig:no}
 \end{figure*}
@@ -114,14 +115,14 @@ sitting & R & G & B & right & hue & $r$ (null) \\
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.8\textwidth]{colour_planes9}
+\includegraphics[width=0.72\textwidth]{colour_planes9}
 \caption{Eight colours on the first colour sitting: shown, decoded with each plane scaled to its range, and snapped to the eight colours with wrong cells marked. 24 of 32.}
 \label{fig:colour9}
 \end{figure*}
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.7\columnwidth]{planes9_per_plane}
+\includegraphics[width=0.62\columnwidth]{planes9_per_plane}
 \caption{The same sitting plane by plane: shown, from the EEG, thresholded. Red 32, green 28, blue 28 of 32; blue at 9\,Hz with the patch doubled.}
 \label{fig:planes}
 \end{figure}
@@ -130,7 +131,7 @@ sitting & R & G & B & right & hue & $r$ (null) \\
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.8\textwidth]{acuity_vision1}
+\includegraphics[width=0.72\textwidth]{acuity_vision1}
 \caption{The sealed pair read from the EEG: shown, one value per position, smoothed, thresholded. The read-out named E up and ring U before the seal was opened; both right.}
 \label{fig:acuity}
 \end{figure*}
@@ -141,14 +142,14 @@ sitting & R & G & B & right & hue & $r$ (null) \\
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.85\columnwidth]{die}
+\includegraphics[width=0.8\columnwidth]{die}
 \caption{A die read from the eye. Top: the cube as shown, three views, and the flat 9 by 6 atlas the subject actually scanned. Bottom: the same painted with the colours decoded from the EEG, 51 of 54 cells right; a red ring marks a wrong cell.}
 \label{fig:die}
 \end{figure}
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.9\columnwidth]{gallery_16}
+\includegraphics[width=0.8\columnwidth]{gallery_16}
 \caption{The photograph gallery: the crop the eye gets over its 16 by 16 four-level target, for Mann's 2019 portrait, Lincoln and Tesla (Einstein completes the set); right, the officer as a flat illustration and its 12 by 14 poster for the colour planes.}
 \label{fig:gallery}
 \end{figure}
@@ -157,7 +158,7 @@ sitting & R & G & B & right & hue & $r$ (null) \\
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.8\columnwidth]{blink_release}
+\includegraphics[width=0.72\columnwidth]{blink_release}
 \caption{Blink release when the cell goes dark: blinks per minute in half-second bins around the moment a flickering cell turns black, two colour sittings against a reference day. Bands are 95\% block-bootstrap intervals.}
 \label{fig:blink}
 \end{figure}
@@ -169,11 +170,11 @@ sitting & R & G & B & right & hue & $r$ (null) \\
 \label{fig:fatigue}
 \end{figure}
 
-\textbf{The ear as a microphone.} The same headband reads sound as well as sight. The first two paragraphs of \emph{Alice's Adventures in Wonderland} (31.5\,s of a public-domain LibriVox reading) were played 24 times from the headset's own speakers while the subject sat still with the eyes on a dot. The brain follows the loudness of speech, and a linear decoder can read that envelope back from scalp EEG \cite{osullivan2015cocktail, accou2023vlaai}. Ours is a ridge decoder on the five channels at lags from $-125$ to $+500$\,ms, reading the 1 to 8\,Hz envelope; every play is decoded by a model trained on the other plays, the first and last 3\,s of each play are left out so the response to the sound starting and stopping does not count, and the mean of the held-out reconstructions is the brain's envelope of the clip (Fig.~\ref{fig:ear}). On a morning sitting with every electrode in contact it correlated with the true envelope at $r = 0.36$ over 23 plays (circular-shift null 95\% 0.10, $p < 0.001$), one play at 0.086 (null 0.022), and the same decoder with the EEG shifted off the clips at chance (0.035, $p = 0.29$); the night before, with the cup not in contact, 0.18. The signal is on the ear electrodes and the cup (TP10 0.20, AF8 0.16, Oz 0.15, TP9 0.14 alone), AF7 nothing. Research caps with 64 channels reach 0.10 to 0.12 per play with a linear decoder and 0.19 with a deep network trained on 80 subjects \cite{accou2023vlaai}; what the headband lacks in channels it recovers by repetition. The reconstruction is written back as sound, the envelope on white noise and on the clip's own fine structure, where the words are the recording and the rise and fall is the brain's. The headset's speakers sit beside TP9 and TP10, so part of the response could be the sound induced into the electrodes; the control with the headband on the desk and nobody wearing it is pending, and a sitting with the sound from speakers across the desk is the version for the final paper. \todo{desk control; PC-speaker sitting}
+\textbf{The ear as a microphone.} The same headband reads sound as well as sight. The first two paragraphs of \emph{Alice's Adventures in Wonderland} (31.5\,s of a public-domain LibriVox reading) were played 24 times from the headset's own speakers while the subject sat still with the eyes on a dot. The brain follows the loudness of speech, and a linear decoder can read that envelope back from scalp EEG \cite{osullivan2015cocktail, accou2023vlaai}. Ours is a ridge decoder on the five channels at lags from $-125$ to $+500$\,ms, reading the 1 to 8\,Hz envelope; every play is decoded by a model trained on the other plays, the first and last 3\,s of each play are left out so the response to the sound starting and stopping does not count, and the mean of the held-out reconstructions is the brain's envelope of the clip (Fig.~\ref{fig:ear}). On a morning sitting with every electrode in contact it correlated with the true envelope at $r = 0.36$ over 23 plays (circular-shift null 95\% 0.10, $p < 0.001$), one play at 0.086 (null 0.022), and the same decoder with the EEG shifted off the clips at chance (0.035, $p = 0.29$); the night before, with the cup not in contact, 0.18. The signal is on the ear electrodes and the cup (TP10 0.20, AF8 0.16, Oz 0.15, TP9 0.14 alone), AF7 nothing. Research caps with 64 channels reach 0.10 to 0.19 per play \cite{accou2023vlaai}; what the headband lacks in channels it recovers by repetition. The reconstruction is written back as sound, the envelope on white noise and on the clip's own fine structure, where the words are the recording and the rise and fall is the brain's. The headset's speakers sit beside TP9 and TP10, so part of the response could be the sound induced into the electrodes; the control with the headband on the desk and nobody wearing it is pending, and a sitting with the sound from speakers across the desk is the version for the final paper. \todo{desk control; PC-speaker sitting}
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.85\columnwidth]{ear_mic}
+\includegraphics[width=0.8\columnwidth]{ear_mic}
 \caption{The ear as a microphone. a: the loudness envelope of the 25.5\,s scored from each play (grey) and the mean of the 23 held-out reconstructions from the EEG (red), $r = 0.36$. b: each play decoded by a model that never saw it, against the shift null (band) and the shifted-EEG control (crosses).}
 \label{fig:ear}
 \end{figure}
