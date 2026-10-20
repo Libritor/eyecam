@@ -1,5 +1,5 @@
 Eye as a Camera in XR: IEEE ICCE 2027 draft (about 75% complete)
-Authors as drafted: Vicol, Herreraviyella, Adefris, Chaghouri, Sher (U of T / MannLab), Fletcher (MIT), Mann (U of T / MannLab); confirm affiliations, emails and order.
+Authors as drafted: Vicol, Adefriskey, Herreraviyella, Chaghouri, Sher (U of T / MannLab), Fletcher (MIT), Mann (U of T / MannLab); confirm affiliations, emails and order.
 
 Upload this whole folder as a zip to Overleaf (New Project > Upload Project).
 Main document: main.tex. Compiler: pdfLaTeX. Bibliography: BibTeX (refs.bib, IEEEtran.bst).
