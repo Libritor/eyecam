@@ -1,6 +1,11 @@
 % Eye as a Camera in XR. IEEE ICCE 2027 (Las Vegas), IEEE conference template.
 % Draft for co-authors. Red [TODO] marks are open; [RF] marks are for Rich Fletcher.
 \documentclass[conference]{IEEEtran}
+\setlength{\textfloatsep}{0.7\baselineskip plus 0.2\baselineskip minus 0.2\baselineskip}
+\setlength{\dbltextfloatsep}{0.7\baselineskip plus 0.2\baselineskip minus 0.2\baselineskip}
+\setlength{\floatsep}{0.4\baselineskip plus 0.2\baselineskip minus 0.1\baselineskip}
+\setlength{\dblfloatsep}{0.4\baselineskip plus 0.2\baselineskip minus 0.1\baselineskip}
+\setlength{\abovecaptionskip}{2pt}
 \IEEEoverridecommandlockouts
 \usepackage{cite}
 \usepackage{amsmath,amssymb}
@@ -23,15 +28,14 @@
 \IEEEauthorblockN{Alexander Vicol\IEEEauthorrefmark{1}, Minu Adefriskey\IEEEauthorrefmark{1}, Michel Herreraviyella\IEEEauthorrefmark{1}, Khalil Chaghouri\IEEEauthorrefmark{1},\\
 Ali Sher\IEEEauthorrefmark{1}, Richard R. Fletcher\IEEEauthorrefmark{2}, and Steve Mann\IEEEauthorrefmark{1}}
 \IEEEauthorblockA{\IEEEauthorrefmark{1}University of Toronto and MannLab Canada, Toronto, Canada\\
-\IEEEauthorrefmark{2}Mobile Technology Group, Massachusetts Institute of Technology, Cambridge, USA\\
-vicola.lexo@gmail.com}
+\IEEEauthorrefmark{2}Mobile Technology Group, Massachusetts Institute of Technology, Cambridge, USA}
 % TODO: confirm each author's affiliation and email with everyone named here
 }
 
 \maketitle
 
 \begin{abstract}
-Mann showed in 2019 that the eye can be used as a camera: a square flickers at one position after another, the subject follows it, and the steady-state visual evoked potential (SSVEP) says how bright each position was. We move the method onto hardware a community health worker could carry: a Muse 2 headband with one cup electrode added over the visual cortex, and a Meta Quest 3S running the stimulus in its browser. We read a legible word in 18 minutes ($r = 0.91$ against time-shifted nulls of 0.23), eight colours as three calibrated colour planes (24 of 32 cells, reproduced over three sittings), and an acuity optotype drawn at random and sealed before the scan, named correctly from the EEG alone. The same recording gives an objective eye-strain reading: blinks stop while a cell flickers and burst when it goes dark, and the blink rate doubled between two sittings of one evening. We frame the result as a literacy-free visual screener in the tradition of low-cost mobile health tools, with a prompt to rest the eyes as its first intervention. All results are from one subject.
+Mann showed in 2019 that the eye can be used as a camera: a square flickers at one position after another, the subject follows it, and the steady-state visual evoked potential (SSVEP) says how bright each position was. We move the method onto hardware a community health worker could carry: a Muse 2 headband with one cup electrode added over the visual cortex, and a Meta Quest 3S running the stimulus in its browser. We read a legible word in 18 minutes ($r = 0.91$ against time-shifted nulls of 0.23), eight colours as three calibrated colour planes (24 of 32 cells, reproduced over three sittings), and an acuity optotype drawn at random and sealed before the scan, named correctly from the EEG alone. The same recording gives an objective eye-strain reading: blinks stop while a cell flickers and burst when it goes dark, and the blink rate doubled between two sittings of one evening. We frame the result as a literacy-free visual screener for mobile health, with a prompt to rest the eyes as its first intervention. All results are from one subject.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -50,33 +54,33 @@ We contribute: the first SSVEP imaging on a consumer VR headset with a consumer 
 
 The SSVEP is largest over the occipital midline (Oz) and strongest for stimuli in the central field \cite{norcia2015ssvep}, which is what makes a single flickering patch under the gaze one pixel per position \cite{mann2019eye}. SSVEP interfaces in head-mounted displays are established \cite{armengol2018sublime}; imaging on one, and on the Quest family, is not.
 
-\textbf{Metaveillography of the eye.} The eye-as-camera idea grew out of a longer programme on seeing sight itself. Mann photographed a camera's capacity to see with a light that brightens when the camera sees it, the sightfield, a time-reversed lightfield captured by long exposure \cite{mann2014sightfield}, and named the sensing of sensors and of their capacity to sense metaveillance \cite{mann2016metaveillance}; the photographs are metaveillographs, the measurements metaveillogrammetry \cite{mann2021drones}. Janzen and Mann turned the method on the human eye, measuring how far its sensing extends through space as a biological veillance flux \cite{janzen2014veillance, janzen2015veillametrics}, and time-integrating that flux on objects as a veillogram, a sensory map of what a person's gaze has actually taken in \cite{janzen2018painting}. The 2019 paper let the brain report instead of the subject: a brain-modulated LED carried through the visual field by a plotter, its brightness set by the SSVEP from a Muse headband, photographed over a long exposure into a metaveillograph of the eye's own receptive field \cite{mann2019eye, mann2019wearsys}. The same group then mapped the visual field into a ``vidmap'' \cite{garcia2020painting} and read acuity from the SSVEP in a healthcare IoT volume \cite{garcia2021acuity}. Two findings there are the health claims this paper builds on. The veillance field narrows when the observer fixates and ignores the flicker and widens when they track it, so it measures attention and not only optics, which the 2019 paper proposed as a biomarker for attention problems in ADHD and ageing, ``the vision test of the future'' \cite{mann2019eye}. And the read-out is evidence rather than testimony: nobody has to say what they see. The sweep VEP reads acuity without a verbal response \cite{norcia1985sweep}; our optotype read-out is a coarse, gaze-scanned relative of it. Chromatic VEPs differ by colour axis and temporal frequency \cite{rabin1994chromatic}, which is why our colour planes are calibrated separately. The Muse headband is validated for event-related potentials \cite{krigolson2017muse} but has no electrode near Oz; the added cup is what makes imaging possible (cup alone $r = 0.92$, ear electrodes alone 0.36). A VR headset over the Muse improves the contact rather than degrading it \cite{mann2026float}.
+\textbf{Metaveillography of the eye.} The eye-as-camera idea grew out of a longer programme on seeing sight itself. Mann photographed a camera's capacity to see with a light that brightens when the camera sees it, the sightfield, a time-reversed lightfield captured by long exposure \cite{mann2014sightfield}, and named the sensing of sensors and of their capacity to sense metaveillance \cite{mann2016metaveillance}; the photographs are metaveillographs, the measurements metaveillogrammetry \cite{mann2021drones}. Janzen and Mann turned the method on the human eye, measuring how far its sensing extends through space as a biological veillance flux \cite{janzen2014veillance, janzen2015veillametrics}, and time-integrating that flux on objects as a veillogram \cite{janzen2018painting}. The 2019 paper let the brain report instead of the subject: an LED carried through the visual field by a plotter, its brightness set by the SSVEP from a Muse headband, photographed over a long exposure into a metaveillograph of the eye's own receptive field \cite{mann2019eye, mann2019wearsys}. The same group then mapped the visual field into a ``vidmap'' \cite{garcia2020painting} and read acuity from the SSVEP \cite{garcia2021acuity}. Two findings there carry this paper's health claims: the veillance field narrows when the observer ignores the flicker and widens when they track it, so it measures attention and not only optics, proposed in 2019 as a biomarker for attention problems in ADHD and ageing \cite{mann2019eye}; and the read-out is evidence rather than testimony, since nobody has to say what they see. Chromatic VEPs differ by colour axis and temporal frequency \cite{rabin1994chromatic}, which is why our colour planes are calibrated separately. The Muse headband is validated for event-related potentials \cite{krigolson2017muse} but has no electrode near Oz; the added cup is what makes imaging possible (cup alone $r = 0.92$, ear electrodes alone 0.36). A VR headset over the Muse improves the contact rather than degrading it \cite{mann2026float}.
 
-Fletcher's group has built a decade of diagnostics around sensors a phone already has, for workers who are not specialists: pulmonary screening from cough and lung sounds \cite{chamberlain2016asthma, infante2017cough, anand2018pulmonary}, child health tools \cite{fletcher2017child}, printed diagnostics read by the camera \cite{fletcher2016printed}, thermal imaging with deep learning \cite{fletcher2021thermal, byun2021thermal}, blood pressure from photoplethysmography \cite{elgendi2019ppg}, and hand-vein patient identification \cite{fletcher2014vein}. Vision screening is a gap in that list: the Snellen chart and the Ishihara plates need a literate, cooperative subject who reports what they see. \rf{where vision screening sits in a community health worker's day} The second thread is the wearable as a window on state, from iCalm \cite{fletcher2010icalm} through sensor-plus-app systems for cognitive behavioural therapy \cite{fletcher2011cbt, boyer2012iheal, leonard2018homeless} to the just-in-time adaptive intervention \cite{nahum2018jitai}. An eye-strain signal from the headband doing the imaging is a candidate trigger for the simplest such intervention: rest your eyes. \rf{JITAI framing}
+Fletcher's group has built a decade of diagnostics around sensors a phone already has, for workers who are not specialists: pulmonary screening from cough and lung sounds \cite{chamberlain2016asthma, infante2017cough, anand2018pulmonary}, child health tools \cite{fletcher2017child}, printed diagnostics read by the camera \cite{fletcher2016printed}, thermal imaging with deep learning \cite{fletcher2021thermal, byun2021thermal}, blood pressure from photoplethysmography \cite{elgendi2019ppg}, and hand-vein patient identification \cite{fletcher2014vein}. Vision screening is a gap in that list: the Snellen chart and the Ishihara plates need a literate, cooperative subject who reports what they see. \rf{where vision screening sits in a community health worker's day} The second thread is the wearable as a window on state, from iCalm \cite{fletcher2010icalm} through sensor-plus-app systems for cognitive behavioural therapy \cite{fletcher2011cbt, boyer2012iheal, leonard2018homeless} to the just-in-time adaptive intervention \cite{nahum2018jitai}. \rf{JITAI framing}
 
 \section{System}
 
-\textbf{Hardware.} Muse 2 at 256\,Hz over Bluetooth to a phone, forwarded to the laptop over UDP; a gold cup with paste at Oz on the Muse auxiliary input, held by the headset strap; a Quest 3S; a laptop (Fig.~\ref{fig:setup}). Under \$600, nothing modified. The phone runs MuseLog \cite{vicol2026muselog}, the lab's own acquisition app for Android and iOS: it pairs with one or several Muse headbands, records the raw EEG with the auxiliary channel at 256\,Hz, the band powers and, on the Muse S Athena, the fNIRS channels, takes markers, and streams all of it live over OSC on UDP to any computer on the same network, which is how the laptop receives the EEG. A full-rate raw stream was added for this work: the app's decimated stream folded 34 to 49\,Hz onto the SSVEP band. \todo{MuseLog paper citation}
+\textbf{Hardware.} Muse 2 at 256\,Hz over Bluetooth to a phone, forwarded to the laptop over UDP; a gold cup with paste at Oz on the Muse auxiliary input, held by the headset strap; a Quest 3S; a laptop (Fig.~\ref{fig:setup}). Under \$600, nothing modified. The phone runs MuseLog \cite{vicol2026muselog}, the lab's own acquisition app for Android and iOS: it pairs with one or several Muse headbands, records the raw EEG with the auxiliary channel at 256\,Hz, the band powers and, on the Muse S Athena, the fNIRS channels, takes markers, and streams all of it live over OSC on UDP to any computer on the same network. A full-rate raw stream was added for this work: the app's decimated stream folded 34 to 49\,Hz onto the SSVEP band. \todo{MuseLog paper citation}
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.34\columnwidth]{setup}\hfill
-\includegraphics[width=0.24\columnwidth]{muselog}
-\caption{Left: the set-up on the subject, the Quest 3S worn over the Muse headband, with the gold cup on the Muse auxiliary input held at Oz at the back of the head, its lead over the shoulder to the headband; the subject is the first author. Right: MuseLog on the phone during a recording, band powers and fNIRS live, markers, and the OSC stream of the raw EEG to the laptop.}
+\includegraphics[width=0.53\columnwidth]{setup}\hfill
+\includegraphics[width=0.39\columnwidth]{muselog}
+\caption{Left: the Quest 3S worn over the Muse headband, the gold cup on the Muse auxiliary input held at Oz at the back of the head; the subject is the first author. Right: MuseLog on the phone during a recording: band powers and fNIRS live, markers, and the OSC stream of the raw EEG to the laptop.}
 \label{fig:setup}
 \end{figure}
 
-\textbf{Stimulus.} A web page served by the laptop and opened in the headset's browser. One square flickers between black and white, or black and a colour, at the target position; a dot marks it and the subject follows the dot. The page flips on the display's frame clock, so at 72\,fps the 12\,Hz flicker is exactly three frames on and three off, and 9\,Hz four and four; it measures and reports the delivered frequency, and reports its visibility, since a background tab renders at one frame per second.
+\textbf{Stimulus.} A web page served by the laptop and opened in the headset's browser. One square flickers between black and white, or black and a colour, at the target position; a dot marks it and the subject follows the dot. The page flips on the display's frame clock, so at 72\,fps the 12\,Hz flicker is exactly three frames on and three off, and 9\,Hz four and four; it reports the delivered frequency and its visibility, since a background tab renders at one frame per second.
 
-\textbf{Session.} An eyes-closed alpha check confirms the cup is on the scalp. Calibration is six blocks of 8\,s full-field flicker on and off; a line statistic at the flicker frequency with an exact permutation test, and a $\dprime$ per electrode, decide whether to proceed and how to weight the electrodes. The scan visits every grid position in serpentine order, 8\,s each, with rest breaks on the subject's trigger, then revisits the positions whose black-or-white decision is uncertain. Each visit's pixel is the paper's whole-dwell ratio, power at the flicker frequency and its harmonic over the 14 to 50\,Hz floor, weighted across electrodes; visits are averaged and the picture thresholded by Otsu's method in the log domain \cite{otsu1979}. Every picture is scored against the target by correlation and against nulls in which the EEG is shifted in time by tens of seconds, so the same analysis runs on data that cannot contain the image.
+\textbf{Session.} An eyes-closed alpha check confirms the cup is on the scalp. Calibration is six blocks of 8\,s full-field flicker on and off; a line statistic at the flicker frequency with an exact permutation test, and a $\dprime$ per electrode, decide whether to proceed and how to weight the electrodes. The scan visits every grid position in serpentine order, 8\,s each, with rest breaks on the subject's trigger, then revisits the positions whose black-or-white decision is uncertain. Each visit's pixel is the paper's whole-dwell ratio, power at the flicker frequency and its harmonic over the 14 to 50\,Hz floor, weighted across electrodes; visits are averaged and the picture thresholded by Otsu's method in the log domain \cite{otsu1979}. Every picture is scored against the target by correlation and against nulls in which the EEG is shifted in time by tens of seconds.
 
 \textbf{Colour by planes.} Red, green and blue are three scans, each black-versus-colour with its own calibration; the three threshold decisions per cell give one of eight colours. Blue is weak (about 0.4 of red in power at the same contrast), so it gets a frequency sweep before the scan (6, 7.2, 9, 12\,Hz; 9\,Hz won on every sitting), a patch two cells wide, and a second visit to its ten least certain cells. Green gets a second pass; red, which has never missed a cell, one.
 
-\textbf{Guards.} Each cost a session before it was caught: a laptop entering standby on battery, the driver's own scoring read as a freeze, a browser tab restored in front of the new one, an orphaned recorder holding the UDP port, an ear electrode loose from minute 11. The driver now guards against the first four (held awake, a position redone after a gap, its CPU time checked, a session token and a new-task launch); a loose-channel guard is next. A synthetic subject that emits the right SSVEP for the stimulus log exercises the whole stack without a person.
+\textbf{Guards.} Five failures each cost a session before they were caught, from a laptop entering standby on battery to an ear electrode loose from minute 11; the driver now guards against four, and a loose-channel guard is next. A synthetic subject that emits the right SSVEP for the stimulus log exercises the whole stack without a person.
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.84\columnwidth]{response_curve}
+\includegraphics[width=\columnwidth]{response_curve}
 \caption{The subject's response by frequency on the laptop (left) and the Oz spectrum at 10.4\,Hz flicker (right): a single-bin line with the alpha hump unchanged.}
 \label{fig:sweep}
 \end{figure}
@@ -91,7 +95,7 @@ All results are from one subject, the first author, September to October 2026.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.72\textwidth]{no_word}
+\includegraphics[width=\textwidth]{no_word}
 \caption{``NO'' read from the EEG in the Quest 3S, 12\,Hz, 8\,s per position, with a large square (top) and the paper-sized square (bottom): shown, after each pass, smoothed as in the 2019 paper, and thresholded. Both reach 43 of 45.}
 \label{fig:no}
 \end{figure*}
@@ -115,14 +119,14 @@ sitting & R & G & B & right & hue & $r$ (null) \\
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.72\textwidth]{colour_planes9}
+\includegraphics[width=\textwidth]{colour_planes9}
 \caption{Eight colours on the first colour sitting: shown, decoded with each plane scaled to its range, and snapped to the eight colours with wrong cells marked. 24 of 32.}
 \label{fig:colour9}
 \end{figure*}
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.62\columnwidth]{planes9_per_plane}
+\includegraphics[width=\columnwidth]{planes9_per_plane}
 \caption{The same sitting plane by plane: shown, from the EEG, thresholded. Red 32, green 28, blue 28 of 32; blue at 9\,Hz with the patch doubled.}
 \label{fig:planes}
 \end{figure}
@@ -131,57 +135,57 @@ sitting & R & G & B & right & hue & $r$ (null) \\
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.72\textwidth]{acuity_vision1}
+\includegraphics[width=\textwidth]{acuity_vision1}
 \caption{The sealed pair read from the EEG: shown, one value per position, smoothed, thresholded. The read-out named E up and ring U before the seal was opened; both right.}
 \label{fig:acuity}
 \end{figure*}
 
-\textbf{Toward a real photograph.} The 2019 portrait went in thresholded to two tones and came back a silhouette. We prepare the same at our grid and add a forced choice: four portraits (Fig.~\ref{fig:gallery}) cut to 16 by 16 cells at four grey levels, the block-portrait size at which a face is recognisable \cite{harmon1973masking, harmon1973faces}; one is drawn and sealed, and the read-out names the person by correlation against all four. On the clean targets the choice is right 100\% of the time with a quarter of the cells flipped, chance one in four. A colour photograph does not survive the three planes (its colours sit mid-cube and flip), but a flat illustration in the eight corner colours does (Fig.~\ref{fig:gallery}, right). \todo{wedge result, first sealed photograph, officer scan}
+\textbf{Toward a real photograph.} The 2019 portrait went in as two tones and came back a silhouette. We prepare the same at our grid with a forced choice: four portraits (Fig.~\ref{fig:gallery}) cut to 16 by 16 cells at four grey levels, the block-portrait size at which a face is recognisable \cite{harmon1973masking, harmon1973faces}; one is drawn and sealed, and the read-out names the person by correlation against all four. On the clean targets the choice is right 100\% of the time with a quarter of the cells flipped, chance one in four. A colour photograph does not survive the three planes (its colours sit mid-cube and flip), but a flat illustration in the eight corner colours does (Fig.~\ref{fig:gallery}, right). \todo{wedge result, first sealed photograph, officer scan}
 
-\textbf{A three-dimensional object.} The planes scan reads any colour image at grid size, so an object's texture atlas can go through it and come back painted on the object. A die's six faces were unfolded into a 54-cell atlas of black, white and one red pip, three of the corner colours the planes separate best, and scanned at 5, 5 and 8\,s per cell in one pass with the ten least certain blue cells shown again, 18 minutes in a rested morning sitting. Snapped to the die's three colours, 51 of 54 cells came back right (black 19 of 20, white 31 of 33, the pip in place) and the cube is painted from the EEG (Fig.~\ref{fig:die}); on the stricter rule used for the chart, right in all three planes at once, 35 of 54, with per-plane $r$ of 0.66, 0.67 and 0.70 against a time-shifted null of 0.12. The misses are two white cells read as extra pips and one black cell read white, and the blue plane was again the least certain. \todo{credit the mesh3d author among the co-authors}
+\textbf{A three-dimensional object.} The planes scan reads any colour image at grid size, so an object's texture atlas can go through it and come back painted on the object. A die's six faces were unfolded into a 54-cell atlas of black, white and one red pip, and scanned at 5, 5 and 8\,s per cell in one pass with the ten least certain blue cells shown again, 18 minutes in a rested morning sitting. Snapped to the die's three colours, 51 of 54 cells came back right (black 19 of 20, white 31 of 33, the pip in place) and the cube is painted from the EEG (Fig.~\ref{fig:die}); on the stricter rule used for the chart, right in all three planes at once, 35 of 54, with per-plane $r$ of 0.66, 0.67 and 0.70 against a time-shifted null of 0.12. The misses are two white cells read as pips and one black cell read white. \todo{credit the mesh3d author among the co-authors}
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.8\columnwidth]{die}
-\caption{A die read from the eye. Top: the cube as shown, three views, and the flat 9 by 6 atlas the subject actually scanned. Bottom: the same painted with the colours decoded from the EEG, 51 of 54 cells right; a red ring marks a wrong cell.}
+\includegraphics[width=\columnwidth]{die}
+\caption{A die read from the eye. Top: the cube as shown, three views, and the 9 by 6 atlas the subject scanned. Bottom: painted with the colours decoded from the EEG, 51 of 54 cells right.}
 \label{fig:die}
 \end{figure}
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.8\columnwidth]{gallery_16}
-\caption{The photograph gallery: the crop the eye gets over its 16 by 16 four-level target, for Mann's 2019 portrait, Lincoln and Tesla (Einstein completes the set); right, the officer as a flat illustration and its 12 by 14 poster for the colour planes.}
+\includegraphics[width=\columnwidth]{gallery_16}
+\caption{The photograph gallery: the crop the eye gets over its 16 by 16 four-level target, for Mann's 2019 portrait, Lincoln and Tesla; right, the officer as a flat illustration and its 12 by 14 poster for the colour planes.}
 \label{fig:gallery}
 \end{figure}
 
-\textbf{Eye strain from the same recording.} After two colour sittings in one evening the subject reported irritated eyes, a slight forehead ache and no drowsiness. On a Muse under a headset the blink is best seen through the Fpz reference on the far electrodes, as a shared deflection on TP9, TP10 and the cup. Counted so, the blink rate was 6.8 per minute in the first sitting and 12.1 in the second against 3 to 4 on a reference day, with amplitude and duration unchanged. Within a sitting (Fig.~\ref{fig:blink}) blinks nearly stop while a cell flickers and burst within a second of it going dark, 50 to 65 per minute in that second, a suppress-and-release pattern the reference day lacks \cite{stern1994blink, sheedy2003cvs}. Drowsiness markers were flat: no rise in frontal theta, no long blinks; an earlier report of rising alpha was the loose ear electrode and is retracted. The forehead ache is not in the EEG (frontalis 1.5 to 2.3\,$\mu$V rms); the headset's facial interface is the likelier cause. The SSVEP itself fell by half between the blue planes of the two sittings (Fig.~\ref{fig:fatigue}), and the cup's noise rose from minute 20 of the second, so part of what reads as fatigue is contact.
+\textbf{Eye strain from the same recording.} After two colour sittings in one evening the subject reported irritated eyes, a slight forehead ache and no drowsiness. On a Muse under a headset the blink is best seen through the Fpz reference on the far electrodes, as a shared deflection on TP9, TP10 and the cup. Counted so, the blink rate was 6.8 per minute in the first sitting and 12.1 in the second against 3 to 4 on a reference day, with amplitude and duration unchanged. Within a sitting (Fig.~\ref{fig:blink}) blinks nearly stop while a cell flickers and burst within a second of it going dark, 50 to 65 per minute in that second, a suppress-and-release pattern the reference day lacks \cite{stern1994blink, sheedy2003cvs}. Drowsiness markers were flat: no rise in frontal theta, no long blinks; a rise in alpha seen earlier was the loose ear electrode. The forehead ache is not in the EEG (frontalis 1.5 to 2.3\,$\mu$V rms); the headset's facial interface is the likelier cause. The SSVEP itself fell by half between the blue planes of the two sittings (Fig.~\ref{fig:fatigue}), and the cup's noise rose from minute 20 of the second, so part of what reads as fatigue is contact.
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.72\columnwidth]{blink_release}
-\caption{Blink release when the cell goes dark: blinks per minute in half-second bins around the moment a flickering cell turns black, two colour sittings against a reference day. Bands are 95\% block-bootstrap intervals.}
+\includegraphics[width=\columnwidth]{blink_release}
+\caption{Blink release: blinks per minute in half-second bins around the moment a flickering cell turns black, two colour sittings against a reference day; bands are 95\% block-bootstrap intervals.}
 \label{fig:blink}
 \end{figure}
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.8\columnwidth]{ssvep_fatigue_left}
-\caption{The SSVEP of every lit cell through the two sittings of one evening (top the first, bottom the second), by plane. The blue response fell by half between them.}
+\includegraphics[width=\columnwidth]{ssvep_fatigue_left}
+\caption{The SSVEP of every lit cell through the two sittings of one evening (top the first, bottom the second), by plane; the blue response fell by half.}
 \label{fig:fatigue}
 \end{figure}
 
-\textbf{The ear as a microphone.} The same headband reads sound as well as sight. The first two paragraphs of \emph{Alice's Adventures in Wonderland} (31.5\,s of a public-domain LibriVox reading) were played 24 times from the headset's own speakers while the subject sat still with the eyes on a dot. The brain follows the loudness of speech, and a linear decoder can read that envelope back from scalp EEG \cite{osullivan2015cocktail, accou2023vlaai}. Ours is a ridge decoder on the five channels at lags from $-125$ to $+500$\,ms, reading the 1 to 8\,Hz envelope; every play is decoded by a model trained on the other plays, the first and last 3\,s of each play are left out so the response to the sound starting and stopping does not count, and the mean of the held-out reconstructions is the brain's envelope of the clip (Fig.~\ref{fig:ear}). On a morning sitting with every electrode in contact it correlated with the true envelope at $r = 0.36$ over 23 plays (circular-shift null 95\% 0.10, $p < 0.001$), one play at 0.086 (null 0.022), and the same decoder with the EEG shifted off the clips at chance (0.035, $p = 0.29$); the night before, with the cup not in contact, 0.18. The signal is on the ear electrodes and the cup (TP10 0.20, AF8 0.16, Oz 0.15, TP9 0.14 alone), AF7 nothing. Research caps with 64 channels reach 0.10 to 0.19 per play \cite{accou2023vlaai}; what the headband lacks in channels it recovers by repetition. The reconstruction is written back as sound, the envelope on white noise and on the clip's own fine structure, where the words are the recording and the rise and fall is the brain's. The headset's speakers sit beside TP9 and TP10, so part of the response could be the sound induced into the electrodes; the control with the headband on the desk and nobody wearing it is pending, and a sitting with the sound from speakers across the desk is the version for the final paper. \todo{desk control; PC-speaker sitting}
+\textbf{The ear as a microphone.} The same headband reads sound as well as sight. The first two paragraphs of \emph{Alice's Adventures in Wonderland} (31.5\,s of a public-domain LibriVox reading) were played 24 times from the headset's own speakers while the subject sat still with the eyes on a dot. The brain follows the loudness of speech, and a linear decoder can read that envelope back from scalp EEG \cite{osullivan2015cocktail, accou2023vlaai}. Ours is a ridge decoder on the five channels at lags from $-125$ to $+500$\,ms, reading the 1 to 8\,Hz envelope; every play is decoded by a model trained on the other plays, the first and last 3\,s of each play are left out so onset and offset responses do not count, and the mean of the held-out reconstructions is the brain's envelope of the clip (Fig.~\ref{fig:ear}). On a morning sitting with every electrode in contact it correlated with the true envelope at $r = 0.36$ over 23 plays (circular-shift null 95\% 0.10, $p < 0.001$), one play at 0.086 (null 0.022), and the same decoder with the EEG shifted off the clips at chance (0.035, $p = 0.29$); the night before, with the cup not in contact, 0.18. The signal is on the ear electrodes and the cup (TP10 0.20, AF8 0.16, Oz 0.15, TP9 0.14 alone), AF7 nothing. Research caps with 64 channels reach 0.10 to 0.19 per play \cite{accou2023vlaai}; what the headband lacks in channels it recovers by repetition. The reconstruction is written back as sound, the envelope on white noise and on the clip's own fine structure. The headset's speakers sit beside TP9 and TP10, so part of the response could be sound induced into the electrodes; the control with the headband on the desk and nobody wearing it, and a sitting with speakers across the desk, are pending. \todo{desk control; PC-speaker sitting}
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.8\columnwidth]{ear_mic}
+\includegraphics[width=\columnwidth]{ear_mic}
 \caption{The ear as a microphone. a: the loudness envelope of the 25.5\,s scored from each play (grey) and the mean of the 23 held-out reconstructions from the EEG (red), $r = 0.36$. b: each play decoded by a model that never saw it, against the shift null (band) and the shifted-EEG control (crosses).}
 \label{fig:ear}
 \end{figure}
 
 \section{Toward a Screening Tool for the Field}
 
-What a community health worker would do with this decides the design. The metaveillography lineage says what the readings are: a visual field read from the brain, an acuity read from the brain, and an attention state read from how the field narrows and widens \cite{mann2019eye, garcia2020painting, garcia2021acuity}, all from hardware that costs less than a phone. Three readings come from one sitting under half an hour. A \emph{colour response profile}: the per-colour calibrations are three numbers before any scan (red, green, blue line statistics of +5.0, +4.3, +5.5 on the first sitting), the raw material of an objective colour-vision screen once the stimuli are isoluminant, which our smooth-flicker mode can display, and there is more than one subject. \rf{what a colour screen must report for a worker to act on it} An \emph{acuity read-out}: the sealed optotype, then a threshold series, giving acuity without a verbal response, as the sweep VEP does in a clinic \cite{norcia1985sweep}. An \emph{eye-strain reading and a prompt}: the blink pattern and rate are live from the same headband, and a ``rest your eyes'' message is the simplest just-in-time intervention \cite{nahum2018jitai}. \rf{prompt design and what to log around it}
+What a community health worker would do with this decides the design. The metaveillography lineage names the readings: a visual field, an acuity and an attention state, the last from how the field narrows and widens \cite{mann2019eye, garcia2020painting, garcia2021acuity}. Three readings come from one sitting under half an hour. A \emph{colour response profile}: the per-colour calibrations are three numbers before any scan, the raw material of an objective colour-vision screen once the stimuli are isoluminant. \rf{what a colour screen must report for a worker to act on it} An \emph{acuity read-out}: the sealed optotype, then a threshold series, giving acuity without a verbal response, as the sweep VEP does in a clinic \cite{norcia1985sweep}. An \emph{eye-strain reading and a prompt}: the blink pattern and rate are live from the same headband, and a ``rest your eyes'' message is the simplest just-in-time intervention \cite{nahum2018jitai}. \rf{prompt design and what to log around it}
 
 \textbf{Limits.} One subject. One cell in four wrong on a 32-cell colour chart; a 96-cell picture is an hour. Blue is fragile, and 9\,Hz sits next to alpha. Contact is the largest practical risk: the cup's $\dprime$ ranged from 0.8 to 5.6 across days, and one loose electrode cost a plane. Flicker at 3 to 30\,Hz can provoke seizures in photosensitive epilepsy and the method must not be used with anyone with that history. The eye-strain result is one evening without a control, and the ear result is two sittings with the sound from the headset's own speakers. \rf{field constraints: time per subject, lighting, who holds the laptop} Next: two more subjects, the acuity series, the loose-channel guard, the sealed photograph, a globe and a torus of 96 cells, the ear's desk control, the prompt.
 
@@ -190,7 +194,7 @@ What a community health worker would do with this decides the design. The metave
 The eye as a camera works on a \$250 headband with one added cup and a \$300 headset: a legible word, eight colours over three sittings, and an optotype named from the EEG before its seal was opened, from a subject who only looked at a dot. The same headband is an ear as a microphone: the loudness of a spoken passage read back from the EEG at $r = 0.36$ and played as sound. The recording that gives the image also gives the eye strain. That is the start of a visual screener in the low-cost, objective, worker-operated tradition; the rest is subjects, stimuli that separate colour from brightness, and a prompt that closes the loop.
 
 \section*{Acknowledgements}
-\todo{MannLab Canada; Interaxon for the auxiliary-electrode documentation. Confirm wording.}
+\todo{MannLab Canada; Interaxon for the auxiliary-electrode documentation.}
 
 \bibliographystyle{IEEEtran}
 \bibliography{refs}
