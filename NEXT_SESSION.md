@@ -265,3 +265,78 @@ white 31/33, red 1/1). Outputs: mesh_comparison.png, mesh_decoded.obj,
 mesh_viewer.html, die1_planes_figure.png, die1_colour_picture.png. Next: the
 globe and the donut (96 cells, 29 min each), and a paper figure (vector) from
 mesh_comparison once the second object is in.
+
+## 2026-10-16: the portrait runs, decided
+
+Bose is the black-and-white portrait; the other four go in colour, one a
+sitting, as a pair of scans (brightness at 12 x 12 by the grey scan, colour
+at 6 x 6 by the planes; `analysis/colour_combine.py` puts them together).
+Targets and credits: `targets_img/*_luma_*.png`, `*_chroma_*.png`,
+`targets_img/photos_more/README.md`. Order, each after the wedge
+(`.\quest_run.ps1 -Run wedge`, 7 min, which says how many grey levels the
+four-level targets may use; `--levels 2` on make_colour_pair.py if only two):
+
+1. Bose, grey, 16 x 16 four levels, 34 min a pass:
+   `.\quest_run.ps1 -Run grey -Target targets_img\bose_luma_16x16.png`
+2. Mann (colour headshot), 19 + 11 min:
+   `.\quest_run.ps1 -Run grey -Target targets_img\mann_c_luma_12x12.png`
+   `.\quest_run.ps1 -Run cphoto -Target targets_img\mann_c_chroma_6x6.png`
+   `python analysis/colour_combine.py runs\vr_grey2 runs\vr_cphoto1 --name mann_c`
+3. Lincoln (colourised 1863 Gardner), same three commands with `lincoln_c`.
+4. Einstein (colourised, DonkeyHotey CC BY 2.0), `einstein_c`.
+5. Tesla (coloured by Ivar van Wooning, CC BY-SA 3.0), `tesla_c`.
+
+Session numbers: the launcher takes the next free `vr_greyN` / `vr_cphotoN`;
+check `runs\` before the combine. The officer (`-Run officer`, 33 min) and
+the sealed plate (`targets_img/make_plate.py --draw`, 30 min) stay as the
+corner-colour runs. Colourised colours are a colourist's, say so in the paper.
+
+## 2026-10-17, 00:30: vr_grey1 (Bose 16 x 16), stopped at the first rest
+
+Calibration strong (AUX line SNR 5-14 on, 0.1-2 off; electrode clean through
+the scan), but the scan response faded to the OFF level after about two
+minutes and never followed the grey; identical white cells swung 20-fold.
+Started at 00:35, so fatigue is the first suspect. Second: on a square board
+the 6 x 4 patch rule drew a tall, narrow rectangle (112 x 168 px of a 1280 x
+800 browser window, 70% of the NO run's patch area). New `--patch-side`
+(square, fraction of the board's shorter side) and `quest_run.ps1 -Run grey`
+now uses 0.3 (about 5 cells of 16, 2.2 x the area). Redo Bose rested:
+`.\quest_run.ps1 -Run grey -Target targets_img\bose_luma_16x16.png`
+(add `-PatchSide 0.4` for a bigger one). The mid-run checks live in the
+scratchpad only (snr_compare / timecourse / first_minutes), to be made a tool
+(`analysis/midrun_check.py`) if this happens again.
+
+## 2026-10-17, 01:34: Ear as a Microphone, first real head (runs/ear_mic1)
+
+Alice ch. 1 clip (31.5 s) x 24, played from the Quest browser (--player quest,
+new tonight; the trigger pull left the audio context suspended, fixed in the
+page and backed by a DevTools resume in quest_audio.py). Result: averaged
+reconstruction r 0.18 (null 95% 0.09, p 0.0006), single trial r 0.037
+(p 0.0006); rolled-EEG control r 0.078 (p 0.044, so the clip's own rhythm
+gives a little by itself). Channels: TP9 0.16 and TP10 0.11 carry it, AUX and
+frontals nothing; model-free lag TP9 +344 ms (neural-looking), TP10 -47 ms
+(not). Phantom was 0.65. CAVEAT: the Quest speakers sit beside TP9/TP10.
+Control still to run: same session with the Muse on the desk under the
+headset, nobody wearing it, 6 plays:
+    python ear_mic_session.py --song targets_audio/alice_ch1_rabbit_hole.wav --start 0 --clip 31.5 --reps 6 --session runs/ear_mic_desk --player quest
+    python analysis/ear_mic_decode.py runs/ear_mic_desk
+If that decodes anything, the headset-speaker result is pickup, and the paper
+needs the PC-speaker run (--player pc) instead.
+Attempted at 01:55 (runs/ear_mic_desk, --quest-auto, prox_close broadcast so
+the Quest stays awake on the desk): the Muse stream stopped 85 s in, before the
+first full clip, so nothing decodable; the phone's MuseLog recording was closed
+at 02:01. Re-run it with the Muse on and MuseLog streaming for the whole 4.5 min.
+Afterwards: adb shell am broadcast -a com.oculus.vrpowermanager.automation_disable
+(done tonight) to give the wear sensor back.
+
+## 2026-10-17, 11:52: Ear as a Microphone, second real head, morning (runs/ear_mic2)
+
+Same Alice clip x 24 from the headset speakers, rested, all five electrodes
+clean (top one 39 uV). Averaged reconstruction r 0.30 (null 0.09), one play
+0.073. The half-period control arm also rose (0.16, p 0.006): the start and
+stop of each play. Diagnosed and fixed: leaving the first and last 3 s of every
+play out (analysis/ear_mic_decode.py --trim-s, now the default) gives r 0.36
+(single 0.086, 23 plays) with the control at chance (0.035, p 0.29); a
+quarter-period control is at chance too (0.063). Gap jitter raised to 0-3 s
+for the next sessions. Still open: the desk control (speaker pickup) and a
+PC-speaker daytime run for the paper.

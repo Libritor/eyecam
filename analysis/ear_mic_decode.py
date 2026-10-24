@@ -29,7 +29,8 @@ Method
      structure under the brain envelope). The z-scored reconstruction is mapped
      to loudness with only the true envelope's mean and sd.
 
-    python analysis/ear_mic_decode.py runs/ear_mic1
+    python analysis/ear_mic_decode.py runs/ear_mic1              # first and last 3 s of each play left out (default)
+    python analysis/ear_mic_decode.py runs/ear_mic1 --trim-s 0   # the whole clip; the half-period control then catches the onset / offset responses
     python analysis/ear_mic_decode.py runs/ear_mic1 --channels TP9,TP10,AUX
 """
 
@@ -299,6 +300,11 @@ def main():
     ap.add_argument("--channels", default="", help="comma list for the multichannel decoder (default: all of TP9,AF7,AF8,TP10,AUX present)")
     ap.add_argument("--no-control", action="store_true", help="skip the rolled-EEG control arm")
     ap.add_argument("--audio-fs", type=int, default=16000)
+    ap.add_argument("--trim-s", type=float, default=3.0,
+                    help="leave the first and last T s of every clip out of the decoder (onset / offset responses, "
+                         "the silence before and after); the audio is written for the trimmed clip")
+    ap.add_argument("--control-periods", type=float, default=0.5,
+                    help="the control arm rolls the EEG by an integer + this many repetition periods (0.5 = half a period)")
     args = ap.parse_args()
     S = args.session
 
@@ -309,6 +315,12 @@ def main():
     clip = clip.mean(axis=1)
     env_pos = song_envelope(clip, fs_clip)
     y = band_env(env_pos)
+    if args.trim_s > 0:
+        k = int(round(args.trim_s * FS_D))
+        y = y[k:len(y) - k]
+        onsets = [(r, t + args.trim_s) for r, t in onsets]
+        clip = clip[int(round(args.trim_s * fs_clip)):len(clip) - int(round(args.trim_s * fs_clip))]
+        print(f"trimming {args.trim_s:g} s off both ends of every clip: {len(y) / FS_D:.1f} s decoded")
     n_env = len(y)
 
     t_hat, fs_hat, X, names, diag = load_eeg(S)
@@ -341,7 +353,8 @@ def main():
         # circular-shift null contains exactly those shifts, so the control is one
         # draw from the null and must sit inside it, not at zero.
         period = float(np.median(np.diff([t for _, t in onsets]))) if len(onsets) > 1 else n_env / FS_D
-        roll_s = (round(len(Y) / FS_D / 2 / period - 0.5) + 0.5) * period
+        frac = args.control_periods
+        roll_s = (round(len(Y) / FS_D / 2 / period - frac) + frac) * period
         Yc = np.roll(Y, int(round(roll_s * FS_D)), axis=0)
         ctrl = run_decoder(Yc, grid, onsets, y, cols)
         if ctrl:
@@ -391,6 +404,8 @@ def main():
     figure(S, res, ctrl, single, ev, y, want, os.path.join(S, "ear_mic_figure"))
     print(f"\nverdict: {out['verdict']}")
     print(f"wrote ear_mic_results.json, ear_mic_figure.pdf/.png, brain_envelope_noise.wav, true_envelope_noise.wav, brain_envelope_carrier.wav in {S}")
+    from ear_mic_player import write_player
+    print(f"listen: open {write_player(S)} (original, true envelope, brain envelope, one under the other)")
 
 
 if __name__ == "__main__":

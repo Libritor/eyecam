@@ -1,0 +1,105 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Ear as a Microphone</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #bbb; font-family: sans-serif; }
+  body { display: flex; align-items: center; justify-content: center; text-align: center; }
+  #title { font-size: 30px; margin-bottom: 14px; }
+  #sub { font-size: 20px; color: #888; }
+  #dot { width: 14px; height: 14px; border-radius: 50%; background: #999; margin: 26px auto 0; }
+</style>
+</head>
+<body>
+<div>
+  <div id="title">Ear as a Microphone</div>
+  <div id="sub">pull the trigger to start</div>
+  <div id="dot"></div>
+</div>
+<script>
+// The PC (quest_audio.py) serves this page and clip.wav and drives the schedule
+// over the websocket; the page plays each repetition with WebAudio and reports
+// the scheduled start on its own clock (performance.now), which the PC maps
+// onto its clock by ping-pong. A trigger pull is the user gesture that unlocks
+// audio; ?auto=1 skips it (tests).
+const title = document.getElementById("title"), sub = document.getElementById("sub");
+let ws = null, ctx = null, buf = null;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+
+function unlockAudio() {
+  // inside the press handler itself: the Quest browser only counts the context
+  // as user-activated when it is created and resumed synchronously here
+  // (2026-10-17: created after an await it stayed "suspended" for good)
+  if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+  try { ctx.resume(); } catch {}
+}
+
+async function waitForPress() {
+  if (location.search.includes("auto=1")) { await sleep(500); unlockAudio(); return; }
+  await sleep(600);
+  await new Promise(res => {
+    const done = () => { clearInterval(gp); unlockAudio(); res(); };
+    addEventListener("pointerdown", done, { once: true });
+    addEventListener("keydown", done, { once: true });
+    const gp = setInterval(() => {
+      try {
+        for (const g of navigator.getGamepads ? navigator.getGamepads() : []) {
+          if (g && g.buttons.some(b => b && (b.pressed || b.value > 0.5))) return done();
+        }
+      } catch {}
+    }, 50);
+  });
+}
+
+function pageTimeOfContextTime(tCtx) {
+  // map an AudioContext time onto performance.now() through getOutputTimestamp
+  try {
+    const ts = ctx.getOutputTimestamp();
+    if (ts && ts.performanceTime !== undefined) return ts.performanceTime + (tCtx - ts.contextTime) * 1000;
+  } catch {}
+  return performance.now() + (tCtx - ctx.currentTime) * 1000;
+}
+
+function play(rep) {
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(ctx.destination);
+  const startCtx = ctx.currentTime + 0.15;
+  src.onended = () => send({ type: "ended", rep, t_page: performance.now() });
+  src.start(startCtx);
+  send({ type: "play", rep, t_page_start: pageTimeOfContextTime(startCtx),
+         outputLatency: ctx.outputLatency || ctx.baseLatency || 0 });
+  sub.textContent = `clip ${rep}`;
+}
+
+async function main() {
+  await waitForPress();
+  sub.textContent = "loading the clip ...";
+  unlockAudio();
+  for (let i = 0; i < 100 && ctx.state !== "running"; i++) { try { ctx.resume(); } catch {} await sleep(100); }
+  if (ctx.state !== "running") sub.textContent = "audio is blocked: pull the trigger once more";
+  while (ctx.state !== "running") { await waitForPress(); }
+  const r = await fetch("/clip.wav", { cache: "no-store" });
+  buf = await ctx.decodeAudioData(await r.arrayBuffer());
+  const s = ctx.createBufferSource();          // one silent sample: audio is unlocked
+  s.buffer = ctx.createBuffer(1, 1, ctx.sampleRate); s.connect(ctx.destination); s.start();
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => send({ type: "ready", rate: ctx.sampleRate, baseLatency: ctx.baseLatency || 0,
+                           outputLatency: ctx.outputLatency || 0, clip_s: buf.duration, ua: navigator.userAgent });
+  ws.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.cmd === "ping") send({ type: "pong", t_pc: m.t_pc, t_page: performance.now() });
+    else if (m.cmd === "play") play(m.rep);
+    else if (m.cmd === "text") sub.textContent = m.text;
+    else if (m.cmd === "done") { title.textContent = "done"; sub.textContent = "you can take the headset off"; }
+  };
+  ws.onclose = () => { sub.textContent = "lost the PC; reload the page"; };
+  sub.textContent = "sit still, eyes on the dot, no mouthing along";
+}
+main();
+</script>
+</body>
+</html>

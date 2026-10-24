@@ -15,8 +15,9 @@ import numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "runs", "state_of_flash")
 SITTINGS = [("vr_planes8", "10-07\nnight\nreference"), ("vr_planes9", "10-10\n17:57"),
-            ("vr_planes10", "10-10\n19:50"), ("vr_vision1", "10-11\n12:05\ngrey"), ("vr_planes11", "10-12\n10:40")]
-C_SIT = ["#8a8a85", "#1baf7a", "#4a3aa7", "#d9a400", "#c8102e"]   # the same colours as flash_eog's figure
+            ("vr_planes10", "10-10\n19:50"), ("vr_vision1", "10-11\n12:05\ngrey"), ("vr_planes11", "10-12\n10:40"),
+            ("vr_grey1", "10-17\n00:35\ngrey"), ("vr_die1", "10-17\n10:45\ndie")]
+C_SIT = ["#8a8a85", "#1baf7a", "#4a3aa7", "#d9a400", "#c8102e", "#2a4d8f", "#e07b00"]   # the same colours as flash_eog's figure
 INK, MUTED, GRID = "#0b0b0b", "#52514e", "#ecebe5"
 
 
@@ -69,7 +70,9 @@ def main():
     ax = axes[2]
     for i, n in enumerate(names):
         s = sof[n]
-        f, d = s["drift_flicker"].get("ta_oz", np.nan), s["drift_dark"].get("ta_oz", np.nan)
+        # a short sitting can lack one of the two drifts (vr_grey1: 48 dark epochs)
+        f = (s.get("drift_flicker") or {}).get("ta_oz", np.nan)
+        d = (s.get("drift_dark") or {}).get("ta_oz", np.nan)
         ax.plot(i - 0.18, f, "o", color=C_SIT[i], ms=7)
         ax.plot(i + 0.18, d, "o", color=C_SIT[i], ms=7, mfc="white", mew=1.5)
         rows[n]["drift_ta_oz_flicker"], rows[n]["drift_ta_oz_dark"] = f, d
@@ -107,6 +110,7 @@ def main():
     fig.tight_layout(w_pad=1.5)
     p = os.path.join(OUT, "fig_strobe_summary.png")
     fig.savefig(p, dpi=150)
+    fig.savefig(os.path.join(OUT, "fig_strobe_summary.pdf"))      # the paper takes the vector copy
     json.dump(rows, open(os.path.join(OUT, "strobe_summary.json"), "w"), indent=1)
     print("wrote", p)
 

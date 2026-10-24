@@ -1013,7 +1013,7 @@ class Driver:
             # scan (page-driven serpentine)
             self.spectate(type="stage", stage="scan", detail="")
             scan_kw = dict(gridW=a.grid_w, gridH=a.grid_h, spc=a.spc, freq=a.freq,
-                           target=target.tolist(), patch=a.patch,
+                           target=target.tolist(), patch=a.patch, patchSide=a.patch_side,
                            bw=(a.calib_style == "bw"), board=a.board,
                            restEvery=a.rest_every)
             bw_cert = None
@@ -2460,6 +2460,9 @@ async def main():
     ap.add_argument("--patch", type=float, default=1.0,
                     help="mux scan: flicker patch size in units of a 6x4-grid "
                          "cell, independent of the grid (0 = the grid cell)")
+    ap.add_argument("--patch-side", type=float, default=0.0,
+                    help="square flicker patch, as a fraction of the board's shorter "
+                         "side (0.3 = about 5 cells of 16); 0 = the 6x4 rule of --patch")
     ap.add_argument("--music-blocks", type=int, default=6)
     ap.add_argument("--music-on", type=float, default=10.0)
     ap.add_argument("--music-off", type=float, default=10.0)

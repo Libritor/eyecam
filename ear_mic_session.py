@@ -13,6 +13,11 @@ Sound: use the PC SPEAKERS, not earbuds. Earbuds sit next to TP9 / TP10 and thei
 drivers induce the audio straight into the electrodes, which would "work" for the
 wrong reason. Speakers across the desk cannot do that.
 
+--player quest plays the clip from the Quest's browser instead (quest_audio.py,
+ear_stimulus.html; a trigger pull starts it), timed on the PC clock by ping-pong.
+The headset's speakers are beside TP9 / TP10, so that run carries the caveat
+above; its control is the same session with the Muse on the desk, unworn.
+
 The design is repetition: the same 30 s clip 24 times (about 14 min). Each
 repetition is decoded from EEG the decoder never trained on, and the average of
 those held-out reconstructions is the "brain envelope" of the clip.
@@ -59,9 +64,25 @@ def hold_awake():
             ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED)
 
 
+def read_audio(path):
+    """(mono float32, fs). soundfile for wav / flac / mp3; anything else (m4a, aac,
+    opus, webm) through the ffmpeg that imageio-ffmpeg bundles."""
+    try:
+        data, fs = sf.read(path, dtype="float32", always_2d=True)
+        return data.mean(axis=1), int(fs)
+    except Exception as e:                                   # noqa: BLE001
+        try:
+            import imageio_ffmpeg
+        except ImportError:
+            raise SystemExit(f"cannot read {path} ({e}); pip install imageio-ffmpeg for m4a/aac/opus") from None
+        fs = 48000
+        out = subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-v", "error", "-i", path, "-f", "f32le",
+                              "-ac", "1", "-ar", str(fs), "-"], capture_output=True, check=True).stdout
+        return np.frombuffer(out, dtype=np.float32).copy(), fs
+
+
 def load_clip(path, start_s, clip_s, fs_out):
-    data, fs = sf.read(path, dtype="float32", always_2d=True)
-    x = data.mean(axis=1)
+    x, fs = read_audio(path)
     a, b = int(start_s * fs), int((start_s + clip_s) * fs)
     if b > len(x):
         raise SystemExit(f"{path} is {len(x) / fs:.1f} s long; --start {start_s} + --clip {clip_s} runs past the end")
@@ -157,12 +178,12 @@ def signal_check(eeg_path, ip_text, auto, timeout_s=180):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--song", required=True, help="wav / flac / mp3 file")
+    ap.add_argument("--song", required=True, help="wav / flac / mp3 file (m4a / aac / opus through imageio-ffmpeg)")
     ap.add_argument("--start", type=float, default=30.0, help="seconds into the song the clip begins")
     ap.add_argument("--clip", type=float, default=30.0, help="clip length in seconds")
     ap.add_argument("--reps", type=int, default=24)
     ap.add_argument("--gap", type=float, default=2.5, help="silence between repetitions (s)")
-    ap.add_argument("--jitter", type=float, default=1.0, help="random extra gap, uniform 0..jitter (s)")
+    ap.add_argument("--jitter", type=float, default=3.0, help="random extra gap, uniform 0..jitter (s); 3 s so no shift of the play cycle lines up with another (the decoder's control arm)")
     ap.add_argument("--baseline", type=float, default=10.0, help="silence before the first and after the last clip (s)")
     ap.add_argument("--session", default=os.path.join("runs", "ear_mic1"))
     ap.add_argument("--port", type=int, default=5000)
@@ -170,6 +191,11 @@ def main():
     ap.add_argument("--fs", type=int, default=48000, help="playback sample rate")
     ap.add_argument("--auto", action="store_true", help="no Enter prompt; abort if no stream in 3 min")
     ap.add_argument("--no-recorder", action="store_true", help="play only (recorder already running elsewhere)")
+    ap.add_argument("--player", choices=["pc", "quest"], default="pc",
+                    help="pc = sounddevice through the PC speakers; quest = the headset's browser (quest_audio.py)")
+    ap.add_argument("--quest-port", type=int, default=8083, help="--player quest: port the page is served on")
+    ap.add_argument("--quest-auto", action="store_true",
+                    help="--player quest: no trigger pull, the page starts by itself (the desk control, nobody wearing it)")
     args = ap.parse_args()
 
     from osc_acquire import local_ips
@@ -179,20 +205,40 @@ def main():
     os.makedirs(args.session, exist_ok=True)
     clip = load_clip(args.song, args.start, args.clip, args.fs)
     sf.write(os.path.join(args.session, "clip.wav"), clip, args.fs, subtype="PCM_16")
-    if args.device is not None:
-        sd.default.device = (None, int(args.device) if args.device.isdigit() else args.device)
-    dev = sd.query_devices(kind="output")
-    print(f"output device: {dev['name']}  (reported latency {dev['default_low_output_latency'] * 1000:.0f} ms, constant; the decoder absorbs it)")
+    quest = None
+    if args.player == "quest":
+        from quest_audio import QuestPlayer, adb_open
+        quest = QuestPlayer(os.path.join(args.session, "clip.wav"), args.quest_port)
+        serial = adb_open(args.quest_port, auto=args.quest_auto)
+        dev_name, out_lat = f"Quest browser, WebAudio (adb {serial or 'manual'})", 0.0
+        print(f"output: the headset's browser; page on port {args.quest_port}, pushed to the Quest over USB "
+              f"({serial or 'no Quest on adb: open it yourself'})")
+    else:
+        if args.device is not None:
+            sd.default.device = (None, int(args.device) if args.device.isdigit() else args.device)
+        dev = sd.query_devices(kind="output")
+        dev_name, out_lat = dev["name"], float(dev["default_low_output_latency"])
+        print(f"output device: {dev_name}  (reported latency {out_lat * 1000:.0f} ms, constant; the decoder absorbs it)")
     print(f"clip: {args.clip:.0f} s of {os.path.basename(args.song)} from {args.start:.0f} s, {args.reps} repetitions, "
           f"about {(args.reps * (args.clip + args.gap + args.jitter / 2) + 2 * args.baseline) / 60:.1f} min")
 
     hold_awake()
     rec = None if args.no_recorder else Recorder(args.session, args.port)
     try:
-        signal_check(os.path.join(args.session, "eeg.csv"), ip_text, args.auto)
+        signal_check(os.path.join(args.session, "eeg.csv"), ip_text, args.auto or quest is not None)
+        sync = {}
+        if quest:
+            print("\nin the headset: pull the trigger to start (sit still, eyes on the dot) ...")
+            if not quest.wait_ready(1800):
+                raise SystemExit("the headset page never reported ready (is it open and in front?)")
+            rtt, off = quest.sync_clock()
+            out_lat = float(quest.info.get("outputLatency") or quest.info.get("baseLatency") or 0.0)
+            sync = dict(rtt_s=rtt, page_minus_pc_s=off, page=quest.info)
+            print(f"headset page ready: {quest.info.get('rate')} Hz, output latency {out_lat * 1000:.0f} ms, "
+                  f"clock round trip {rtt * 1000:.1f} ms")
         meta = dict(song=os.path.abspath(args.song), start_s=args.start, clip_s=args.clip, fs=args.fs,
                     reps=args.reps, gap_s=args.gap, jitter_s=args.jitter, baseline_s=args.baseline,
-                    device=dev["name"], output_latency_s=float(dev["default_low_output_latency"]),
+                    device=dev_name, output_latency_s=out_lat, player=args.player, quest_sync=sync,
                     clock="pylsl.local_clock" if local_clock is not time.perf_counter else "time.perf_counter",
                     started=datetime.datetime.now().isoformat(timespec="seconds"))
         json.dump(meta, open(os.path.join(args.session, "stimulus.json"), "w"), indent=1)
@@ -202,22 +248,36 @@ def main():
             w = csv.writer(f)
             w.writerow(["rep", "t_on", "t_off", "gap_s"])
             print(f"\nbaseline {args.baseline:.0f} s of silence")
+            if quest:
+                quest.text("silence first: sit still, eyes on the dot")
             time.sleep(args.baseline)
             for r in range(1, args.reps + 1):
                 gap = args.gap + random.uniform(0, args.jitter)
-                t_on = local_clock()
-                sd.play(clip, args.fs, blocking=False)
-                sd.wait()
-                t_off = local_clock()
+                if quest:
+                    t_on, t_off, q_info = quest.play(r, timeout=args.clip + 15)
+                    extra = f"  (clock round trip {q_info['rtt_s'] * 1000:.1f} ms)"
+                else:
+                    t_on = local_clock()
+                    sd.play(clip, args.fs, blocking=False)
+                    sd.wait()
+                    t_off = local_clock()
+                    extra = ""
                 w.writerow([r, f"{t_on:.6f}", f"{t_off:.6f}", f"{gap:.3f}"])
-                print(f"  rep {r:2d}/{args.reps}  played {t_off - t_on:5.2f} s  next in {gap:.1f} s")
+                print(f"  rep {r:2d}/{args.reps}  played {t_off - t_on:5.2f} s  next in {gap:.1f} s{extra}")
+                if quest:
+                    quest.text(f"clip {r} of {args.reps} done; next in a moment")
                 time.sleep(gap)
             print(f"baseline {args.baseline:.0f} s of silence")
+            if quest:
+                quest.text("silence again: sit still")
             time.sleep(args.baseline)
+            if quest:
+                quest.done()
     except KeyboardInterrupt:
         print("\nstopped early; what was recorded is kept")
     finally:
-        sd.stop()
+        if not quest:
+            sd.stop()
         if rec:
             rec.stop()
     print(f"\ndone. Decode with:\n  python analysis/ear_mic_decode.py {args.session}")
