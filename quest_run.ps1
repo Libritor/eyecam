@@ -10,13 +10,19 @@
 #   .\quest_run.ps1 -Run photo             # one of the gallery photos, sealed, 12 x 12 (about 25 min)
 #   .\quest_run.ps1 -Run cphoto -Target targets_img/<name>_12x14.png   # a colour poster from make_colour_photo.py
 #   .\quest_run.ps1 -Run custom -Extra "--mode visual --choice bw --target pix:NO --grid-w 9 --grid-h 5 --spc 8"
+#   .\quest_run.ps1 -Run die               # the die, a 3D object, by planes (about 19 min)
+#   .\quest_run.ps1 -Run die -PrintPort COM5   # ...and 3D-print it the moment the scan ends
 #
 # -Session names the folder under runs/ (default: <run><n>, the next free number).
+# -PrintPort (COMn, auto, or sim): PRE-CONNECT the 3D printer before anything
+#   starts. The printer and the slicer are checked here, you confirm the bed is
+#   clear, and the session holds the printer until the scan ends, then prints.
 param(
-    [ValidateSet("vision", "eight", "officer", "wedge", "photo", "cphoto", "grey", "custom")] [string] $Run = "vision",
+    [ValidateSet("vision", "eight", "officer", "wedge", "photo", "cphoto", "grey", "die", "custom")] [string] $Run = "vision",
     [string] $Session = "",
     [string] $Target = "",
     [string] $Extra = "",
+    [string] $PrintPort = "",
     [int] $SignalTimeout = 7200,
     [int] $Linger = 900,
     [double] $PatchSide = 0.3    # grey: square flicker patch, fraction of the board side (0 = old 6x4 rule)
@@ -54,9 +60,26 @@ switch ($Run) {
                            "--patch-side", "$PatchSide"); $prefix = "vr_grey"
                 "grey picture $Target is ${gw} x ${gh}, about $([math]::Round($gw * $gh * 8 / 60)) min a pass (up to two); " +
                 "flicker patch a square $([math]::Round($PatchSide * [math]::Max($gw, $gh), 1)) cells wide" }
+    "die"     { $args_ = @("--mode", "planes", "--mesh-object", "mesh:die", "--plane-spc", "5,5,8",
+                           "--plane-passes", "1", "--rest-every", "48"); $prefix = "vr_die"
+                "the die: 54 cells (9 x 6 atlas), about 16 min of scanning plus calibration" }
     "custom"  { $args_ = @(); $prefix = "vr_custom" }
 }
 if ($Extra -ne "") { $args_ += ($Extra -split " ") }
+# ---- printer PRE-CONNECT: before the driver, the page or the headset start
+if ($PrintPort -ne "") {
+    "=== 3D printer pre-connect ==="
+    python -c "import die_print, sys; c = die_print.find_cura(); print('slicer: CuraEngine in', c) if c else print('slicer: UltiMaker Cura is NOT installed on this PC - install it first'); sys.exit(0 if c else 1)"
+    if ($LASTEXITCODE -ne 0) { exit 5 }
+    python printer.py check --port $PrintPort
+    if ($LASTEXITCODE -ne 0) { "the printer did not answer on ${PrintPort}: switch it on, plug it into this PC, close Cura / OctoPrint, try again (python printer.py ports lists the ports)"; exit 5 }
+    ""
+    "The print starts BY ITSELF the moment the scan ends, with nobody at the printer."
+    $ok = Read-Host "Is the print bed clear and empty, and is filament loaded? (y/n)"
+    if ($ok -notmatch '^(y|yes)$') { "not started: clear the bed and load filament, then run this again"; exit 6 }
+    $args_ += @("--print-port", $PrintPort, "--print-bed-clear")
+    "printer pre-connected; the session holds it and prints the decoded die when the scan ends"
+}
 if ($Session -eq "") {
     $n = 1
     while (Test-Path "runs\$prefix$n") { $n++ }
@@ -92,6 +115,10 @@ Start-Sleep 1
 & adb @adb shell "am start -a android.intent.action.VIEW -d 'http://127.0.0.1:8082/?k=quest' -f 0x10000000 com.oculus.browser" | Select-Object -First 1
 Start-Sleep 10
 Get-Content $log | Where-Object { $_ -notmatch 'pygame|Hello' } | Select-Object -Last 6
+if ($PrintPort -ne "") {
+    "printing:        starts by itself when the scan ends; python printer.py status runs/$Session/print"
+    "                 stop it (heaters off): python printer.py cancel runs/$Session/print"
+}
 "when it is done: python analysis/vision_readout.py runs/$Session --seal targets_img/vision_today_seal.json   (vision)"
 "                 python analysis/planes_figures.py runs/$Session --label $Session                            (colour)"
 "                 python analysis/wedge_readout.py runs/$Session                                              (wedge)"

@@ -609,6 +609,16 @@ class Driver:
                 print("could not hold the PC awake:", repr(exc))
         print("holding this PC awake for the session" if awake
               else "NOTE: this PC is not held awake - keep it on mains power")
+        # a 3D object through the planes scan: its atlas is the colour target
+        if a.mode == "planes" and a.mesh_object:
+            import print_on_scan
+            print_on_scan.prepare_planes_target(a, self.session)
+        # scan-and-print: the printer is connected and checked BEFORE any
+        # scanning (print_on_scan.py); a failure ends the session here
+        if a.print_port:
+            import print_on_scan
+            self.print_job = print_on_scan.PrintJob(a, self.session)
+            await asyncio.to_thread(self.print_job.preflight)
         target = targets.load_target(a.target, a.grid_w, a.grid_h)
         np.save(os.path.join(self.session, "target.npy"), target)
 
@@ -1597,13 +1607,14 @@ class Driver:
                 png = "data:image/png;base64," + base64.b64encode(f.read()).decode()
         else:
             png = rgb_to_data_url(rgb) if rgb is not None else ""
-        await self.send(cmd="color_result", png=png, text=text, good=bool(good),
-                        wide=os.path.exists(comp), mesh=mesh_pl)
+        await self.start_print(result, mesh_pl is not None, text)
+        await self.send(cmd="color_result", png=png, text=text + self.print_note(),
+                        good=bool(good), wide=os.path.exists(comp), mesh=mesh_pl)
         self.spectate(type="log", msg=text)
         result["ok"] = True
         recorder.stop()
         print(f"BLACK/WHITE/BLUE DONE -> {self.session}")
-        await asyncio.sleep(a.linger)
+        await self.linger_with_print()
         return 0
 
     async def run_planes(self, result, recorder):
@@ -1941,6 +1952,16 @@ class Driver:
             res, rgb, comp, text, good = dict(error=repr(exc)), None, None, f"decoding failed: {exc}", False
         print(text)
         result["planes"] = res
+        painted = False
+        if a.mesh_object and "error" not in res:
+            try:                          # the decoded atlas painted back on the object
+                import print_on_scan
+                result["mesh"] = await asyncio.to_thread(print_on_scan.paint_planes, a, self.session)
+                comp = os.path.join(self.session, "mesh_comparison.png")
+                painted = True
+            except Exception as exc:
+                print("painting the object failed:", repr(exc))
+        await self.start_print(result, painted, text)
         if comp:
             with open(comp, "rb") as f:
                 png = "data:image/png;base64," + base64.b64encode(f.read()).decode()
@@ -1948,13 +1969,48 @@ class Driver:
             png = rgb_to_data_url(rgb) if rgb is not None else ""
         hz_txt = "/".join(f"{delivered[k]:g}" for k in logs if k in delivered) or f"{self.stim_freq:g}"
         await self.send(cmd="color_result", png=png,
-                        text=f"{text}   [planes at {hz_txt} Hz]",
+                        text=f"{text}   [planes at {hz_txt} Hz]" + self.print_note(),
                         passed=bool(good), wide=bool(comp))
         result["ok"] = True
         recorder.stop()
         print(f"COLOUR PLANES DONE -> {self.session}")
-        await asyncio.sleep(a.linger)
+        await self.linger_with_print()
         return 0
+
+    async def start_print(self, result, decoded_ok, why=""):
+        """Scan-and-print: the moment the object is decoded, build, slice and
+        start printing it (print_on_scan.PrintJob.finish)."""
+        job = getattr(self, "print_job", None)
+        if job is None:
+            return
+        try:
+            result["print"] = await asyncio.to_thread(job.finish, decoded_ok, why)
+        except Exception as exc:
+            print("PRINT FAILED TO START:", repr(exc))
+            result["print"] = dict(error=repr(exc))
+
+    def print_note(self):
+        job = getattr(self, "print_job", None)
+        if job is None:
+            return ""
+        return ("   |   now printing on " + job.port) if job.launched else "   |   NOT printing (see the log)"
+
+    async def linger_with_print(self):
+        """Keep serving the result; while a print runs, show its progress on
+        the page and in the log every 15 s."""
+        a = self.args
+        job = getattr(self, "print_job", None)
+        if job is None or not job.launched:
+            await asyncio.sleep(a.linger)
+            return
+        end, last = time.monotonic() + a.linger, ""
+        while time.monotonic() < end:
+            msg = job.status_text()
+            if msg and msg != last:
+                print(msg)
+                await self.send(cmd="msg", text=msg)
+                last = msg
+            await asyncio.sleep(15)
 
     async def run_smooth(self, result, recorder):
         """Smooth-flicker colour (smoothcolor.py): a white smooth-flicker sweep
@@ -2535,6 +2591,28 @@ async def main():
                     help="channels to decode (default: all, e.g. TP9,TP10,AUX)")
     ap.add_argument("--linger", type=float, default=10,
                     help="seconds to keep serving the result before exit")
+    ap.add_argument("--mesh-object", default=None,
+                    help="--mode planes: scan a 3D object (e.g. mesh:die): its atlas is the "
+                         "colour target and the decoded grid is painted back on it")
+    pr = ap.add_argument_group("scan-and-print (print_on_scan.py): the decoded object "
+                               "prints the moment the scan ends")
+    pr.add_argument("--print-port", default=None,
+                    help="the printer's serial port (COM5), 'auto' to find it, or 'sim' for "
+                         "a simulated printer. Checked before any scanning")
+    pr.add_argument("--print-bed-clear", action="store_true",
+                    help="the operator confirms the bed is clear and filament loaded "
+                         "(required: the print starts with nobody at the printer)")
+    pr.add_argument("--print-baud", type=int, default=115200)
+    pr.add_argument("--print-model", default="relief", choices=["relief", "plain"],
+                    help="relief: black cells sunk, red raised (the decoded colours as "
+                         "shape); plain: the die shape only")
+    pr.add_argument("--print-size", type=float, default=40.0, help="die size across the flats, mm")
+    pr.add_argument("--print-depth", type=float, default=1.2, help="relief step, mm")
+    pr.add_argument("--printer", default="creality_ender3pro",
+                    help="Cura printer profile the G-code is sliced for")
+    pr.add_argument("--print-set", action="append", default=[],
+                    help="extra slicer setting key=value (repeatable), e.g. "
+                         "material_print_temperature=210")
     args = ap.parse_args()
     if args.legible:
         legible = dict(target="pix:NO", freq=12.0, spc=8.0, passes=3, patch=1.5,
@@ -2656,6 +2734,9 @@ async def main():
         finally:
             if muse:
                 muse.stop()
+            job = getattr(driver, "print_job", None)
+            if job is not None and not job.launched:
+                job.release()             # the session ended before printing
     sys.exit(code)
 
 

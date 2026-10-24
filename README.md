@@ -879,6 +879,73 @@ brightness model (response ~ √luminance).
 
 ![globe, simulated](docs/figures/mesh_globe_sim.png)
 
+### Scan and print: the decoded die goes straight to the 3D printer
+
+`--print-port` turns a die session into scan-and-print. The die is scanned with
+the eye, decoded, painted back on the mesh, built as a printable model,
+sliced, and sent to the printer, with no step in between.
+
+```
+.\quest_run.ps1 -Run die -PrintPort COM5      # or -PrintPort auto
+```
+
+**1. Pre-connect, before anything starts.** `quest_run.ps1` checks the slicer
+(UltiMaker Cura's CuraEngine must be installed) and that the printer answers on
+that port, then asks whether the bed is clear and filament is loaded. Only a
+"y" starts the session. The session then checks everything again before the
+EEG recorder or the headset page start (`print_on_scan.py`):
+
+1. the object is printable (the die for now),
+2. the operator confirmed the bed (`--print-bed-clear`),
+3. the slicer works, by building and slicing the die that is about to be
+   shown, with the settings the decoded one will get (this also gives the
+   print time),
+4. the printer answers with its firmware and temperatures.
+
+The connection stays open for the whole scan, with a temperature poll every
+5 s, so a printer that is switched off or unplugged is reported at once. If
+any check fails, the session stops before the subject has scanned a cell.
+
+**2. The scan,** exactly as `-Run die` without printing: the 9 × 6 atlas
+through the planes scan (5 / 5 / 8 s per plane), about 16 min plus
+calibration.
+
+**3. Printing, the moment it is decoded.** The decoded die is built by
+`die_print.py` (relief: black cells sunk 1.2 mm, the red pip raised, white
+flush; `--print-model plain` for the shape alone), sliced for the Ender-3 Pro
+(`--printer`, `--print-set key=value`), and handed to its own print process
+(`printer.py print`). That process streams the G-code over USB with line
+numbers and checksums, resending any line the printer asks for again. The
+print does not depend on the session: it runs to the end after the session
+exits, and the headset page shows its progress while the session lingers.
+
+```
+python printer.py status runs/vr_die1/print     # progress, layer, temperatures
+python printer.py cancel runs/vr_die1/print     # stop: heaters off, motors off
+python printer.py ports                         # which COM port is the printer
+python printer.py check --port COM5             # the pre-connect test on its own
+```
+
+`runs/<session>/print/` holds the STLs, the G-code, `print_log.txt`,
+`print_status.json` and `preconnect.json`.
+
+**Before the first real print:** close Cura, OctoPrint or anything else that
+holds the printer's port, because only one program can hold it at a time. The
+print streams from this PC, so leave it on and plugged in until the print
+ends, and do not unplug the USB cable mid-print. If the PC stops, the printer
+stops where it is with the heaters at their last setting. Switch it off at
+the printer, or run `printer.py cancel` while the PC is still running.
+
+**Tested** without a printer or a headset: the pre-connect refusals (no bed
+confirmation, no slicer) stop the session before the recorder starts. A
+simulated Marlin printer took all 64,251 lines of the Ender-3 Pro G-code from
+`docs/results/vr_die1` once each and in order, including with 5 % of lines
+corrupted and resent. A decoded die session went from decoded to printing in
+under a second, with the slicer stubbed. Progress, cancel (heaters off), and a
+print that outlives the process that started it were also checked. **Not yet
+run with a real printer or a real slicer on this PC** (Cura is not installed
+here).
+
 ### Running in a Quest headset
 
 ```
@@ -1019,6 +1086,9 @@ and the small result files for each session are in `docs/results`.
 | `freeze_gate.py` | gate: the driver and its recorder suspended for 8 s mid-scan on the phantom; the page must hold, show the position again, and the plane still decode |
 | `muse_stream.py`, `lsl_to_osc.py` | Muse over this PC's Bluetooth via muselsl (`--muse`), and an LSL-to-OSC bridge |
 | `phantom_subject.py` | synthetic subject for end-to-end tests, including colour tags and audio |
+| `printer.py` | the 3D printer link: Marlin over USB serial (line numbers, checksums, resends), pre-connect check, print process, status and cancel; a simulated printer for tests |
+| `print_on_scan.py` | scan-and-print: pre-connect before the scan, then build, slice and print the decoded die the moment it is decoded |
+| `die_print.py` | the decoded die as STL (plain and relief) and G-code, sliced with the CuraEngine inside UltiMaker Cura |
 | `targets.py` | text, pixel-font, image and colour targets |
 | `mesh3d.py` | 3D objects for the colour scan: built-in objects and OBJ import, unfolding into the scan grid, painting the decoded grid back on, textured OBJ export, renders |
 | `mesh_view.js`, `mesh_viewer_template.html` | the 3D renderer shared by the headset result screen and the per-session `mesh_viewer.html` |

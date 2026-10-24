@@ -33,6 +33,21 @@ from PIL import Image
 HERE = os.path.dirname(os.path.abspath(__file__))
 CURA_DIR = r"C:\Program Files\UltiMaker Cura 5.9.0"
 
+
+def find_cura():
+    """The folder of an installed UltiMaker Cura with its CuraEngine: $CURA_DIR,
+    else the newest "UltiMaker Cura *" folder in Program Files, else None."""
+    import glob
+    cands = [os.environ.get("CURA_DIR", "")]
+    cands += sorted(glob.glob(r"C:\Program Files\UltiMaker Cura *"), reverse=True) + [CURA_DIR]
+    for c in cands:
+        if c and os.path.exists(os.path.join(c, "CuraEngine.exe")):
+            return c
+    return None
+
+
+CURA_DIR = find_cura() or CURA_DIR
+
 COLOURS = {"white": (255, 255, 255), "black": (0, 0, 0), "red": (255, 0, 0)}
 
 
@@ -403,7 +418,7 @@ def slice_stl(stl, gcode, printer, extra):
     if r.returncode != 0 or not os.path.exists(gcode) or errors:
         print("\n".join(errors[:10]) or (r.stdout + r.stderr)[-3000:])
         raise SystemExit("CuraEngine failed for " + stl)
-    fix_header(gcode, values.get("material_diameter", 1.75))
+    return fix_header(gcode, values.get("material_diameter", 1.75))
 
 
 def fix_header(gcode, filament_diameter):
@@ -465,6 +480,40 @@ def fix_header(gcode, filament_diameter):
           f"estimated {t/3600:.1f} h, filament {info.get('Filament used','?')}, "
           f"footprint x {info.get('MINX','?')}..{info.get('MAXX','?')} y {info.get('MINY','?')}..{info.get('MAXY','?')} z to {info.get('MAXZ','?')} mm")
     return info
+
+
+def make_print(run, mesh="mesh_decoded.obj", size=40.0, depth=1.2, name="die_decoded_eeg",
+               out=None, slice_models=("relief",), printer="creality_ender3pro", extra=None,
+               log=print):
+    """The die in `run`/<mesh> as STL (plain and relief) and, for each model in
+    slice_models ("plain", "relief"), G-code. Returns dict(stl=..., relief=...,
+    gcode={model: path}, info={model: slicer summary}, cells={colour: n})."""
+    out = out or os.path.join(run, "print")
+    os.makedirs(out, exist_ok=True)
+    obj = os.path.join(run, mesh)
+    verts, uvs, quads = load_obj(obj)
+    texture = os.path.join(run, os.path.splitext(mesh)[0] + ".png")
+    cells = cell_colours(uvs, quads, texture)
+    counts = defaultdict(set)
+    for cell, col in cells:
+        counts[col].add(cell)
+    half = float(np.abs(verts).max())
+    base, old2new = merged_mesh(verts, quads, size / (2 * half))
+    stl = os.path.join(out, name + ".stl")
+    base.export(stl)
+    rel, _ = relief_mesh(base, old2new, quads, cells, {"white": 0.0, "black": -depth, "red": +depth})
+    stl_rel = os.path.join(out, name + "_relief.stl")
+    rel.export(stl_rel)
+    cells_png(texture, os.path.join(out, name + "_cells.png"))
+    res = dict(stl=stl, relief=stl_rel, gcode={}, info={},
+               cells={k: len(v) for k, v in sorted(counts.items())},
+               watertight=dict(plain=bool(base.is_watertight), relief=bool(rel.is_watertight)))
+    for model in slice_models:
+        src = stl if model == "plain" else stl_rel
+        g = os.path.splitext(src)[0] + ".gcode"
+        res["info"][model] = slice_stl(src, g, printer, dict(extra or {}))
+        res["gcode"][model] = g
+    return res
 
 
 def main():
