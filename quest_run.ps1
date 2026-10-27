@@ -56,8 +56,8 @@ switch ($Run) {
                            "--patch-side", "$PatchSide"); $prefix = "vr_grey"
                 "grey picture $Target is ${gw} x ${gh}, about $([math]::Round($gw * $gh * 8 / 60)) min a pass (up to two); " +
                 "flicker patch a square $([math]::Round($PatchSide * [math]::Max($gw, $gh), 1)) cells wide" }
-    "exam"    { $args_ = @("--mode", "exam", "--exam-eye", "right,left", "--exam-ppd", "$Ppd"); $prefix = "vr_exam"
-                "eye exam at $Ppd px/deg: right eye then left, about 15 min; cover the other eye with the patch" }
+    "exam"    { $args_ = @("--mode", "exam", "--exam-eye", "right,left", "--exam-ppd", "$Ppd", "--exam-patch", "1"); $prefix = "vr_exam"
+                "eye exam at $Ppd px/deg: right eye then left, about 19 min; cover the other eye with the patch" }
     "custom"  { $args_ = @(); $prefix = "vr_custom" }
 }
 if ($Extra -ne "") { $args_ += ($Extra -split " ") }

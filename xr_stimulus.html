@@ -51,6 +51,15 @@ function patchSize(m, bw, bh, cwid, chgt) {
   return [m.patch ? bw / 6 * m.patch : cwid, m.patch ? bh / 4 * m.patch : chgt];
 }
 
+// full screen must be requested INSIDE a user gesture to be honoured
+function goFull() {
+  try {
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req && !document.fullscreenElement) req.call(el).catch(() => {});
+  } catch {}
+}
+
 // Wait for a trigger pull, click, key or controller button. In unattended
 // runs (?auto=1) it returns after a second.
 async function waitForPress() {
@@ -58,8 +67,8 @@ async function waitForPress() {
   await sleep(600);   // ignore the press that may still be held
   await new Promise(res => {
     const done = () => { clearInterval(gp); res(); };
-    addEventListener("pointerdown", done, { once: true });
-    addEventListener("keydown", done, { once: true });
+    addEventListener("pointerdown", () => { goFull(); done(); }, { once: true });
+    addEventListener("keydown", () => { goFull(); done(); }, { once: true });
     const gp = setInterval(() => {
       try {
         for (const g of navigator.getGamepads ? navigator.getGamepads() : []) {
@@ -872,21 +881,14 @@ function showChoice(m) {
 }
 
 // ---- arm gate: nothing flickers until the subject pulls the trigger ----
-async function armStart() {
-  hideResult(); title.textContent = "READY"; title.className = "ok";
-  sub.innerHTML = "put the headset on, look at the dot, then " +
-                  "<b>pull the trigger or press any controller button</b> (or click / any key) to start";
+async function armStart(m = {}) {
+  hideResult(); title.textContent = m.title || "READY"; title.className = m.warn ? "warn" : "ok";
+  sub.innerHTML = m.text || ("put the headset on, look at the dot, then " +
+                  "<b>pull the trigger or press any controller button</b> (or click / any key) to start");
   black(); dot(cv.width / 2, cv.height / 2);
   // start on ANY of: a click/trigger on the page, a keyboard key, or a
   // controller button seen through the Gamepad API (Quest Browser exposes
   // the Touch controllers even when a trigger click never reaches the page)
-  const goFull = () => {  // must run INSIDE the user gesture to be honoured
-    try {
-      const el = document.documentElement;
-      const req = el.requestFullscreen || el.webkitRequestFullscreen;
-      if (req && !document.fullscreenElement) req.call(el).catch(() => {});
-    } catch {}
-  };
   await new Promise(res => {
     const done = () => { clearInterval(gp); res(); };
     addEventListener("pointerdown", () => { goFull(); done(); }, { once: true });
@@ -1101,7 +1103,7 @@ function connect() {
     switch (m.cmd) {
       case "signal": showSignal(m); break;
       case "eeg": showMuse(m); break;
-      case "arm": armStart(); break;
+      case "arm": armStart(m); break;
       case "start_calib": runCalib(m); break;
       case "calib_result": showCalibResult(m); break;
       case "start_scan": runScan(m); break;

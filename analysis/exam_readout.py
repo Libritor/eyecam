@@ -67,6 +67,11 @@ def fit_limb(xlog, amp, p):
         return dict(ok=False, reason="the finest step shown still responds at full "
                                       "strength: threshold beyond the range shown",
                     finest_sig=float(x[i0]), beyond_range=True)
+    if sum(pp[i] < ALPHA for i in used) < 2:
+        # one responding step among silent ones is not a limb: a sweep that
+        # works responds at every coarse step down to its threshold
+        return dict(ok=False, reason="only one step responds: no limb to fit",
+                    finest_sig=float(x[i0]))
     xs, ys = x[used], y[used]
     b, a = np.polyfit(xs, ys, 1)
     if b <= 0:
@@ -202,10 +207,13 @@ def eye_text(eye, r):
     bits = []
     ac = r.get("acuity")
     if ac:
-        if ac.get("ok"):
+        if ac.get("ok") and ac.get("beyond_range"):
+            s = (f"acuity threshold below the finest bar shown ({min(ac['sizes']):.1f}'; "
+                 f"the line crosses zero at {ac['threshold']:.1f}', not a measurement)")
+            bits.append(s)
+        elif ac.get("ok"):
             s = (f"acuity threshold {ac['threshold']:.1f}' (logMAR {ac['logmar']:.2f}, "
-                 f"{ac['snellen']} equivalent, extrapolated"
-                 + ("; beyond the finest bar shown" if ac.get("beyond_range") else "") + ")")
+                 f"{ac['snellen']} equivalent, extrapolated)")
             if ac.get("finest_sig") is not None:
                 s += f", finest bar with a response {ac['finest_sig']:.1f}'"
             bits.append(s)
@@ -216,7 +224,10 @@ def eye_text(eye, r):
             bits.append(s)
     co = r.get("contrast")
     if co:
-        if co.get("ok"):
+        if co.get("ok") and co.get("beyond_range"):
+            bits.append(f"contrast threshold below the faintest step shown ({min(co['contrasts']):.3g}; "
+                        f"the line crosses zero at {co['threshold']:.3g}, not a measurement)")
+        elif co.get("ok"):
             s = f"contrast threshold {co['threshold']:.3f} (log sensitivity {co['log_cs']:.2f}"
             if co.get("faintest_sig") is not None:
                 s += f"; faintest with a response {co['faintest_sig']:.3g}"
@@ -241,6 +252,9 @@ def eye_text(eye, r):
             bits.append(f"colour: {col.get('reason')}")
     ch = next((r[t].get("channel") for t in TESTS if r.get(t, {}).get("channel")), None)
     fq = next((r[t].get("freq") for t in TESTS if r.get(t, {}).get("freq")), None)
+    dead = r.get("dead") or {}
+    if dead:
+        bits.append("out of contact: " + ", ".join(f"{k} {v:.0f} uV" for k, v in dead.items()))
     head = f"{eye.upper()} eye"
     if ch:
         head += f" ({ch}" + (f", {fq:.2f} Hz" if fq else "") + ")"
@@ -323,11 +337,13 @@ def draw(session, exam, eyes, compare, text):
             d = r.get(t, {})
             if t == "acuity":
                 _draw_curve(ax, d, "sizes", "bar width (arcmin)", invert=True, logbase=math.e)
-                ttl = (f"{eye}: acuity, threshold {d['threshold']:.1f}' ({d['snellen']} eq.)"
+                ttl = (f"{eye}: acuity, below the finest bar shown" if d.get("ok") and d.get("beyond_range")
+                       else f"{eye}: acuity, threshold {d['threshold']:.1f}' ({d['snellen']} eq.)"
                        if d.get("ok") else f"{eye}: acuity, no threshold")
             elif t == "contrast":
                 _draw_curve(ax, d, "contrasts", "contrast", invert=True, logbase=10)
-                ttl = (f"{eye}: contrast, threshold {d['threshold']:.3f} (logCS {d['log_cs']:.2f})"
+                ttl = (f"{eye}: contrast, below the faintest step shown" if d.get("ok") and d.get("beyond_range")
+                       else f"{eye}: contrast, threshold {d['threshold']:.3f} (logCS {d['log_cs']:.2f})"
                        if d.get("ok") else f"{eye}: contrast, no threshold")
             elif t == "field":
                 _draw_field(ax, d, fig)
@@ -395,10 +411,16 @@ def _draw_curve(ax, d, xkey, xlabel, invert, logbase):
         ax.axhline(d["noise_amp"], color="#888", lw=0.6, ls=":", label="OFF-block amplitude")
     fit = d.get("fit") or {}
     if fit.get("ok"):
-        xs = np.array(fit["x_used"]); lo = min(fit["x_thr_log"], xs.min()); hi = xs.max()
+        xs = np.array(fit["x_used"])
+        # the line is drawn over the fitted points and down to its zero crossing,
+        # but never past half the finest step shown (a crossing far below the
+        # range is not a measurement and would squash the axis)
+        floor = math.log(0.5 * float(x.min())) if logbase == math.e else math.log10(0.5 * float(x.min()))
+        lo = max(min(fit["x_thr_log"], xs.min()), floor); hi = xs.max()
         xx = np.linspace(lo, hi, 50)
         ax.plot(logbase ** xx, fit["a"] + fit["b"] * xx, color="#c0392b", lw=1.2, label="limb fit")
-        ax.axvline(d["threshold"], color="#c0392b", lw=0.8, ls="--")
+        if not d.get("beyond_range"):
+            ax.axvline(d["threshold"], color="#c0392b", lw=0.8, ls="--")
     ax.set_xscale("log")
     if invert:
         ax.invert_xaxis()
@@ -463,6 +485,12 @@ def run(session):
             r["field"] = read_field(res.get("field"))
         if "colour" in exam["tests"]:
             r["colour"] = read_colour(res.get("colour"))
+        # electrodes the scorer set aside as out of contact, with their rms (the worst test)
+        dead = {}
+        for st in res.values():
+            for ch in st.get("dead", []) if isinstance(st, dict) else []:
+                dead[ch] = max(dead.get(ch, 0.0), float(st.get("rms_uv", {}).get(ch, 0.0)))
+        r["dead"] = dead
         eyes[eye] = r
     compare = compare_eyes(eyes)
     lines = [eye_text(e, eyes[e]) for e in exam["eyes"]]

@@ -2100,6 +2100,34 @@ class Driver:
         await asyncio.sleep(a.linger)
         return 0
 
+    def contact_rms(self, seconds=3.0):
+        """Per-channel rms (median removed) of the last seconds of eeg.csv,
+        read from the file's tail: microvolts on a Muse, units on the phantom."""
+        path = os.path.join(self.session, "eeg.csv")
+        names = csv_header(path) or CH_NAMES
+        try:
+            size = os.path.getsize(path)
+            with open(path, "rb") as f:
+                f.seek(max(0, size - 400_000))
+                chunk = f.read().decode("ascii", "ignore")
+        except OSError:
+            return {}
+        cutoff = local_clock() - seconds
+        rows = []
+        for line in chunk.split("\n")[1:]:       # the first piece may be a cut line
+            parts = line.split(",")
+            try:
+                if float(parts[0]) >= cutoff:
+                    rows.append([float(v) for v in parts[1:]])
+            except (ValueError, IndexError):
+                continue
+        if len(rows) < 64:
+            return {}
+        width = min(len(r) for r in rows)
+        arr = np.array([r[:width] for r in rows], float)
+        return {names[c]: float(np.sqrt(np.mean((arr[:, c] - np.median(arr[:, c])) ** 2)))
+                for c in range(min(width, len(names)))}
+
     async def run_exam(self, result, recorder):
         """Objective eye exam (exam.py): per eye, pattern onset/offset
         gratings shrinking in bar width (acuity) and falling in contrast
@@ -2120,9 +2148,33 @@ class Driver:
         plan = exam.plan(a)
         out = dict(eyes=eyes, tests=tests, freq=a.freq, ppd=a.exam_ppd, on_s=a.exam_on,
                    off_s=a.exam_off, reps=a.exam_reps, patch_side=a.exam_patch,
-                   gamma=exam.DISPLAY_GAMMA, results={e: {} for e in eyes}, delivery={})
+                   gamma=exam.DISPLAY_GAMMA, results={e: {} for e in eyes}, delivery={},
+                   contact={})
         path = os.path.join(self.session, "exam.json")
         for eye in eyes:
+            # contact check before the eye's first test: an electrode that is
+            # loose under the headset strap gives the detector nothing to find
+            # (vr_exam1: both ears at 100-280 uV rms for the whole sitting, and
+            # the signal check's rail test had passed them); the page asks for a
+            # fix and a trigger pull until every channel holds, up to three times
+            for attempt in range(4):
+                await asyncio.sleep(3.2)
+                rms = self.contact_rms()
+                out["contact"][f"{eye}/{attempt}"] = rms
+                bad = {k: v for k, v in rms.items() if v > exam.MAX_RMS_UV}
+                if not bad or self.auto or attempt == 3:
+                    if bad:
+                        print("WARNING: out of contact, going on anyway: "
+                              + ", ".join(f"{k} {v:.0f} uV" for k, v in bad.items()))
+                    break
+                text = ", ".join(f"{k} {v:.0f} uV" for k, v in bad.items())
+                print(f"out of contact: {text} - asking for a fix")
+                self.spectate(type="log", msg="out of contact: " + text)
+                await self.send(cmd="arm", title="ELECTRODE CHECK", warn=True,
+                                text=f"out of contact: {text}. Press the headband's ear pads in "
+                                     "under the strap and wet the top electrode, then pull the "
+                                     "trigger to check again")
+                await self.wait_for("go", timeout=a.signal_timeout)
             for ti, test in enumerate(tests):
                 steps = plan[test]
                 log = f"exam_{eye}_{test}_log.csv"

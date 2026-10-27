@@ -48,6 +48,7 @@ EYES = ["right", "left", "both"]
 LOG_EXTRA = ("size", "contrast", "plane")   # columns appended to the frame log
 DISPLAY_GAMMA = 2.2                         # the page's grey and contrast scale
 DISCARD_S = 0.5                             # dropped from every block start
+MAX_RMS_UV = 60.0                           # a channel above this for a whole test is out of contact
 
 
 def csv_header(path):
@@ -170,6 +171,11 @@ def score_stage(session, blocks, hzs, metas, log_name, test, eye=""):
     nch = len(names)
     stds = np.array([[s["X"][:, c].std() for c in range(nch)] for s in segs])
     keep = stds <= 4 * np.median(stds, 0)      # a block drowned in artefact is left out
+    # a channel out of contact for the whole test (sustained rms far above EEG:
+    # vr_exam1's ear electrodes sat at 100-280 uV) must not be scored, or its
+    # noise can be picked as the test's channel by chance
+    dead = np.median(stds, 0) > MAX_RMS_UV
+    keep[:, dead] = False
     V = np.zeros((len(segs), nch))             # the stat: log SNR at f plus at 2f
     A = np.full((len(segs), nch), np.nan)      # noise-corrected line amplitude
     Z = np.zeros((len(segs), nch), complex)    # phasor against the first flicker edge
@@ -192,7 +198,12 @@ def score_stage(session, blocks, hzs, metas, log_name, test, eye=""):
     step_of = np.array([int(s["meta"].get("step", -1)) if s["kind"] == "on" else -1
                         for s in segs])
     # the test's channel: the largest ON-OFF difference of the stat over every step
-    ch = int(np.argmax(V[on].mean(0) - V[~on].mean(0)))
+    diff_all = V[on].mean(0) - V[~on].mean(0)
+    diff_all[dead] = -np.inf
+    if not np.isfinite(diff_all).any():
+        return dict(test=test, eye=eye, ok=False, reason="every channel out of contact",
+                    steps=[], dead=[names[c] for c in range(nch) if dead[c]])
+    ch = int(np.argmax(diff_all))
     out_steps = []
     for st in sorted(set(step_of[on])):
         m_on = on & (step_of == st)
@@ -229,6 +240,8 @@ def score_stage(session, blocks, hzs, metas, log_name, test, eye=""):
                 freq=f_del, freq_requested=f_req, fs=float(fs),
                 segment_s=float(n_min / fs), n_on=int(on.sum()), n_off=int((~on).sum()),
                 noise_amp=off_amps[names[ch]], off_amps=off_amps, steps=out_steps,
+                rms_uv={names[c]: float(np.median(stds[:, c])) for c in range(nch)},
+                dead=[names[c] for c in range(nch) if dead[c]],
                 blocks=[[k, float(t0), float(t1), hz, meta]
                         for (k, t0, t1), hz, meta in zip(blocks, hzs, metas)])
 
@@ -286,8 +299,48 @@ def describe_stage(res):
             + " | ".join(cells))
 
 
+def merge(out, parts):
+    """Put eyes from several sessions into one exam.json for a joint read-out:
+    parts = [(session, eye, label), ...] takes <eye> of <session>'s exam.json
+    and calls it <label> (an eye tested in two sittings, a restarted eye, a
+    binocular run labelled 'both'). The merged folder has no EEG or logs, so
+    it can be read out but not re-scored."""
+    import json
+    os.makedirs(out, exist_ok=True)
+    merged = None
+    for session, eye, label in parts:
+        with open(os.path.join(session, "exam.json")) as f:
+            e = json.load(f)
+        if merged is None:
+            merged = {k: v for k, v in e.items() if k not in ("eyes", "results", "delivery")}
+            merged.update(eyes=[], results={}, delivery={}, sources={})
+        if eye not in e["results"]:
+            raise SystemExit(f"{session} has no eye '{eye}' (has {list(e['results'])})")
+        merged["eyes"].append(label)
+        merged["results"][label] = {t: dict(r, eye=label) for t, r in e["results"][eye].items()}
+        merged["sources"][label] = dict(session=session, eye=eye)
+        for k, v in e.get("delivery", {}).items():
+            if k.startswith(eye + "/"):
+                merged["delivery"][label + "/" + k.split("/", 1)[1]] = v
+    with open(os.path.join(out, "exam.json"), "w") as f:
+        json.dump(merged, f, indent=1)
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "analysis"))
+    import exam_readout
+    print(exam_readout.run(out)["text"])
+
+
 if __name__ == "__main__":
     import sys
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: python exam.py runs/<session>   (re-score from exam.json)")
-    rescore(sys.argv[1])
+    if len(sys.argv) == 2:
+        rescore(sys.argv[1])
+    elif len(sys.argv) >= 4 and sys.argv[1] == "merge":
+        parts = []
+        for spec in sys.argv[3:]:
+            session, eye = spec.split(":", 1)
+            eye, _, label = eye.partition("=")
+            parts.append((session, eye, label or eye))
+        merge(sys.argv[2], parts)
+    else:
+        raise SystemExit("usage: python exam.py runs/<session>              (re-score from exam.json)\n"
+                         "       python exam.py merge runs/<out> runs/<a>:<eye>[=<label>] ...")

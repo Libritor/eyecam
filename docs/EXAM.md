@@ -96,6 +96,36 @@ one. A first gate on the same protocol had lost the left eye's 0.12 contrast
 step to noise (two 3 s blocks at a response of 0.13 of full), which is what
 put the anchor step into the limb fit.
 
+## The first sitting (27 October 2026) and what it changed
+
+`runs/vr_exam1` (right eye with the left covered, then the left eye, stopped
+during its field test) and `runs/vr_exam2` (restarted as the left eye but done
+with both eyes open), Quest at 12 Hz, 4 s blocks, patch 0.6 of the browser
+window's short side, merged into `runs/vr_exam_2026-10-27`. No threshold could
+be fitted: the only clear 12 Hz response on Oz was the full-patch colour
+flicker (right eye, log10 line SNR +0.75 in ON blocks against -0.22 in OFF);
+the gratings gave a weak one at the coarse bars, the sectors and the contrast
+steps none. Both ear electrodes sat at 100 to 280 uV rms for the whole sitting
+under the headset strap, and Oz, clean for the right eye (13 to 18 uV), rose to
+50 to 77 uV afterwards.
+
+What changed because of it: the signal check's rail test had passed those
+ears, so the exam now measures each channel's rms before every eye and asks on
+the headset for a fix (press the ear pads in, wet the top electrode, pull the
+trigger) until every channel is under 60 uV; the scorer sets aside any channel
+above that for a whole test, so a dead ear cannot be picked as the test's
+channel by chance; the read-out refuses a threshold when only one step
+responds, says "below the finest bar shown" instead of a Snellen number when
+the line crosses zero outside the range, and names the electrodes that were
+out of contact; the exam's own trigger pull now takes the page full screen and
+the Quest run uses a patch the full height of the window. Still open for the
+next sitting: whether pattern onset/offset at 12 Hz (3 frames on, 3 off at
+72 fps) drives the response enough on a bigger patch, or whether the grating
+tests need a slower rate (`--freq 6` is frame-exact on the Quest and keeps its
+second harmonic at 12 Hz) or more repeats. `python exam.py merge <out>
+<session>:<eye>[=<label>] ...` joins eyes from several sessions into one
+report; `python exam.py <session>` re-scores one.
+
 ## What this is and is not
 
 These are response amplitudes from one occipital electrode against a flickering
