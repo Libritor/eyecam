@@ -27,9 +27,9 @@ def box(ax, x, y, w, h, text, fc="#f4f6f8", ec="#1f4e79", fs=5.6, bold_first=Tru
                                 fc=fc, ec=ec, lw=0.7))
     lines = text.split("\n")
     if bold_first:
-        ax.text(x + w / 2, y + h - 0.045, lines[0], ha="center", va="top", fontsize=fs, weight="bold")
-        ax.text(x + w / 2, y + h - 0.045 - 0.075, "\n".join(lines[1:]), ha="center", va="top",
-                fontsize=fs - 0.6, linespacing=1.25)
+        ax.text(x + w / 2, y + h - 0.04, lines[0], ha="center", va="top", fontsize=fs, weight="bold")
+        ax.text(x + w / 2, y + h - 0.04 - 0.09, "\n".join(lines[1:]), ha="center", va="top",
+                fontsize=fs - 0.4, linespacing=1.25)
     else:
         ax.text(x + w / 2, y + h / 2, text, ha="center", va="center", fontsize=fs)
 
@@ -43,21 +43,26 @@ def arrow(ax, p, q, text="", both=False, dy=0.03, fs=5):
 
 
 def pipeline(ax):
+    """Four boxes across the column (each about 0.8 in wide): every line is
+    kept under 15 characters at 5 pt so nothing runs past its box."""
     ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
-    box(ax, 0.01, 0.42, 0.21, 0.5, "Muse 2 headband\nTP9, AF7, AF8, TP10\n+ cup electrode at Oz\n256 Hz over Bluetooth")
-    box(ax, 0.275, 0.42, 0.19, 0.5, "phone\nMuseLog app\nraw EEG as OSC\nover Wi-Fi, UDP 5000")
-    box(ax, 0.52, 0.42, 0.21, 0.5, "PC driver\nxr_session.py --mode exam\nrecords, logs every frame,\nscores each test")
-    box(ax, 0.785, 0.42, 0.205, 0.5, "Quest 3S browser\nstimulus page\nframe-exact flicker\n(12 Hz at 72 fps)")
-    arrow(ax, (0.22, 0.67), (0.275, 0.67))
-    arrow(ax, (0.465, 0.67), (0.52, 0.67))
-    arrow(ax, (0.73, 0.67), (0.785, 0.67), both=True)
-    ax.text(0.7575, 0.40, "WebSocket\nover USB", ha="center", va="top", fontsize=4.6, color="#333")
-    box(ax, 0.52, 0.03, 0.21, 0.27, "read-out\nthresholds, field map,\nexam_report.pdf", fc="#eef5ee", ec="#2e7d32")
-    arrow(ax, (0.625, 0.42), (0.625, 0.30))
-    box(ax, 0.785, 0.03, 0.205, 0.27, "subject\none eye covered,\neyes on the dot", fc="#fff8e6", ec="#b26a00")
-    arrow(ax, (0.8875, 0.42), (0.8875, 0.30), both=True)
-    ax.text(0.01, 0.2, "phantom subject: the same path with a synthetic\nEEG that follows the logged stimulus\n(the gate, no hardware)", ha="left", va="center",
-            fontsize=4.8, color="#555", style="italic")
+    w, h, y = 0.225, 0.5, 0.44
+    xs = [0.005, 0.26, 0.515, 0.77]
+    box(ax, xs[0], y, w, h, "Muse headband\nTP9 AF7 AF8 TP10\n+ Oz electrode\n256 Hz Bluetooth", fs=5.2)
+    box(ax, xs[1], y, w, h, "phone\nMuseLog app\nraw EEG as OSC\nWi-Fi, UDP 5000", fs=5.2)
+    box(ax, xs[2], y, w, h, "PC driver\nxr_session.py\n--mode exam\nlogs frames,\nscores tests", fs=5.2)
+    box(ax, xs[3], y, w, h, "Quest browser\nstimulus page\nframe-exact\n12 Hz at 72 fps", fs=5.2)
+    ym = y + h * 0.55
+    arrow(ax, (xs[0] + w, ym), (xs[1], ym))
+    arrow(ax, (xs[1] + w, ym), (xs[2], ym))
+    arrow(ax, (xs[2] + w, ym), (xs[3], ym), both=True)
+    ax.text((xs[2] + w + xs[3]) / 2, y - 0.02, "USB", ha="center", va="top", fontsize=4.6, color="#333")
+    box(ax, xs[2], 0.03, w, 0.28, "read-out\nthresholds,\nfield map, PDF", fc="#eef5ee", ec="#2e7d32", fs=5.2)
+    arrow(ax, (xs[2] + w / 2, y), (xs[2] + w / 2, 0.31))
+    box(ax, xs[3], 0.03, w, 0.28, "subject\none eye covered,\neyes on the dot", fc="#fff8e6", ec="#b26a00", fs=5.2)
+    arrow(ax, (xs[3] + w / 2, y), (xs[3] + w / 2, 0.31), both=True)
+    ax.text(0.005, 0.17, "phantom: the same path with a\nsynthetic EEG that follows the\nlogged stimulus (the gate)",
+            ha="left", va="center", fontsize=4.8, color="#555", style="italic")
 
 
 def stimulus_panel(ax, kind, side=1.0):
@@ -112,8 +117,8 @@ def timeline(ax):
 
 def main():
     out = sys.argv[1] if len(sys.argv) > 1 else "docs/paper/exam2027/figures/exam_diagram.pdf"
-    fig = plt.figure(figsize=(3.5, 3.55))
-    gs = fig.add_gridspec(3, 5, height_ratios=[1.25, 0.95, 0.5], left=0.01, right=0.99, top=0.985,
+    fig = plt.figure(figsize=(3.5, 3.1))
+    gs = fig.add_gridspec(3, 5, height_ratios=[1.2, 0.95, 0.5], left=0.01, right=0.99, top=0.985,
                           bottom=0.02, hspace=0.35, wspace=0.08)
     ax = fig.add_subplot(gs[0, :]); pipeline(ax)
     ax.text(0.0, 1.0, "(a)", fontsize=7, weight="bold", va="top", ha="left")

@@ -45,7 +45,7 @@ def curve(ax, ro, test, xkey, xlabel, logbase):
             ax.axvline(d["threshold"], color=st["color"], lw=0.6, ls="--")
     ax.axhline(0, color="#999", lw=0.4)
     ax.set_xscale("log"); ax.invert_xaxis()
-    ax.set_xlabel(xlabel); ax.set_ylabel("response amplitude (a.u.)")
+    ax.set_xlabel(xlabel); ax.set_ylabel("amplitude (a.u.)")
     ax.spines[["top", "right"]].set_visible(False)
     ax.legend(frameon=False, loc="lower left", handlelength=1.2)
 
@@ -96,8 +96,8 @@ def main():
     session, out = sys.argv[1], sys.argv[2]
     with open(os.path.join(session, "exam_readout.json")) as f:
         ro = json.load(f)
-    fig, axs = plt.subplots(2, 2, figsize=(3.5, 3.0))
-    fig.subplots_adjust(left=0.13, right=0.98, top=0.95, bottom=0.11, hspace=0.62, wspace=0.62)
+    fig, axs = plt.subplots(2, 2, figsize=(3.5, 2.5))
+    fig.subplots_adjust(left=0.13, right=0.98, top=0.95, bottom=0.12, hspace=0.66, wspace=0.62)
     curve(axs[0, 0], ro, "acuity", "sizes", "bar width (arcmin)", math.e)
     curve(axs[0, 1], ro, "contrast", "contrasts", "contrast", 10)
     field(axs[1, 0], fig, ro, "right")

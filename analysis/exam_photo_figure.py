@@ -49,14 +49,14 @@ def page_frames(folder):
 
 def main():
     out = sys.argv[1]
-    fig = plt.figure(figsize=(3.5, 3.15))
-    gs = fig.add_gridspec(2, 6, height_ratios=[1.35, 1.0], left=0.01, right=0.99, top=0.96, bottom=0.05,
+    fig = plt.figure(figsize=(3.5, 2.5))
+    gs = fig.add_gridspec(2, 6, height_ratios=[1.15, 1.0], left=0.01, right=0.99, top=0.95, bottom=0.03,
                           hspace=0.3, wspace=0.08)
     # (a) the rig on the subject
     ax = fig.add_subplot(gs[0, :3])
     rig = Image.open(os.path.join(ROOT, "docs", "paper", "icce2027", "figures", "setup.jpg"))
     w, h = rig.size
-    rig = rig.crop((int(w * 0.08), int(h * 0.3), int(w * 0.92), int(h * 0.86)))
+    rig = rig.crop((int(w * 0.08), int(h * 0.33), int(w * 0.92), int(h * 0.80)))
     ax.imshow(rig); ax.axis("off")
     ax.set_title("(a) the rig: Quest 3S over the Muse headband", loc="left", fontsize=5.8, pad=3)
     # (b) the headset's view of the intro screen
