@@ -840,6 +840,37 @@ the ear electrodes alone give 0.36.
 Raw EEG recordings are not in the repository. Figures are in `docs/figures`
 and the small result files for each session are in `docs/results`.
 
+## Ear as a microphone (sound read back from the EEG)
+
+The second read-out: the same four-electrode headband, a 31.5 s passage of *Alice's
+Adventures in Wonderland* played 24 times from the headset's own speakers, and a
+linear decoder that reads the loudness of the speech (1 to 8 Hz, lags -125 to
++500 ms) back out of the EEG. Every play is decoded by a model that never saw that
+play and the held-out read-outs are averaged into one brain envelope, which is put
+on a carrier so it can be heard. The first and last 3 s of each play are left out of
+the scoring so the response to the sound starting and stopping does not count.
+
+- `ear_mic_session.py` runs the session (the clip through the Quest's browser,
+  `quest_audio.py`, or the laptop, `pc_audio.py`; the recorder as for the eye).
+- `analysis/ear_mic_decode.py` decodes a run and writes the three sounds and the
+  figure; `analysis/ear_mic_player.py` makes the listening page;
+  `analysis/ear_mic_phantom.py` is the hardware-free check (an injected envelope
+  response decodes at r 0.65, a null at chance); `analysis/ear_mic_paper_figure.py`
+  draws the paper figure.
+- Results and the audio itself: [`docs/results/ear_mic2`](docs/results/ear_mic2/README.md)
+  (the reported session: averaged reconstruction r 0.36 against a shuffled null of
+  0.10, shifted-EEG control at chance; the clip, its true loudness on noise, the
+  loudness read from the EEG on noise and on the clip's own sound, the figure, and
+  a stand-alone player page) and [`docs/results/ear_mic1`](docs/results/ear_mic1/README.md)
+  (the night before, r 0.18, kept for comparison).
+- Music: [`docs/results/ear_music_alisher`](docs/results/ear_music_alisher/README.md)
+  holds Ali Sher's EEG-to-music clips (what a listener heard and what an
+  EEG-conditioned generator produced, with no-EEG, classify-then-play and
+  shuffled-label controls), packaged for listening.
+- The 40 Hz-tagged music stage of the eye sessions (`--what music`, the auditory
+  steady-state "ear as a level meter") is a different measurement and is described
+  with the modes above.
+
 ## Things that will waste your evening
 
 - A browser tab that is not in front draws one frame per second. Keep the page

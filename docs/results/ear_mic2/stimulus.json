@@ -1,0 +1,28 @@
+{
+ "song": "C:\\Users\\alexa\\eyecam\\targets_audio\\alice_ch1_rabbit_hole.wav",
+ "start_s": 0.0,
+ "clip_s": 31.5,
+ "fs": 48000,
+ "reps": 24,
+ "gap_s": 2.5,
+ "jitter_s": 1.0,
+ "baseline_s": 10.0,
+ "device": "Quest browser, WebAudio (adb 340YC10GC20Y54)",
+ "output_latency_s": 0.024,
+ "player": "quest",
+ "quest_sync": {
+  "rtt_s": 0.0017680000000837026,
+  "page_minus_pc_s": -5514.269780900012,
+  "page": {
+   "type": "ready",
+   "rate": 48000,
+   "baseLatency": 0.004,
+   "outputLatency": 0.024,
+   "clip_s": 31.5,
+   "ua": "Mozilla/5.0 (X11; Linux x86_64; Quest 3) AppleWebKit/537.36 (KHTML, like Gecko) OculusBrowser/152.0.0.44.30.1069357998 Chrome/152.0.7977.64 VR Safari/537.36",
+   "_t_rx": 5621.8121383
+  }
+ },
+ "clock": "pylsl.local_clock",
+ "started": "2026-10-17T11:57:07"
+}
