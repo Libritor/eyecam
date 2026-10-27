@@ -29,3 +29,6 @@ docs/paper/**/*.fdb_latexmk
 docs/paper/**/*.synctex.gz
 docs/paper/**/page*.png
 docs/paper/**/*_preview.png
+
+# page screenshots from Tools/exam_screens.py
+Tools/preview/

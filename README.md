@@ -871,6 +871,26 @@ the scoring so the response to the sound starting and stopping does not count.
   steady-state "ear as a level meter") is a different measurement and is described
   with the modes above.
 
+## Eye exam (acuity, contrast, field and colour, per eye)
+
+`xr_session.py --mode exam` uses the same rig as an objective eye test: with one
+eye covered and the other on the dot, a grating appears and disappears on a grey
+of the same mean luminance at the flicker frequency while its bars get finer
+(acuity) or fainter (contrast), one sector of a 4x4 grid flickers at a time
+(field), and the patch flickers red, green and blue (colour). Every step is
+scored against the test's OFF blocks by the exact-line detector and an exact
+permutation test; the acuity and contrast thresholds come from a line through
+the rising limb of amplitude against log bar width or log contrast,
+extrapolated to zero (the sweep-VEP rule); the field reports amplitude and
+phase per sector and, with both eyes, their ratio and difference. The report is
+`runs/<session>/exam_report.pdf`. `python exam_gate.py` runs the whole stack
+against a phantom whose eyes have set cut-offs and a dead sector;
+`.\quest_run.ps1 -Run exam -Ppd <px/deg>` runs it on the headset. The arcmin
+scale needs the browser window's pixels per degree, which has to be measured
+for the headset; until then the numbers compare eyes and sittings but are not
+Snellen values. Protocol, rules and limits: [`docs/EXAM.md`](docs/EXAM.md).
+These are response measurements, not a diagnosis.
+
 ## Things that will waste your evening
 
 - A browser tab that is not in front draws one frame per second. Keep the page

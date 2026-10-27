@@ -368,6 +368,7 @@ class Driver:
         self.block_hz = []          # per-block flicker frequency (sweep)
         self.color_hzs = []         # page's frame-exact plan for the colour scan
         self.block_cls = []         # black/white/blue class per calibration block
+        self.block_meta = []        # the page's step description per block (exam)
         self.bwb_codes = []         # page's delivered (Hz, phase) codes
         self.color_passes = []      # per pass: which frequency each colour used
         self.frames = 0
@@ -412,14 +413,18 @@ class Driver:
             except Exception:
                 pass
 
-    def open_log(self, name, append=False):
+    def open_log(self, name, append=False, extra=()):
+        """extra: names of further frame-message keys logged after the usual
+        columns (the exam logs each step's size, contrast and plane)."""
         path = os.path.join(self.session, name)
         add = append and os.path.exists(path)
+        self.log_extra = list(extra)
         self.log_file = open(path, "a" if add else "w", buffering=1)
         if not add:
             self.log_file.write(
                 "time,grid_x,grid_y,luminance,flicker_on,page_t,"
-                "flicker_g,flicker_b,r,g,b,audio_hz,hz_r,hz_g,hz_b\n")
+                "flicker_g,flicker_b,r,g,b,audio_hz,hz_r,hz_g,hz_b"
+                + "".join("," + k for k in self.log_extra) + "\n")
 
     def close_log(self):
         if self.log_file:
@@ -454,12 +459,14 @@ class Driver:
             elif m["stage"] in ("paused", "redo", "sep"):
                 self.cur_pos = None
             if self.log_file:
-                self.log_file.write(
-                    f"{t:.6f},{m['gx']},{m['gy']},{m['lum']:.4f},"
-                    f"{m['fl']},{m['pt']:.6f},{m.get('flG', 0)},"
-                    f"{m.get('flB', 0)},{m.get('r', 0):.3f},{m.get('g', 0):.3f},"
-                    f"{m.get('b', 0):.3f},{m.get('hzA', 0):g},"
-                    f"{m.get('hzR', 0):g},{m.get('hzG', 0):g},{m.get('hzB', 0):g}\n")
+                row = (f"{t:.6f},{m['gx']},{m['gy']},{m['lum']:.4f},"
+                       f"{m['fl']},{m['pt']:.6f},{m.get('flG', 0)},"
+                       f"{m.get('flB', 0)},{m.get('r', 0):.3f},{m.get('g', 0):.3f},"
+                       f"{m.get('b', 0):.3f},{m.get('hzA', 0):g},"
+                       f"{m.get('hzR', 0):g},{m.get('hzG', 0):g},{m.get('hzB', 0):g}")
+                for k in getattr(self, "log_extra", ()):
+                    row += f",{float(m.get(k) or 0):g}"
+                self.log_file.write(row + "\n")
                 self.frames += 1
             if m["stage"] in ("scan", "color") and self.frames % 12 == 0:
                 self.spectate(type="cursor", gx=m["gx"], gy=m["gy"],
@@ -475,6 +482,7 @@ class Driver:
                                     self._block_t0, t))
                 self.block_hz.append(m.get("hz"))
                 self.block_cls.append(m.get("cls"))
+                self.block_meta.append(m.get("meta"))
         elif typ == "hello":
             self.auto = bool(m.get("auto"))
             print(f"page: {str(m.get('ua', ''))[:70]}  auto={self.auto}")
@@ -522,7 +530,7 @@ class Driver:
     def mid_run(self):
         return bool(self.last_cmd) and self.last_cmd.get("cmd") in (
             "start_calib", "start_scan", "start_assr", "start_alpha",
-            "start_sweep", "start_bwb_calib")
+            "start_sweep", "start_bwb_calib", "start_exam")
 
     async def adopt(self, ws):
         old = self.page
@@ -538,7 +546,7 @@ class Driver:
         if self.last_cmd is not None:
             if self.mid_run():
                 self.blocks = []  # the stage restarts on the new page
-                self.block_hz, self.block_cls = [], []
+                self.block_hz, self.block_cls, self.block_meta = [], [], []
             try:
                 await ws.send(json.dumps(self.last_cmd))
             except Exception:
@@ -847,6 +855,8 @@ class Driver:
                 return await self.run_bwb(result, recorder)
             if a.mode == "smooth":
                 return await self.run_smooth(result, recorder)
+            if a.mode == "exam":
+                return await self.run_exam(result, recorder)
             if a.mode == "music":
                 self.blocks, self.block_hz = [], []
                 self.open_log("assr_log.csv")
@@ -2090,6 +2100,84 @@ class Driver:
         await asyncio.sleep(a.linger)
         return 0
 
+    async def run_exam(self, result, recorder):
+        """Objective eye exam (exam.py): per eye, pattern onset/offset
+        gratings shrinking in bar width (acuity) and falling in contrast
+        (contrast), one flickering sector at a time around the fixation dot
+        (field) and the three colour planes (colour), each as ON/OFF blocks at
+        the session frequency. Every step is scored against the test's OFF
+        blocks by the exact-line detector and an exact permutation test, with
+        its response phase against the logged flicker edges; the thresholds
+        are fitted by analysis/exam_readout.py, which also draws the report."""
+        import exam
+        a = self.args
+        eyes = [e.strip() for e in str(a.exam_eye).split(",") if e.strip()]
+        tests = [t.strip() for t in str(a.exam_tests).split(",") if t.strip()]
+        bad = [t for t in tests if t not in exam.TESTS] + [e for e in eyes if e not in exam.EYES]
+        if bad or not eyes or not tests:
+            raise ValueError(f"--exam-eye / --exam-tests: unknown {bad}; eyes {exam.EYES}, "
+                             f"tests {exam.TESTS}")
+        plan = exam.plan(a)
+        out = dict(eyes=eyes, tests=tests, freq=a.freq, ppd=a.exam_ppd, on_s=a.exam_on,
+                   off_s=a.exam_off, reps=a.exam_reps, patch_side=a.exam_patch,
+                   gamma=exam.DISPLAY_GAMMA, results={e: {} for e in eyes}, delivery={})
+        path = os.path.join(self.session, "exam.json")
+        for eye in eyes:
+            for ti, test in enumerate(tests):
+                steps = plan[test]
+                log = f"exam_{eye}_{test}_log.csv"
+                self.blocks, self.block_hz, self.block_cls, self.block_meta = [], [], [], []
+                self.spectate(type="stage", stage="exam", detail=f"{eye} {test}")
+                n_blocks = len(steps) * a.exam_reps
+                dur = n_blocks * (a.exam_on + a.exam_off)
+                print(f"exam: {eye} eye, {test}: {len(steps)} steps x {a.exam_reps}, "
+                      f"{a.exam_on:g} s on / {a.exam_off:g} s off ({dur / 60:.1f} min)")
+                self.open_log(log, extra=exam.LOG_EXTRA)
+                await self.send(cmd="start_exam", eye=eye, test=test, steps=steps,
+                                onS=a.exam_on, offS=a.exam_off, reps=a.exam_reps,
+                                freq=a.freq, ppd=a.exam_ppd, patchSide=a.exam_patch,
+                                intro=(ti == 0),
+                                label=f"EYE EXAM: {eye.upper()} - {test.upper()}")
+                await self.wait_for("exam_done", timeout=dur + a.signal_timeout + 120)
+                self.close_log()
+                await asyncio.sleep(0.7)
+                g0 = self.delivery_check(log, dur)
+                out["delivery"][f"{eye}/{test}"] = g0
+                if not g0["ok"]:
+                    print(f"STIMULUS NOT DELIVERED ({eye} {test}): " + g0["reason"])
+                try:
+                    res = exam.score_stage(self.session, self.blocks, self.block_hz,
+                                           self.block_meta, log, test, eye=eye)
+                except Exception as exc:
+                    print(f"{eye} {test}: scoring failed: {exc!r}")
+                    res = dict(test=test, eye=eye, ok=False, reason=repr(exc), steps=[])
+                res["delivery"] = g0
+                out["results"][eye][test] = res
+                with open(path, "w") as f:      # after every test: a crash keeps the rest
+                    json.dump(out, f, indent=1)
+                print(exam.describe_stage(res))
+        summary, text = {}, ""
+        try:
+            sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                            "analysis"))
+            import exam_readout
+            summary = exam_readout.run(self.session)
+            text = summary.get("text", "")
+        except Exception as exc:
+            text = f"readout failed: {exc!r}"
+        for line in text.splitlines():
+            print("EXAM " + line)
+        result.update(ok=True, exam=dict(eyes=eyes, tests=tests,
+                                         summary=summary.get("eyes", {}),
+                                         compare=summary.get("compare", {})))
+        await self.send(cmd="exam_result", ok=True, title="EXAM DONE",
+                        text=text.replace("\n", "   |   "))
+        self.spectate(type="log", msg="exam done")
+        recorder.stop()
+        print(f"EXAM SESSION DONE -> {self.session}")
+        await asyncio.sleep(a.linger)
+        return 0
+
     async def run_alpha(self, result, recorder):
         """Electrode check: eyes-open / eyes-closed blocks. Occipital alpha
         (8-12 Hz) rises several-fold with eyes closed at Oz; a channel that
@@ -2286,6 +2374,27 @@ async def main():
     ap.add_argument("--target", default="text:NO")
     ap.add_argument("--sweep", default="7.5,10,12,15,20",
                     help="--mode sweep: flicker frequencies to test (Hz)")
+    # --mode exam (exam.py): per eye, acuity / contrast / field / colour
+    ap.add_argument("--exam-eye", default="right,left",
+                    help="--mode exam: the eye(s) tested, in order (right, left, both); "
+                         "the other eye is covered by the subject")
+    ap.add_argument("--exam-tests", default="acuity,contrast,field,colour")
+    ap.add_argument("--exam-sizes", default="40,28,20,14,10,7,5,3.5",
+                    help="acuity: grating bar widths in arcmin, coarse to fine")
+    ap.add_argument("--exam-contrasts", default="1,0.5,0.25,0.12,0.06,0.03",
+                    help="contrast: Michelson contrasts of the grating")
+    ap.add_argument("--exam-contrast-size", type=float, default=20.0,
+                    help="contrast: bar width of the grating, arcmin")
+    ap.add_argument("--exam-field", default="4x4",
+                    help="field: sectors across x down over the patch")
+    ap.add_argument("--exam-on", type=float, default=4.0, help="exam: ON block, s")
+    ap.add_argument("--exam-off", type=float, default=4.0, help="exam: OFF block, s")
+    ap.add_argument("--exam-reps", type=int, default=2, help="exam: ON/OFF pairs per step")
+    ap.add_argument("--exam-ppd", type=float, default=30.0,
+                    help="exam: the display's CSS pixels per degree of visual angle; "
+                         "sets the arcmin scale of the gratings (measure it for the headset)")
+    ap.add_argument("--exam-patch", type=float, default=0.6,
+                    help="exam: test patch side as a fraction of the short screen side")
     ap.add_argument("--page-token", default="",
                     help="only pages opened with ?k=<token> may drive the "
                          "session (stale tabs on other devices are ignored)")
@@ -2427,7 +2536,7 @@ async def main():
     ap.add_argument("--music-off", type=float, default=10.0)
     ap.add_argument("--mode", choices=["visual", "assr", "calib", "alpha",
                                        "sweep", "full", "extras", "mux",
-                                       "music", "bwb", "smooth", "planes"],
+                                       "music", "bwb", "smooth", "planes", "exam"],
                     default="visual",
                     help="calib = G1 only (calibration, no scan); "
                          "assr = 'ear as a microphone' 40 Hz tone blocks")

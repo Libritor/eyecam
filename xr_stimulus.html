@@ -438,6 +438,123 @@ async function runSweep(m) {
   black();
   send({ type: "sweep_done" });
 }
+// ---- eye exam (xr_session.py --mode exam, exam.py) ----
+// Four tests per eye as ON/OFF blocks at the session frequency, eyes on the
+// centre dot: a grating appearing and disappearing on a grey of the same mean
+// (pattern onset/offset) with its bar width shrinking (acuity) or its contrast
+// falling (contrast); one sector of a grid flickering white/black (field); the
+// patch flickering red, green or blue against black (colour). Every block
+// carries the step's description back (meta), every frame the size, contrast
+// and plane shown, so the scorer and the phantom see what was on screen. Bar
+// widths are rounded to whole device pixels and the width delivered is reported.
+const EXAM_GAMMA = 2.2;
+const examByte = L => Math.round(255 * Math.pow(Math.max(0, Math.min(1, L)), 1 / EXAM_GAMMA));
+function gratingCanvas(side, stripePx, contrast) {
+  const off = document.createElement("canvas");
+  off.width = off.height = Math.max(1, Math.round(side));
+  const c = off.getContext("2d");
+  const hi = examByte(0.5 * (1 + contrast)), lo = examByte(0.5 * (1 - contrast));
+  for (let x = 0, i = 0; x < off.width; x += stripePx, i++) {
+    const v = i % 2 ? lo : hi;
+    c.fillStyle = `rgb(${v},${v},${v})`; c.fillRect(x, 0, stripePx, off.height);
+  }
+  return off;
+}
+async function runExam(m) {
+  hideResult(); title.textContent = m.label || "EYE EXAM"; title.className = "";
+  const tok = running = {};
+  const eye = m.eye || "both";
+  if (m.intro) {
+    black(); dot(cv.width / 2, cv.height / 2);
+    title.textContent = `${eye.toUpperCase()} EYE`;
+    sub.textContent = eye === "both"
+      ? "both eyes open: look at the dot, then pull the trigger (or click / any key)"
+      : `cover your ${eye === "left" ? "RIGHT" : "LEFT"} eye, look at the dot with the ${eye} eye, ` +
+        "then pull the trigger (or click / any key)";
+    await waitForPress();
+    for (let n = 3; n > 0 && running === tok; n--) {
+      sub.textContent = `keep looking at the dot - starting in ${n}`;
+      black(); dot(cv.width / 2, cv.height / 2);
+      await sleep(1000);
+    }
+    if (running !== tok) return;
+  }
+  sub.textContent = "measuring display refresh…";
+  const hz = await planFlicker(m.freq);
+  const side = Math.min(cv.width, cv.height) * (m.patchSide || 0.6);
+  const px0 = (cv.width - side) / 2, py0 = (cv.height - side) / 2;
+  const g = examByte(0.5), greyCss = `rgb(${g},${g},${g})`;
+  const scale = (m.ppd || 30) * devicePixelRatio;        // device px per degree
+  const toPx = arcmin => Math.max(1, Math.round(arcmin / 60 * scale));
+  const toArcmin = px => px / scale * 60;
+  const grating = m.test === "acuity" || m.test === "contrast";
+  const steps = m.steps.map((s, i) => {
+    const o = Object.assign({ step: i, test: m.test, size: 0, sizePx: 0, contrast: 1,
+                              sector: -1, plane: -1, cols: 1, rows: 1 }, s);
+    if (grating) {
+      o.contrast = s.contrast == null ? 1 : s.contrast;
+      o.sizePx = toPx(s.size); o.size = toArcmin(o.sizePx);
+      o.canvas = gratingCanvas(side, o.sizePx, o.contrast);
+    }
+    return o;
+  });
+  const PLANE_CSS = ["#ff0000", "#00ff00", "#0000ff"];
+  let b = 0;
+  const nBlocks = m.reps * steps.length;
+  for (let r = 0; r < m.reps && running === tok; r++) {
+    for (const s of steps) {
+      if (running !== tok) break;
+      const meta = { step: s.step, test: s.test, size: s.size, sizePx: s.sizePx,
+                     contrast: s.contrast, sector: s.sector, plane: s.plane, cols: s.cols, rows: s.rows };
+      const what = m.test === "acuity" ? `bars ${s.size.toFixed(1)}' (${s.sizePx} px)`
+        : m.test === "contrast" ? `contrast ${s.contrast}` : m.test === "field" ? `sector ${s.sector + 1}/${s.cols * s.rows}`
+        : ["red", "green", "blue"][s.plane];
+      for (const on of [true, false]) {
+        frameCount = 0;
+        send({ type: "block", b, on, phase: "start", hz, meta });
+        sub.textContent = `${eye} eye, ${m.test}: ${what}  ${on ? "ON" : "off"}  (${b + 1}/${nBlocks}, ${hz.toFixed(2)} Hz @ ${refreshHz} fps)`;
+        const t0 = now(), dur = on ? m.onS : m.offS;
+        // the phase origin is the first frame DRAWN (the other stages set it one
+        // frame earlier and so open every block with a lone ON frame, which a
+        // phase read-out would take for a flicker edge)
+        let first = true;
+        while (now() - t0 < dur && running === tok) {
+          await frameTs(); frameCount++;
+          if (first) { flickerT0 = lastTs / 1000; first = false; }
+          const t = now();
+          const fl = on && flickerOn();
+          black();
+          if (grating) {
+            // ON: the grating on its own grey, alternating; OFF: the grey alone,
+            // so the mean luminance never changes and only the pattern comes and goes
+            if (fl) ctx.drawImage(s.canvas, px0, py0);
+            else { ctx.fillStyle = greyCss; ctx.fillRect(px0, py0, side, side); }
+          } else if (m.test === "field" && fl) {
+            const cw = side / s.cols, ch = side / s.rows;
+            ctx.fillStyle = "#fff";
+            ctx.fillRect(px0 + (s.sector % s.cols) * cw, py0 + Math.floor(s.sector / s.cols) * ch, cw, ch);
+          } else if (m.test === "colour" && fl) {
+            ctx.fillStyle = PLANE_CSS[s.plane]; ctx.fillRect(px0, py0, side, side);
+          }
+          dot(cv.width / 2, cv.height / 2);
+          send({ type: "frame", stage: "exam", pt: t, gx: on ? s.sector : -1, gy: -1,
+                 lum: on ? 1 : 0, fl: fl ? 1 : 0, size: s.size, contrast: s.contrast, plane: s.plane });
+        }
+        send({ type: "block", b, on, phase: "end", hz, meta });
+      }
+      b++;
+    }
+  }
+  black();
+  send({ type: "exam_done" });
+}
+function showExamResult(m) {
+  running = null; black();
+  title.textContent = m.title || "EXAM DONE";
+  title.className = m.ok ? "ok" : "warn";
+  sub.textContent = m.text || "";
+}
+
 function showSweepResult(m) {
   running = null; black();
   title.textContent = m.passed ? "SSVEP FOUND" : "NO SSVEP AT ANY FREQUENCY";
@@ -992,6 +1109,8 @@ function connect() {
       case "start_bwb_calib": runBwbCalib(m); break;
       case "color_result": showColorResult(m); break;
       case "sweep_result": showSweepResult(m); break;
+      case "start_exam": runExam(m); break;
+      case "exam_result": showExamResult(m); break;
       case "start_alpha": runAlpha(m); break;
       case "alpha_result": showAlphaResult(m); break;
       case "start_assr": runAssr(m); break;

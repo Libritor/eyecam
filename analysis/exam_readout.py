@@ -1,0 +1,500 @@
+"""The eye exam read out: thresholds from the per-step responses in
+<session>/exam.json (written by xr_session.py --mode exam) and the report.
+
+  acuity    response amplitude against log bar width; a line through the limb
+            that falls to the noise floor (from the step just below the finest
+            bar still giving a significant response, through it, and up toward
+            the peak while the amplitude rises), extrapolated to zero amplitude
+            (the sweep-VEP rule of Norcia and Tyler, 1985) -> threshold bar
+            width in arcmin, with its logMAR and a Snellen-style equivalent (a
+            1-arcmin bar is the 20/20 detail), and the finest bar with a
+            significant response
+  contrast  amplitude against log contrast at one bar width, the same rule
+            (Campbell and Maffei, 1970) -> threshold contrast, log sensitivity
+  field     amplitude and phase per sector, each against the test's OFF blocks;
+            sectors without a significant response are listed; with two eyes,
+            the sector-by-sector amplitude ratio and phase difference
+  colour    amplitude per plane, red : green : blue
+
+    python analysis/exam_readout.py runs/<session>
+
+Writes <session>/exam_readout.json, exam_report.pdf (vector, text embedded)
+and exam_report.png. These are response measurements from one electrode
+against a flickering display; they are not a clinical diagnosis.
+"""
+import argparse
+import json
+import math
+import os
+import textwrap
+
+import numpy as np
+
+TESTS = ["acuity", "contrast", "field", "colour"]
+ALPHA = 0.05
+RISE_FRAC = 0.1        # a limb point must add this fraction of the peak amplitude
+
+
+def fit_limb(xlog, amp, p):
+    """Line through the limb of amplitude vs log size (or log contrast) that
+    falls to the noise floor: from the step just below the finest/faintest step
+    with a significant response (the anchor, where the response has gone),
+    through that step and up toward the peak while the amplitude keeps rising;
+    extrapolated to zero amplitude (the sweep-VEP rule). A step lost to noise
+    inside the limb then costs little, and a fit from the saturating top of
+    the curve alone, which lands far too low, is avoided."""
+    order = np.argsort(xlog)              # ascending: the threshold side first
+    x, y, pp = xlog[order], amp[order], p[order]
+    sig = np.where((pp < ALPHA) & (y > 0))[0]
+    if len(sig) == 0:
+        return dict(ok=False, reason="no step with a significant response")
+    i0 = int(sig[0])
+    peak = float(np.nanmax(y))
+    used = [i0]
+    for i in range(i0 + 1, len(x)):
+        if y[i] - y[used[-1]] >= RISE_FRAC * peak:
+            used.append(i)
+        else:
+            break
+    note = ""
+    beyond = False
+    if i0 > 0:
+        used = [i0 - 1] + used            # the step below, where the response has gone
+    else:
+        beyond = True                     # the finest step shown still responds
+        note = "the finest step shown still responds: threshold extrapolated below the range shown"
+    if len(used) < 2:
+        return dict(ok=False, reason="the finest step shown still responds at full "
+                                      "strength: threshold beyond the range shown",
+                    finest_sig=float(x[i0]), beyond_range=True)
+    xs, ys = x[used], y[used]
+    b, a = np.polyfit(xs, ys, 1)
+    if b <= 0:
+        return dict(ok=False, reason="amplitude does not rise along the limb",
+                    finest_sig=float(x[i0]))
+    return dict(ok=True, a=float(a), b=float(b), used=[int(i) for i in used],
+                x_used=xs.tolist(), y_used=ys.tolist(), x_thr_log=float(-a / b),
+                finest_sig=float(x[i0]), note=note, beyond_range=beyond)
+
+
+def _steps(stage, key):
+    steps = [s for s in stage.get("steps", []) if s.get("amp") is not None]
+    x = np.array([float(s["meta"][key]) for s in steps])
+    a = np.array([float(s["amp"]) for s in steps])
+    p = np.array([float(s["p"]) for s in steps])
+    sd = np.array([float(s["amp_sd"]) if s.get("amp_sd") is not None else 0.0 for s in steps])
+    return steps, x, a, p, sd
+
+
+def read_acuity(stage):
+    out = dict(ok=False)
+    if not stage or not stage.get("ok"):
+        out["reason"] = (stage or {}).get("reason", "not run")
+        return out
+    steps, size, amp, p, sd = _steps(stage, "size")
+    out.update(sizes=size.tolist(), amps=amp.tolist(), p=p.tolist(), amp_sd=sd.tolist(),
+               noise_amp=stage.get("noise_amp"), channel=stage.get("channel"), freq=stage.get("freq"))
+    if len(size) < 2:
+        out["reason"] = "fewer than two scored steps"
+        return out
+    fit = fit_limb(np.log(size), amp, p)
+    out["fit"] = fit
+    if fit.get("finest_sig") is not None:
+        out["finest_sig"] = float(math.exp(fit["finest_sig"]))
+    if not fit["ok"]:
+        out["reason"] = fit["reason"]
+        return out
+    thr = float(math.exp(fit["x_thr_log"]))
+    out.update(ok=True, threshold=thr, logmar=float(math.log10(thr)),
+               snellen=f"20/{20 * thr:.0f}",
+               beyond_range=bool(fit.get("beyond_range") or thr < 0.5 * float(size.min())),
+               note=fit.get("note", ""))
+    return out
+
+
+def read_contrast(stage):
+    out = dict(ok=False)
+    if not stage or not stage.get("ok"):
+        out["reason"] = (stage or {}).get("reason", "not run")
+        return out
+    steps, c, amp, p, sd = _steps(stage, "contrast")
+    out.update(contrasts=c.tolist(), amps=amp.tolist(), p=p.tolist(), amp_sd=sd.tolist(),
+               noise_amp=stage.get("noise_amp"), channel=stage.get("channel"), freq=stage.get("freq"),
+               size=float(steps[0]["meta"].get("size", 0)) if steps else None)
+    if len(c) < 2:
+        out["reason"] = "fewer than two scored steps"
+        return out
+    fit = fit_limb(np.log10(c), amp, p)
+    out["fit"] = fit
+    if fit.get("finest_sig") is not None:
+        out["faintest_sig"] = float(10 ** fit["finest_sig"])
+    if not fit["ok"]:
+        out["reason"] = fit["reason"]
+        return out
+    thr = float(10 ** fit["x_thr_log"])
+    out.update(ok=True, threshold=thr, log_cs=float(-math.log10(thr)),
+               beyond_range=bool(fit.get("beyond_range") or thr < 0.5 * float(c.min())),
+               note=fit.get("note", ""))
+    return out
+
+
+def _wrap(deg):
+    return (deg + 180.0) % 360.0 - 180.0
+
+
+def read_field(stage):
+    out = dict(ok=False)
+    if not stage or not stage.get("ok") or not stage.get("steps"):
+        out["reason"] = (stage or {}).get("reason", "not run")
+        return out
+    s0 = stage["steps"][0]["meta"]
+    cols, rows = int(s0.get("cols", 4)), int(s0.get("rows", 4))
+    n = cols * rows
+    amp = np.full(n, np.nan)
+    p = np.ones(n)
+    ph = np.full(n, np.nan)
+    for s in stage["steps"]:
+        k = int(s["meta"].get("sector", -1))
+        if 0 <= k < n:
+            amp[k] = s["amp"] if s["amp"] is not None else np.nan
+            p[k] = s["p"]
+            ph[k] = s["phase_deg"] if s.get("phase_deg") is not None else np.nan
+    resp = (p < ALPHA) & np.isfinite(amp) & (amp > 0)
+    ref = float(np.nanmax(amp[resp])) if resp.any() else float("nan")
+    rel = amp / ref if np.isfinite(ref) and ref > 0 else amp * np.nan
+    # phase relative to the amplitude-weighted circular mean of the responding sectors
+    if resp.any() and np.isfinite(ph[resp]).any():
+        w = np.nan_to_num(amp[resp])
+        z = np.sum(w * np.exp(1j * np.radians(np.nan_to_num(ph[resp]))))
+        mean_ph = math.degrees(math.atan2(z.imag, z.real))
+    else:
+        mean_ph = 0.0
+    ph_rel = _wrap(ph - mean_ph)
+    out.update(ok=True, cols=cols, rows=rows, n=n, amp=amp.tolist(), p=p.tolist(),
+               rel=rel.tolist(), phase_deg=ph.tolist(), phase_rel_deg=ph_rel.tolist(),
+               responding=[int(k) for k in np.where(resp)[0]],
+               not_responding=[int(k) for k in np.where(~resp)[0]],
+               n_responding=int(resp.sum()), channel=stage.get("channel"), freq=stage.get("freq"),
+               noise_amp=stage.get("noise_amp"))
+    return out
+
+
+def read_colour(stage):
+    out = dict(ok=False)
+    if not stage or not stage.get("ok") or not stage.get("steps"):
+        out["reason"] = (stage or {}).get("reason", "not run")
+        return out
+    amps, ps = [np.nan] * 3, [1.0] * 3
+    for s in stage["steps"]:
+        k = int(s["meta"].get("plane", -1))
+        if 0 <= k < 3:
+            amps[k] = s["amp"] if s["amp"] is not None else np.nan
+            ps[k] = s["p"]
+    amps = np.array(amps, float)
+    top = float(np.nanmax(amps)) if np.isfinite(amps).any() else float("nan")
+    rel = (amps / top) if np.isfinite(top) and top > 0 else amps * np.nan
+    out.update(ok=True, amps=amps.tolist(), p=ps, relative=rel.tolist(),
+               channel=stage.get("channel"), freq=stage.get("freq"), noise_amp=stage.get("noise_amp"))
+    return out
+
+
+def eye_text(eye, r):
+    bits = []
+    ac = r.get("acuity")
+    if ac:
+        if ac.get("ok"):
+            s = (f"acuity threshold {ac['threshold']:.1f}' (logMAR {ac['logmar']:.2f}, "
+                 f"{ac['snellen']} equivalent, extrapolated"
+                 + ("; beyond the finest bar shown" if ac.get("beyond_range") else "") + ")")
+            if ac.get("finest_sig") is not None:
+                s += f", finest bar with a response {ac['finest_sig']:.1f}'"
+            bits.append(s)
+        else:
+            s = f"acuity: {ac.get('reason')}"
+            if ac.get("finest_sig") is not None:
+                s += f" (finest bar with a response {ac['finest_sig']:.1f}')"
+            bits.append(s)
+    co = r.get("contrast")
+    if co:
+        if co.get("ok"):
+            s = f"contrast threshold {co['threshold']:.3f} (log sensitivity {co['log_cs']:.2f}"
+            if co.get("faintest_sig") is not None:
+                s += f"; faintest with a response {co['faintest_sig']:.3g}"
+            bits.append(s + ")")
+        else:
+            bits.append(f"contrast: {co.get('reason')}")
+    fi = r.get("field")
+    if fi:
+        if fi.get("ok"):
+            s = f"field {fi['n_responding']}/{fi['n']} sectors respond"
+            if fi["not_responding"]:
+                s += " (none from " + ", ".join(f"s{k + 1}" for k in fi["not_responding"]) + ")"
+            bits.append(s)
+        else:
+            bits.append(f"field: {fi.get('reason')}")
+    col = r.get("colour")
+    if col:
+        if col.get("ok"):
+            rel = col["relative"]
+            bits.append("colour R:G:B " + ":".join("-" if not np.isfinite(v) else f"{v:.2f}" for v in rel))
+        else:
+            bits.append(f"colour: {col.get('reason')}")
+    ch = next((r[t].get("channel") for t in TESTS if r.get(t, {}).get("channel")), None)
+    fq = next((r[t].get("freq") for t in TESTS if r.get(t, {}).get("freq")), None)
+    head = f"{eye.upper()} eye"
+    if ch:
+        head += f" ({ch}" + (f", {fq:.2f} Hz" if fq else "") + ")"
+    return head + ": " + "; ".join(bits)
+
+
+def compare_eyes(eyes):
+    """Left against right when both were tested."""
+    if "left" not in eyes or "right" not in eyes:
+        return {}
+    L, R = eyes["left"], eyes["right"]
+    out = {}
+    for t, key in (("acuity", "threshold"), ("contrast", "threshold")):
+        a, b = L.get(t, {}), R.get(t, {})
+        if a.get("ok") and b.get("ok") and b[key] > 0:
+            out[f"{t}_ratio_lr"] = float(a[key] / b[key])
+    fa, fb = L.get("field", {}), R.get("field", {})
+    if fa.get("ok") and fb.get("ok") and fa["n"] == fb["n"]:
+        la, lb = np.array(fa["amp"], float), np.array(fb["amp"], float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ratio = np.log2(la / lb)
+        ratio[~np.isfinite(ratio)] = np.nan
+        dph = _wrap(np.array(fa["phase_rel_deg"], float) - np.array(fb["phase_rel_deg"], float))
+        both = set(fa["responding"]) & set(fb["responding"])
+        only_l = sorted(set(fa["responding"]) - set(fb["responding"]))
+        only_r = sorted(set(fb["responding"]) - set(fa["responding"]))
+        out.update(field_log2_ratio_lr=ratio.tolist(), field_phase_diff_deg=dph.tolist(),
+                   field_only_left=only_l, field_only_right=only_r,
+                   field_ratio_median=float(np.nanmedian(ratio[list(both)])) if both else None,
+                   field_phase_diff_median=float(np.nanmedian(dph[list(both)])) if both else None)
+    return out
+
+
+def compare_text(c):
+    if not c:
+        return ""
+    bits = []
+    if "acuity_ratio_lr" in c:
+        bits.append(f"acuity threshold left/right {c['acuity_ratio_lr']:.2f}x")
+    if "contrast_ratio_lr" in c:
+        bits.append(f"contrast threshold left/right {c['contrast_ratio_lr']:.2f}x")
+    if "field_log2_ratio_lr" in c:
+        med = c.get("field_ratio_median")
+        s = "field amplitude left/right " + (f"median {2 ** med:.2f}x" if med is not None else "-")
+        if c["field_only_left"]:
+            s += "; responding in the left eye only: " + ", ".join(f"s{k + 1}" for k in c["field_only_left"])
+        if c["field_only_right"]:
+            s += "; responding in the right eye only: " + ", ".join(f"s{k + 1}" for k in c["field_only_right"])
+        if c.get("field_phase_diff_median") is not None:
+            s += f"; phase difference median {c['field_phase_diff_median']:+.0f} deg"
+        bits.append(s)
+    return "Between the eyes: " + "; ".join(bits) if bits else ""
+
+
+def draw(session, exam, eyes, compare, text):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    plt.rcParams.update({"pdf.fonttype": 42, "ps.fonttype": 42, "font.size": 8,
+                         "font.family": "DejaVu Sans", "axes.titlesize": 9})
+    names = exam["eyes"]
+    tests = [t for t in TESTS if t in exam["tests"]]
+    extra = 1 if compare.get("field_log2_ratio_lr") else 0
+    nrow, ncol = len(names) + extra, max(len(tests), 2)
+    width = 3.1 * ncol
+    summary = textwrap.wrap(text.replace("\n", "  |  "), int(width * 12))   # ~12 chars/in at 7 pt
+    top_in = 0.4 + 0.14 * len(summary) + 0.45          # title, summary lines, room for the panel titles
+    bottom_in = 0.9                                     # x labels and the footer
+    height = 2.9 * nrow + top_in + bottom_in
+    fig = plt.figure(figsize=(width, height))
+    gs = fig.add_gridspec(nrow, ncol, left=0.07, right=0.97, top=1 - top_in / height,
+                          bottom=bottom_in / height, hspace=0.55, wspace=0.4)
+    fig.text(0.07, 1 - 0.12 / height, f"Eye exam from the EEG - {os.path.basename(os.path.normpath(session))}",
+             fontsize=11, weight="bold", va="top")
+    fig.text(0.07, 1 - 0.4 / height, "\n".join(summary), fontsize=7, va="top", linespacing=1.35)
+    for i, eye in enumerate(names):
+        r = eyes[eye]
+        for j, t in enumerate(tests):
+            ax = fig.add_subplot(gs[i, j])
+            d = r.get(t, {})
+            if t == "acuity":
+                _draw_curve(ax, d, "sizes", "bar width (arcmin)", invert=True, logbase=math.e)
+                ttl = (f"{eye}: acuity, threshold {d['threshold']:.1f}' ({d['snellen']} eq.)"
+                       if d.get("ok") else f"{eye}: acuity, no threshold")
+            elif t == "contrast":
+                _draw_curve(ax, d, "contrasts", "contrast", invert=True, logbase=10)
+                ttl = (f"{eye}: contrast, threshold {d['threshold']:.3f} (logCS {d['log_cs']:.2f})"
+                       if d.get("ok") else f"{eye}: contrast, no threshold")
+            elif t == "field":
+                _draw_field(ax, d, fig)
+                ttl = (f"{eye}: field, {d['n_responding']}/{d['n']} sectors respond"
+                       if d.get("ok") else f"{eye}: field, not scored")
+            else:
+                _draw_colour(ax, d)
+                ttl = f"{eye}: colour planes" if d.get("ok") else f"{eye}: colour, not scored"
+            ax.set_title(ttl, loc="left")
+    if extra:
+        c = compare
+        ax = fig.add_subplot(gs[nrow - 1, 0])
+        fa = eyes["left"]["field"]
+        m = np.array(c["field_log2_ratio_lr"], float).reshape(fa["rows"], fa["cols"])
+        im = ax.imshow(m, cmap="RdBu_r", vmin=-2, vmax=2)
+        for k in range(fa["n"]):
+            v = m.flat[k]
+            ax.text(k % fa["cols"], k // fa["cols"], "-" if not np.isfinite(v) else f"{2 ** v:.2f}x",
+                    ha="center", va="center", fontsize=7)
+        ax.set_xticks([]); ax.set_yticks([])
+        ax.set_title("field amplitude, left / right", loc="left")
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="log2 ratio")
+        ax = fig.add_subplot(gs[nrow - 1, 1])
+        m = np.array(c["field_phase_diff_deg"], float).reshape(fa["rows"], fa["cols"])
+        im = ax.imshow(m, cmap="twilight_shifted", vmin=-180, vmax=180)
+        for k in range(fa["n"]):
+            v = m.flat[k]
+            ax.text(k % fa["cols"], k // fa["cols"], "-" if not np.isfinite(v) else f"{v:+.0f}",
+                    ha="center", va="center", fontsize=7)
+        ax.set_xticks([]); ax.set_yticks([])
+        ax.set_title("response phase, left minus right (deg)", loc="left")
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="deg")
+        if ncol > 2:
+            ax = fig.add_subplot(gs[nrow - 1, 2:])
+            ax.axis("off")
+            ax.text(0, 1, textwrap.fill(compare_text(c), 70), va="top", fontsize=7.5, linespacing=1.4)
+    fig.text(0.07, 0.45 / height, textwrap.fill(
+        "Response amplitudes at the flicker frequency and its double from one EEG channel, "
+        "noise-corrected, against the test's OFF blocks; open markers: not significant (p >= 0.05, "
+        "exact permutation). Thresholds by linear extrapolation of the limb that falls to the noise "
+        "floor, to zero amplitude (sweep-VEP rule). Not a clinical diagnosis.", int(width * 13)),
+        fontsize=6.5, color="#555", va="top", linespacing=1.3)
+    pdf = os.path.join(session, "exam_report.pdf")
+    fig.savefig(pdf)
+    fig.savefig(os.path.join(session, "exam_report.png"), dpi=130)
+    plt.close(fig)
+    return pdf
+
+
+def _draw_curve(ax, d, xkey, xlabel, invert, logbase):
+    if not d.get(xkey):
+        ax.text(0.5, 0.5, d.get("reason", "not run"), ha="center", va="center",
+                transform=ax.transAxes, fontsize=7)
+        ax.set_xticks([]); ax.set_yticks([])
+        return
+    x = np.array(d[xkey], float); a = np.array(d["amps"], float); p = np.array(d["p"], float)
+    sd = np.array(d.get("amp_sd", [0] * len(x)), float)
+    sig = p < ALPHA
+    ax.errorbar(x[sig], a[sig], yerr=sd[sig], fmt="o", ms=4, color="#1f4e79", ecolor="#9db2c8",
+                capsize=2, lw=1, label="significant")
+    ax.errorbar(x[~sig], a[~sig], yerr=sd[~sig], fmt="o", ms=4, mfc="white", color="#1f4e79",
+                ecolor="#9db2c8", capsize=2, lw=1, label="p >= 0.05")
+    ax.axhline(0, color="#888", lw=0.6)
+    if d.get("noise_amp") is not None:
+        ax.axhline(d["noise_amp"], color="#888", lw=0.6, ls=":", label="OFF-block amplitude")
+    fit = d.get("fit") or {}
+    if fit.get("ok"):
+        xs = np.array(fit["x_used"]); lo = min(fit["x_thr_log"], xs.min()); hi = xs.max()
+        xx = np.linspace(lo, hi, 50)
+        ax.plot(logbase ** xx, fit["a"] + fit["b"] * xx, color="#c0392b", lw=1.2, label="limb fit")
+        ax.axvline(d["threshold"], color="#c0392b", lw=0.8, ls="--")
+    ax.set_xscale("log")
+    if invert:
+        ax.invert_xaxis()
+    ax.set_xlabel(xlabel); ax.set_ylabel("response amplitude (a.u.)")
+    ax.legend(fontsize=6, frameon=False, loc="upper right")
+    ax.spines[["top", "right"]].set_visible(False)
+
+
+def _draw_field(ax, d, fig):
+    if not d.get("ok"):
+        ax.text(0.5, 0.5, d.get("reason", "not run"), ha="center", va="center",
+                transform=ax.transAxes, fontsize=7)
+        ax.set_xticks([]); ax.set_yticks([])
+        return
+    rows, cols = d["rows"], d["cols"]
+    rel = np.array(d["rel"], float).reshape(rows, cols)
+    im = ax.imshow(np.nan_to_num(rel), cmap="magma", vmin=0, vmax=1)
+    ph = np.array(d["phase_rel_deg"], float)
+    p = np.array(d["p"], float)
+    for k in range(d["n"]):
+        y, x = divmod(k, cols)
+        if p[k] < ALPHA and np.isfinite(rel.flat[k]):
+            ax.text(x, y, f"{rel.flat[k]:.2f}\n{ph[k]:+.0f}°" if np.isfinite(ph[k]) else f"{rel.flat[k]:.2f}",
+                    ha="center", va="center", fontsize=6.5,
+                    color="white" if rel.flat[k] < 0.55 else "black")
+        else:
+            ax.text(x, y, "×", ha="center", va="center", fontsize=12, color="#e74c3c")
+    ax.plot(cols / 2 - 0.5, rows / 2 - 0.5, "o", ms=5, mfc="white", mec="black")   # the fixation dot
+    ax.set_xticks([]); ax.set_yticks([])
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="amplitude / best sector")
+
+
+def _draw_colour(ax, d):
+    if not d.get("ok"):
+        ax.text(0.5, 0.5, d.get("reason", "not run"), ha="center", va="center",
+                transform=ax.transAxes, fontsize=7)
+        ax.set_xticks([]); ax.set_yticks([])
+        return
+    rel = np.nan_to_num(np.array(d["relative"], float))
+    p = np.array(d["p"], float)
+    bars = ax.bar(["red", "green", "blue"], rel, color=["#d62728", "#2ca02c", "#1f77b4"], width=0.6)
+    for b, pv in zip(bars, p):
+        if pv >= ALPHA:
+            b.set_hatch("///"); b.set_alpha(0.5)
+    ax.set_ylim(0, 1.15)
+    ax.set_ylabel("amplitude / best plane")
+    ax.spines[["top", "right"]].set_visible(False)
+
+
+def run(session):
+    with open(os.path.join(session, "exam.json")) as f:
+        exam = json.load(f)
+    eyes = {}
+    for eye in exam["eyes"]:
+        res = exam["results"].get(eye, {})
+        r = {}
+        if "acuity" in exam["tests"]:
+            r["acuity"] = read_acuity(res.get("acuity"))
+        if "contrast" in exam["tests"]:
+            r["contrast"] = read_contrast(res.get("contrast"))
+        if "field" in exam["tests"]:
+            r["field"] = read_field(res.get("field"))
+        if "colour" in exam["tests"]:
+            r["colour"] = read_colour(res.get("colour"))
+        eyes[eye] = r
+    compare = compare_eyes(eyes)
+    lines = [eye_text(e, eyes[e]) for e in exam["eyes"]]
+    ct = compare_text(compare)
+    if ct:
+        lines.append(ct)
+    text = "\n".join(lines)
+    out = dict(session=session, ppd=exam.get("ppd"), freq=exam.get("freq"), eyes=eyes,
+               compare=compare, text=text,
+               delivery_ok=all(d.get("ok") for d in exam.get("delivery", {}).values()))
+    pdf = None
+    try:
+        pdf = draw(session, exam, eyes, compare, text)
+    except Exception as exc:   # the numbers stand even if the picture fails
+        out["figure_error"] = repr(exc)
+    out["report"] = pdf
+    with open(os.path.join(session, "exam_readout.json"), "w") as f:
+        json.dump(out, f, indent=1)
+    return out
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("session")
+    a = ap.parse_args()
+    out = run(a.session)
+    print(out["text"])
+    if out.get("figure_error"):
+        print("figure failed:", out["figure_error"])
+    else:
+        print("report:", out["report"])
+
+
+if __name__ == "__main__":
+    main()

@@ -37,6 +37,14 @@ and responds pi/4 as strongly as to on/off flicker. For testing that mode:
   --tuning PEAK:WIDTH   response falls off away from PEAK Hz (Gaussian, Hz)
   --color-gain R,G,B    response to each colour of a colour scan
   --response-gamma G    response = brightness ** G (below 1: shades crowd up)
+
+The eye exam (--mode exam) logs each step's bar width, contrast, sector and
+colour plane; the phantom's eye sees them through a logistic visibility, so
+the exam's thresholds can be checked against what was dialled in. Each option
+takes one value for both eyes or per-eye values, 'right:8,left:16':
+  --acuity-cutoff A     bar width (arcmin) at which the response is half
+  --contrast-cutoff C   contrast at which the response is half
+  --field-loss S        sectors with no response, '+'-joined: 'right:5+6'
 """
 
 import argparse
@@ -60,6 +68,38 @@ except ImportError:
     local_clock = time.perf_counter
 
 LATENCY = 0.12             # visual pathway delay of the phase-locked response (s)
+
+# the exam's visibility model: logistic in log bar width / log contrast, with
+# these widths (natural-log units); exam_gate.py reads them to know where the
+# fitted thresholds should land
+ACUITY_W = 0.25
+CONTRAST_W = 0.35
+EXAM_LOGS = tuple(f"exam_{e}_{t}_log.csv" for e in ("right", "left", "both")
+                  for t in ("acuity", "contrast", "field", "colour"))
+
+
+def logistic(u, w):
+    return 1.0 / (1.0 + math.exp(-u / w))
+
+
+def per_eye(spec, cast, default):
+    """'8' -> every eye; 'right:8,left:16' -> per eye. Returns {eye: value},
+    with '*' the value for eyes not named."""
+    out = {"*": default}
+    for part in str(spec or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if ":" in part:
+            eye, val = part.split(":", 1)
+            out[eye.strip()] = cast(val.strip()) if val.strip() else default
+        else:
+            out["*"] = cast(part)
+    return out
+
+
+def per_eye_value(d, eye):
+    return d.get(eye, d["*"])
 
 CHANNELS = ["TP9", "AF7", "AF8", "TP10"]
 CH_SNR = [0.8, 0.2, 0.2, 0.8]
@@ -133,7 +173,18 @@ def main():
                     help="response to R,G,B in a colour scan (color_log / smooth_log)")
     ap.add_argument("--response-gamma", type=float, default=1.0,
                     help="response = brightness ** gamma")
+    ap.add_argument("--acuity-cutoff", default="0",
+                    help="exam: bar width (arcmin) where the response is half; "
+                         "0 = sees every bar; per eye as right:8,left:16")
+    ap.add_argument("--contrast-cutoff", default="0",
+                    help="exam: contrast where the response is half; 0 = sees every contrast")
+    ap.add_argument("--field-loss", default="",
+                    help="exam: sectors with no response, e.g. 'right:5+6'")
     args = ap.parse_args()
+    acuity_cut = per_eye(args.acuity_cutoff, float, 0.0)
+    contrast_cut = per_eye(args.contrast_cutoff, float, 0.0)
+    field_loss = per_eye(args.field_loss,
+                         lambda s: {int(v) for v in s.split("+") if v.strip()}, set())
     nch = 5 if args.aux else 4
     peak, width = ([float(v) for v in args.tuning.split(":")] if args.tuning
                    else (0.0, 0.0))
@@ -153,7 +204,8 @@ def main():
               "plane_red_log.csv", "plane_green_log.csv", "plane_blue_log.csv",
               "calib_red_log.csv", "calib_green_log.csv", "calib_blue_log.csv",
               "calib_red_sweep_log.csv", "calib_green_sweep_log.csv", "calib_blue_sweep_log.csv",
-              "plane_red_revisit_log.csv", "plane_green_revisit_log.csv", "plane_blue_revisit_log.csv")]
+              "plane_red_revisit_log.csv", "plane_green_revisit_log.csv", "plane_blue_revisit_log.csv")
+             + EXAM_LOGS]
     # --mode planes: one black/<colour> scan per plane; the colour gain of
     # that plane applies to the whole scan
     plane_of = {"plane_red_log.csv": 0, "plane_green_log.csv": 1, "plane_blue_log.csv": 2,
@@ -250,6 +302,27 @@ def main():
                         continue
                     trk[0].see(t_row, fl)
                     cur_plane = plane_of.get(log_name, None)
+                    if log_name.startswith("exam_") and len(row) >= 18:
+                        # the exam: what is shown reaches this phantom only as
+                        # far as its eye allows (bar width, contrast, sector, colour)
+                        eye = log_name.split("_")[1]
+                        try:
+                            size, contrast = float(row[15]), float(row[16])
+                            plane, sector = int(float(row[17])), int(row[1])
+                        except ValueError:
+                            size, contrast, plane, sector = 0.0, 1.0, -1, -1
+                        vis = 1.0
+                        cut = per_eye_value(acuity_cut, eye)
+                        if cut > 0 and size > 0:
+                            vis *= logistic(math.log(size) - math.log(cut), ACUITY_W)
+                        cut = per_eye_value(contrast_cut, eye)
+                        if cut > 0 and 0 < contrast <= 1:
+                            vis *= logistic(math.log(contrast) - math.log(cut), CONTRAST_W)
+                        if sector >= 0 and sector in per_eye_value(field_loss, eye):
+                            vis = 0.0
+                        if 0 <= plane < len(color_gain):
+                            vis *= color_gain[plane]
+                        lum *= vis
                     if len(row) >= 12:
                         try:
                             trk[1].see(t_row, int(row[6]))

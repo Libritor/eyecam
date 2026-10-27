@@ -1,0 +1,139 @@
+"""Full-stack gate for the eye exam (--mode exam), no hardware:
+
+  xr_session.py --mode exam --exam-eye right,left   <-WS/HTTP->  headless browser
+        ^ OSC /muse/eeg
+  phantom_subject.py --aux --acuity-cutoff right:8,left:16
+                     --contrast-cutoff right:0.08,left:0.2 --field-loss right:5
+                     --color-gain 0.7,1,0.4
+
+The phantom's right eye stops seeing bars finer than about 8 arcmin and
+contrasts below about 0.08 and has no response from sector 6 (index 5); its
+left eye is twice as coarse on both and whole. Both eyes respond to green
+most and blue least. PASS: every stage delivered; each fitted threshold lies
+in the band where the phantom's logistic visibility runs from 0.03 to 0.6
+(the linear extrapolation of the rising limb lands below the half-visibility
+point, so the band is the honest expectation); the left eye's thresholds are
+at least 1.3x the right's; the field read-out names exactly the knocked-out
+sector and nothing else; green >= red > blue in both eyes. 3 s blocks, two
+ON/OFF pairs per step: about 13 minutes for the two eyes.
+
+Run:  python exam_gate.py        (BROWSER=<path> to choose the browser;
+      EXAM_GATE_HTTP / EXAM_GATE_OSC for a second gate beside the first,
+      EXAM_GATE_EXTRA for more driver options, EXAM_GATE_SUFFIX for the session)
+      python exam_gate.py --verdict runs/exam_gate   re-judges a finished
+      session (after `python exam.py runs/exam_gate` or a read-out change)
+"""
+import json
+import math
+import os
+import shutil
+import subprocess
+import sys
+import time
+import urllib.request
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+HTTP = int(os.environ.get("EXAM_GATE_HTTP", 8086))
+OSC = int(os.environ.get("EXAM_GATE_OSC", 5004))
+sys.path.insert(0, ROOT)
+from smooth_gate import browser_cmd  # noqa: E402
+from phantom_subject import ACUITY_W, CONTRAST_W  # noqa: E402
+
+EYE = {"right": dict(acuity=8.0, contrast=0.08, loss={5}),
+       "left": dict(acuity=16.0, contrast=0.2, loss=set())}
+GAIN = "0.7,1,0.4"
+
+
+def band(cut, w, lo=0.03, hi=0.6):
+    """Where a logistic visibility 1 / (1 + exp(-(ln x - ln cut) / w)) runs from lo to hi."""
+    return cut * math.exp(w * math.log(lo / (1 - lo))), cut * math.exp(w * math.log(hi / (1 - hi)))
+
+
+def verdict(full, code, t0=None):
+    """The checks on a finished session folder; prints them, returns pass/fail."""
+    with open(os.path.join(full, "exam.json")) as f:
+        exam = json.load(f)
+    with open(os.path.join(full, "exam_readout.json")) as f:
+        ro = json.load(f)
+    checks = {"driver exit 0": code == 0,
+              "every stage delivered": bool(exam.get("delivery")) and all(
+                  d.get("ok") for d in exam["delivery"].values())}
+    thr = {}
+    for eye, want in EYE.items():
+        r = ro["eyes"].get(eye, {})
+        ac, co, fi, col = r.get("acuity", {}), r.get("contrast", {}), r.get("field", {}), r.get("colour", {})
+        lo, hi = band(want["acuity"], ACUITY_W)
+        checks[f"{eye} acuity threshold in the phantom's band {lo:.1f}-{hi:.1f} arcmin"] = \
+            bool(ac.get("ok")) and lo <= ac["threshold"] <= hi
+        thr[eye, "acuity"] = ac.get("threshold")
+        lo, hi = band(want["contrast"], CONTRAST_W)
+        checks[f"{eye} contrast threshold in the phantom's band {lo:.3f}-{hi:.3f}"] = \
+            bool(co.get("ok")) and lo <= co["threshold"] <= hi
+        thr[eye, "contrast"] = co.get("threshold")
+        checks[f"{eye} field: no response from exactly {sorted(want['loss']) or 'no sector'}"] = \
+            bool(fi.get("ok")) and set(fi["not_responding"]) == want["loss"]
+        rel = col.get("relative") or [0, 0, 0]
+        checks[f"{eye} colour: green >= red > blue"] = bool(col.get("ok")) and rel[1] >= rel[0] > rel[2]
+    for t in ("acuity", "contrast"):
+        l, r = thr.get(("left", t)), thr.get(("right", t))
+        checks[f"left {t} threshold >= 1.3x the right's"] = bool(l and r) and l >= 1.3 * r
+    print("----")
+    for name, ok in checks.items():
+        print(("PASS  " if ok else "FAIL  ") + name)
+    print(ro.get("text", ""))
+    print("thresholds: " + ", ".join(f"{e} {t} {v:.3g}" if v is not None else f"{e} {t} -"
+                                     for (e, t), v in thr.items()))
+    print(f"report: {ro.get('report')}" + (f"  ({(time.time() - t0) / 60:.1f} min)" if t0 else ""))
+    ok = all(checks.values())
+    print("EXAM GATE", "PASSED" if ok else "FAILED")
+    return ok
+
+
+def main():
+    if len(sys.argv) == 3 and sys.argv[1] == "--verdict":
+        full = sys.argv[2] if os.path.isabs(sys.argv[2]) else os.path.join(ROOT, sys.argv[2])
+        with open(os.path.join(full, "xr_session.json")) as f:
+            code = 0 if json.load(f).get("ok") else 1
+        return 0 if verdict(full, code) else 1
+    extra = os.environ.get("EXAM_GATE_EXTRA", "").split()
+    session = os.path.join("runs", "exam_gate" + os.environ.get("EXAM_GATE_SUFFIX", ""))
+    full = os.path.join(ROOT, session)
+    shutil.rmtree(full, ignore_errors=True)
+    os.makedirs(os.path.join(full, "browser_profile"))
+    cmd = ["--mode", "exam", "--exam-eye", "right,left", "--exam-on", "3", "--exam-off", "3",
+           "--exam-reps", "2", "--freq", "15", "--exam-ppd", "30",
+           "--session", session, "--http-port", str(HTTP), "--osc-port", str(OSC),
+           "--spectator", "", "--signal-timeout", "120", "--linger", "2"]
+    procs = []
+    t0 = time.time()
+    try:
+        driver = subprocess.Popen([sys.executable, "xr_session.py"] + cmd + extra, cwd=ROOT)
+        procs.append(driver)
+        for _ in range(60):
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:{HTTP}/", timeout=1).close()
+                break
+            except OSError:
+                time.sleep(0.5)
+        procs.append(subprocess.Popen(
+            browser_cmd(f"http://127.0.0.1:{HTTP}/?auto=1", os.path.join(full, "browser_profile")),
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        procs.append(subprocess.Popen(
+            [sys.executable, "phantom_subject.py", "--session", session,
+             "--host", "127.0.0.1", "--port", str(OSC), "--aux",
+             "--acuity-cutoff", ",".join(f"{e}:{v['acuity']}" for e, v in EYE.items()),
+             "--contrast-cutoff", ",".join(f"{e}:{v['contrast']}" for e, v in EYE.items()),
+             "--field-loss", ",".join(f"{e}:" + "+".join(str(s) for s in sorted(v["loss"]))
+                                      for e, v in EYE.items()),
+             "--color-gain", GAIN, "--max-seconds", "2400"],
+            cwd=ROOT))
+        code = driver.wait(timeout=2400)
+    finally:
+        for p in procs:
+            if p.poll() is None:
+                p.terminate()
+    return 0 if verdict(full, code, t0) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
