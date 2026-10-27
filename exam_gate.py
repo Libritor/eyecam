@@ -4,13 +4,16 @@
         ^ OSC /muse/eeg
   phantom_subject.py --aux --acuity-cutoff right:8,left:16
                      --contrast-cutoff right:0.08,left:0.2 --field-loss right:2
-                     --color-gain 0.7,1,0.4
+                     --color-gain 0.7,1,0.4 --latency right:0.12,left:0.15
+                     --flicker-cut right:40,left:24 --alpha-band
 
 The phantom's right eye stops seeing bars finer than about 8 arcmin and
 contrasts below about 0.08 and has no response from quadrant 3 (index 2 of
 the 2x2 field); its left eye is twice as coarse on both and whole. Both eyes
 respond to green most and blue least, and the phantom's Oz (AUX) carries the
-strongest response. PASS: every stage delivered; the full-field flash
+strongest response. The right eye's response is 120 ms late and holds up to
+40 Hz (half there); the left eye's is 150 ms late, 30 ms later, and has
+fallen to half by 24 Hz. PASS: every stage delivered; the full-field flash
 responds in both eyes (p < 0.05) on AUX, which then serves as the reference
 channel of every other test; each fitted threshold lies in the band where
 the phantom's logistic visibility runs from 0.02 to 0.6 (the linear
@@ -18,8 +21,18 @@ extrapolation of the rising limb lands below the half-visibility point, at
 3 to 5 % on this phantom, so the band is the honest expectation; its floor
 was 0.03 until gate4's left contrast crossed at 2.8 %); the left eye's thresholds are at least
 1.3x the right's; the field read-out names exactly the knocked-out quadrant
-and nothing else; green >= red > blue in both eyes. 3 s blocks, five flash
-pairs and two ON/OFF pairs per step: about 14 minutes for the two eyes.
+and nothing else; green >= red > blue in both eyes; in the flicker sweep
+every rate shown responds in both eyes, the right eye is still over half at
+the fastest rate shown (its cut lies beyond it) and the left eye's half rate
+lies within 15 % of 24 Hz, each eye's apparent latency lies within 6 ms of
+the phantom's and the left is 30 +/- 6 ms later than the right. The
+apparent latency expected of the phantom is its latency less 3 / fs =
+11.7 ms: it sends four samples per packet, stamped on arrival, and the
+scorer's clock is rebuilt from the sample index on the earliest-arriving
+sample of each packet, which puts every sample 3 / fs early (the real
+stream has an offset of its own, common to both eyes, which is why the
+difference between the eyes is the measurement). 3 s blocks, five flash
+pairs and two ON/OFF pairs per step: about 13 minutes for the two eyes.
 
 Run:  python exam_gate.py        (BROWSER=<path> to choose the browser;
       EXAM_GATE_HTTP / EXAM_GATE_OSC for a second gate beside the first,
@@ -40,13 +53,17 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 HTTP = int(os.environ.get("EXAM_GATE_HTTP", 8086))
 OSC = int(os.environ.get("EXAM_GATE_OSC", 5004))
 sys.path.insert(0, ROOT)
+import config  # noqa: E402
 from smooth_gate import browser_cmd  # noqa: E402
 from phantom_subject import ACUITY_W, CONTRAST_W  # noqa: E402
 
-EYE = {"right": dict(acuity=8.0, contrast=0.08, loss={2}),
-       "left": dict(acuity=16.0, contrast=0.2, loss=set())}
+EYE = {"right": dict(acuity=8.0, contrast=0.08, loss={2}, latency=0.12, fcut=40.0),
+       "left": dict(acuity=16.0, contrast=0.2, loss=set(), latency=0.15, fcut=24.0)}
 GAIN = "0.7,1,0.4"
 REF = "AUX"        # the phantom's strongest channel: the flash must pick it as the reference
+LAT_TOL_MS = 6.0   # apparent latency: allowed error per eye and on the difference
+RATE_TOL = 0.15    # half-response rate: allowed fraction of the phantom's cut
+CLOCK_OFFSET_S = 3.0 / config.FS   # the rebuilt clock runs this much early on the phantom's packets
 
 
 def band(cut, w, lo=0.02, hi=0.6):
@@ -77,7 +94,24 @@ def verdict(full, code, t0=None):
             bool(fl.get("ok")) and fl.get("responded") and fl.get("channel") == REF
         checks[f"{eye} every test read on the reference channel {REF}"] = all(
             exam["results"].get(eye, {}).get(t, {}).get("channel") == REF
-            for t in ("acuity", "contrast", "field", "colour"))
+            for t in ("temporal", "acuity", "contrast", "field", "colour"))
+        te = r.get("temporal", {})
+        checks[f"{eye} flicker sweep: every rate shown responds (at least four)"] = \
+            bool(te.get("ok")) and te.get("n_rates", 0) >= 4 and te["n_responding"] == te["n_rates"]
+        fastest = te.get("fastest_rate") or 0.0
+        if want["fcut"] >= fastest:
+            checks[f"{eye} flicker sweep: still over half at the fastest rate shown "
+                   f"(the phantom's cut {want['fcut']:g} Hz lies beyond it)"] = \
+                bool(te.get("ok")) and bool(te.get("half_beyond_range"))
+        else:
+            lo, hi = want["fcut"] * (1 - RATE_TOL), want["fcut"] * (1 + RATE_TOL)
+            checks[f"{eye} flicker sweep: half-response rate within {lo:.1f}-{hi:.1f} Hz"] = \
+                bool(te.get("ok")) and te.get("half_rate") is not None and lo <= te["half_rate"] <= hi
+        exp_lat = (want["latency"] - CLOCK_OFFSET_S) * 1000.0
+        lat = te.get("latency") or {}
+        checks[f"{eye} apparent latency within {LAT_TOL_MS:g} ms of the phantom's {exp_lat:.0f} ms"] = \
+            bool(lat.get("ok")) and abs(lat["latency_ms"] - exp_lat) <= LAT_TOL_MS
+        thr[eye, "latency"] = lat.get("latency_ms")
         lo, hi = band(want["acuity"], ACUITY_W)
         checks[f"{eye} acuity threshold in the phantom's band {lo:.1f}-{hi:.1f} arcmin"] = \
             bool(ac.get("ok")) and lo <= ac["threshold"] <= hi
@@ -93,6 +127,10 @@ def verdict(full, code, t0=None):
     for t in ("acuity", "contrast"):
         l, r = thr.get(("left", t)), thr.get(("right", t))
         checks[f"left {t} threshold >= 1.3x the right's"] = bool(l and r) and l >= 1.3 * r
+    want_d = (EYE["left"]["latency"] - EYE["right"]["latency"]) * 1000.0
+    l, r = thr.get(("left", "latency")), thr.get(("right", "latency"))
+    checks[f"left minus right apparent latency {want_d:+.0f} +/- {LAT_TOL_MS:g} ms"] = \
+        l is not None and r is not None and abs((l - r) - want_d) <= LAT_TOL_MS
     print("----")
     for name, ok in checks.items():
         print(("PASS  " if ok else "FAIL  ") + name)
@@ -141,7 +179,10 @@ def main():
              "--contrast-cutoff", ",".join(f"{e}:{v['contrast']}" for e, v in EYE.items()),
              "--field-loss", ",".join(f"{e}:" + "+".join(str(s) for s in sorted(v["loss"]))
                                       for e, v in EYE.items()),
-             "--color-gain", GAIN, "--max-seconds", "2400"],
+             "--color-gain", GAIN,
+             "--latency", ",".join(f"{e}:{v['latency']}" for e, v in EYE.items()),
+             "--flicker-cut", ",".join(f"{e}:{v['fcut']}" for e, v in EYE.items()),
+             "--alpha-band", "--max-seconds", "2400"],
             cwd=ROOT))
         code = driver.wait(timeout=2400)
     finally:

@@ -45,6 +45,18 @@ takes one value for both eyes or per-eye values, 'right:8,left:16':
   --acuity-cutoff A     bar width (arcmin) at which the response is half
   --contrast-cutoff C   contrast at which the response is half
   --field-loss S        sectors with no response, '+'-joined: 'right:5+6'
+  --latency L           the visual latency of the phase-locked response, s
+                        (default 0.12; per eye, 'right:0.12,left:0.15')
+  --flicker-cut F       flicker rate (Hz) at which the response has fallen to
+                        half, a fourth-order low-pass (0 = flat; per eye)
+  --alpha-band          the 10 Hz alpha as a band 1.5 Hz wide with the same
+                        power (a resonance driven by noise, as in a person)
+                        instead of a pure line; the exam's flicker sweep has a
+                        step at 10 Hz, where a pure line beats with the response
+                        from block to block
+Across the blocks of a run the carrier rate is remembered; after a gap in the
+flicker (an OFF block) a changed rate replaces it at the first new period, so
+a sweep over rates is followed at once.
 """
 
 import argparse
@@ -75,7 +87,7 @@ LATENCY = 0.12             # visual pathway delay of the phase-locked response (
 ACUITY_W = 0.25
 CONTRAST_W = 0.35
 EXAM_LOGS = tuple(f"exam_{e}_{t}_log.csv" for e in ("right", "left", "both")
-                  for t in ("flash", "acuity", "contrast", "field", "colour"))
+                  for t in ("flash", "temporal", "acuity", "contrast", "field", "colour"))
 
 
 def logistic(u, w):
@@ -180,9 +192,19 @@ def main():
                     help="exam: contrast where the response is half; 0 = sees every contrast")
     ap.add_argument("--field-loss", default="",
                     help="exam: sectors with no response, e.g. 'right:5+6'")
+    ap.add_argument("--latency", default=str(LATENCY),
+                    help="visual latency of the phase-locked response, s; per eye as "
+                         "right:0.12,left:0.15")
+    ap.add_argument("--flicker-cut", default="0",
+                    help="exam: flicker rate (Hz) where the response is half (fourth-order "
+                         "low-pass); 0 = flat; per eye")
+    ap.add_argument("--alpha-band", action="store_true",
+                    help="the 10 Hz alpha as a 1.5 Hz wide band instead of a pure line")
     args = ap.parse_args()
     acuity_cut = per_eye(args.acuity_cutoff, float, 0.0)
     contrast_cut = per_eye(args.contrast_cutoff, float, 0.0)
+    latency = per_eye(args.latency, float, LATENCY)
+    flicker_cut = per_eye(args.flicker_cut, float, 0.0)
     field_loss = per_eye(args.field_loss,
                          lambda s: {int(v) for v in s.split("+") if v.strip()}, set())
     nch = 5 if args.aux else 4
@@ -192,6 +214,20 @@ def main():
 
     def tuning(f):
         return math.exp(-0.5 * ((f - peak) / width) ** 2) if width > 0 and f > 0 else 1.0
+
+    def flicker_gain(f, eye=None):
+        """The exam's temporal tuning: the response has fallen to half at
+        --flicker-cut Hz (fourth-order low-pass), per eye; 0 = flat."""
+        fc = per_eye_value(flicker_cut, eye)
+        return 1.0 / (1.0 + (f / fc) ** 4) if fc > 0 and f > 0 else 1.0
+    # the 10 Hz alpha as a band: an AR(2) resonance at 10 Hz, 1.5 Hz wide,
+    # driven by white noise and scaled to the rms of the 0.6 sine it replaces
+    ar_r = math.exp(-math.pi * 1.5 / config.FS)
+    ar_th = 2 * math.pi * 10.0 / config.FS
+    ar_a1, ar_r2 = 2 * ar_r * math.cos(ar_th), ar_r ** 2
+    ar_g = (0.6 / math.sqrt(2)) * math.sqrt((1 - ar_r2) * ((1 + ar_r2) ** 2 - 4 * ar_r2 * math.cos(ar_th) ** 2)
+                                            / (1 + ar_r2))
+    al1 = al2 = 0.0
     snr = CH_SNR + ([1.2] if args.aux else [])
 
     if sys.platform == "win32":
@@ -213,6 +249,7 @@ def main():
                 "calib_red_sweep_log.csv": 0, "calib_green_sweep_log.csv": 1, "calib_blue_sweep_log.csv": 2,
                 "plane_red_revisit_log.csv": 0, "plane_green_revisit_log.csv": 1, "plane_blue_revisit_log.csv": 2}
     cur_plane = None
+    cur_eye = None                  # the eye of the exam log being shown (its latency, its tuning)
 
     rng = np.random.default_rng(args.seed)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -244,6 +281,7 @@ def main():
             self.last_rise_t = None
             self.last_toggle_pc = -1e9
             self.periods = deque(maxlen=8)
+            self.gap = False            # a pause in the flicker since the last period
             self.phase = 0.0
             self.env = 0.0
             self.drive = 0.0
@@ -255,7 +293,15 @@ def main():
                     if self.last_rise_t is not None:
                         period = t_row - self.last_rise_t
                         if 0.01 < period < 0.5:
+                            # after a gap (a new block) a changed rate replaces
+                            # the remembered periods at once
+                            if self.gap and len(self.periods) >= 2 \
+                                    and abs(period * self.freq(0.0) - 1.0) > 0.1:
+                                self.periods.clear()
+                            self.gap = False
                             self.periods.append(period)
+                        elif period >= 0.5:
+                            self.gap = True
                     self.last_rise_t = t_row
                 self.last_fl = fl
 
@@ -302,6 +348,7 @@ def main():
                         continue
                     trk[0].see(t_row, fl)
                     cur_plane = plane_of.get(log_name, None)
+                    cur_eye = log_name.split("_")[1] if log_name.startswith("exam_") else None
                     if log_name.startswith("exam_") and len(row) >= 18:
                         # the exam: what is shown reaches this phantom only as
                         # far as its eye allows (bar width, contrast, sector, colour)
@@ -349,7 +396,7 @@ def main():
             f_g = hz_s[1] or trk[1].freq(0.0)
             f_b = hz_s[2] or trk[2].freq(0.0)
             for k, (v, f_k) in enumerate(zip((lum, comp[1], comp[2]), (f_meas, f_g, f_b))):
-                gain = tuning(f_k) * (math.pi / 4 if hz_s[k] else 1.0)
+                gain = tuning(f_k) * flicker_gain(f_k, cur_eye) * (math.pi / 4 if hz_s[k] else 1.0)
                 if in_cell:
                     gain *= color_gain[k]
                 elif k == 0 and cur_plane is not None:
@@ -364,7 +411,8 @@ def main():
                 t = n / fs
                 env = a_env * env + (1 - a_env) * trk[0].drive
                 if trk[0].last_rise_t is not None:      # locked to the flicker
-                    phase = 2 * math.pi * f_meas * (clk + i / fs - trk[0].last_rise_t - LATENCY)
+                    phase = 2 * math.pi * f_meas * (clk + i / fs - trk[0].last_rise_t
+                                                    - per_eye_value(latency, cur_eye))
                 else:
                     phase += 2 * math.pi * f_meas / fs
                 ssvep = env * (math.sin(phase) + 0.4 * math.sin(2 * phase))
@@ -378,7 +426,11 @@ def main():
                 if audio_hz > 0:
                     audio_phase += 2 * math.pi * audio_hz / fs
                     ssvep += 0.6 * audio_env * math.sin(audio_phase)
-                alpha = 0.6 * math.sin(2 * math.pi * 10.0 * t)
+                if args.alpha_band:
+                    al1, al2 = ar_a1 * al1 - ar_r2 * al2 + ar_g * rng.standard_normal(), al1
+                    alpha = al1
+                else:
+                    alpha = 0.6 * math.sin(2 * math.pi * 10.0 * t)
                 pink = a_pink * pink + pink_gain * rng.standard_normal(nch)
                 drift = a_drift * drift + drift_gain * rng.standard_normal(nch)
                 white = 0.45 * rng.standard_normal(nch)

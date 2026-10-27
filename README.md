@@ -871,12 +871,15 @@ the scoring so the response to the sound starting and stopping does not count.
   steady-state "ear as a level meter") is a different measurement and is described
   with the modes above.
 
-## Eye exam (acuity, contrast, field and colour, per eye)
+## Eye exam (acuity, contrast, field, colour and the temporal response, per eye)
 
 `xr_session.py --mode exam` uses the same rig as an objective eye test: with one
 eye covered and the other on the dot, the whole window flickers white/black
 first (the flash: the camera's calibration stimulus, the eye's reference and
-the proof that a response exists at all), then a black/white grating swaps its
+the proof that a response exists at all), then the same flash at several rates
+(the eye's tuning over rate and, from the slope of the phase against rate, its
+apparent latency, whose difference between the eyes is the pattern VEP's
+classic measure), then a black/white grating swaps its
 bars at the flicker rate (pattern reversal: every resolved bar swings like the
 flash, the mean never changes) while the bars get finer (acuity) or fainter
 (contrast), one quadrant of the window flickers at a time (field), and the

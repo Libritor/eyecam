@@ -11,15 +11,21 @@ opens with the full-window white/black flash (the camera's calibration
 stimulus) which must respond (p < 0.05) before the rest is read and which
 sets the eye's reference channel and amplitude, the gratings swap their bars
 at 12 Hz (pattern reversal) instead of fading to grey, the field is four
-quadrants. Phantom gate: `python exam_gate.py` (16 checks, about 14 min).
+quadrants, and (added the same afternoon) the flash is repeated at six rates,
+6 to 36 Hz, for the eye's tuning over rate and its apparent latency from the
+phase slope. Phantom gate: `python exam_gate.py` (23 checks, about 13 min).
 
 1. Wet the Oz cup, press both ear pads in under the strap, then check the
    page's electrode badges; the driver measures every channel before each
    eye and asks for a fix above 60 uV.
-2. `.\quest_run.ps1 -Run exam -Ppd 20` (right eye, then left, about 14 min).
+2. `.\quest_run.ps1 -Run exam -Ppd 20` (right eye, then left, about 17 min).
    The first screen is the flash; if it says NO RESPONSE TO THE FLASH, fix
    the electrodes and pull the trigger (it retries twice). Without a flash
-   response the finer tests are not the eye's.
+   response the finer tests are not the eye's. The second screen is the
+   flash at six rates: it gives the eye's best rate (the camera runs said
+   12 Hz) and its apparent latency; the left-minus-right latency in the
+   report is the number to look at, the absolute one carries the stream's
+   delay.
 3. Report: `runs/vr_exam<n>/exam_report.pdf`; `python exam.py runs/vr_exam<n>`
    re-scores; `python exam.py merge ...` joins eyes from two sittings.
 4. Still open: the Quest browser's pixels per degree (`-Ppd`) for absolute

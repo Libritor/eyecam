@@ -1,4 +1,4 @@
-# The eye exam: acuity, contrast, field and colour from the EEG, per eye
+# The eye exam: acuity, contrast, field, colour and the temporal response from the EEG, per eye
 
 `xr_session.py --mode exam` turns the eye-as-a-camera rig (a Muse headband with
 the AUX electrode at Oz, the Quest browser as the display, the fixation dot)
@@ -23,6 +23,7 @@ the two eyes cancels out of their comparison.
 | test | what is shown (ON) | what varies | OFF | reads out |
 |---|---|---|---|---|
 | flash | the whole window flickering white/black (the camera's calibration stimulus) | nothing; five ON/OFF pairs (`--exam-flash`) | black | the response on every channel; the eye's reference channel and amplitude, or "no response" |
+| temporal | the same full-field flash at several rates, one step per rate | the rate (`--exam-rates`, 6 to 30 Hz asked; the panel delivers refresh / 2k frames: 6, 7.5, 10, 15, 30 Hz at 60 fps, 6, 7.2, 9, 12, 18, 36 Hz at 72) | black | amplitude per rate with the OFF blocks' line power taken out, the best rate and the rate where the response has fallen to half; the apparent latency from the slope of the phase against rate over the rates that respond, and between the eyes its difference |
 | acuity | a vertical black/white grating whose bars swap places at the flicker rate (pattern reversal): every bar location swings black/white like the flash, the mean luminance never changes, and nothing swings once the bars are too fine to resolve | bar width, coarse to fine (`--exam-sizes`, arcmin) | a grey of the same mean | the bar width at which the response is extrapolated to vanish (sweep-VEP rule), and the finest bar still giving a significant response |
 | contrast | the same reversing grating at one bar width (`--exam-contrast-size`) | Michelson contrast (`--exam-contrasts`) | the grey alone | the contrast at which the response is extrapolated to vanish, as log sensitivity |
 | field | one quadrant of the window flickering white/black, the eyes on the centre dot | the quadrant (`--exam-field`, 2x2; finer grids allowed) | black | amplitude and phase per sector; sectors without a significant response; with two eyes, the sector-by-sector ratio and phase difference, also with each eye over its own flash |
@@ -36,8 +37,9 @@ flicker edges are the frames on which the bars swapped, so the response is
 scored and phased at the reversal rate, the session frequency.
 
 Defaults: 4 s ON / 4 s OFF, five pairs of flash, two ON/OFF pairs per step of
-the others, the whole window (`--exam-patch 1`); eight bar widths, six
-contrasts, four quadrants, three planes: about 6.5 minutes per eye.
+the others, the whole window (`--exam-patch 1`); seven rates asked (five or
+six delivered), eight bar widths, six contrasts, four quadrants, three
+planes: about 8 minutes per eye.
 `--exam-eye right,left` runs the right eye and then the left with a "cover
 your other eye" screen between them; `both` tests binocularly. When the flash
 gives no response (p >= 0.05) the page asks for an electrode check (wet the
@@ -46,7 +48,7 @@ most; the exam then goes on and the report says that the eye had no reference.
 
 ## Running it
 
-Phantom, no hardware (the gate, about 14 minutes):
+Phantom, no hardware (the gate, about 13 minutes):
 
 ```
 python exam_gate.py
@@ -97,21 +99,74 @@ that still responds, is marked as beyond the range shown. The response phase is 
 of each block and is reported relative to the mean over the responding sectors,
 so it is a within-eye and between-eye comparison, not an absolute latency (one
 flicker period at 15 Hz is 67 ms, and the pathway's delay is longer than that).
+The flicker sweep, below, is what turns the phase into a latency.
+
+## The flicker sweep: temporal tuning and apparent latency
+
+The second test of each eye is the flash again at several rates, one step
+per rate (`--exam-rates 6,7.5,10,12,15,20,30`; the page shows each at the
+nearest rate it can hold with a whole number of frames per half period and
+drops a rate that repeats one, so a 60 fps panel delivers 6, 7.5, 10, 15 and
+30 Hz and the Quest's 72 fps panel 6, 7.2, 9, 12, 18 and 36). Each step is
+scored at its own rate, the OFF blocks measured at that rate too, and the
+line power is the hann-windowed projection on the rate itself rather than a
+mean over the periodogram's nearest bins, which read a rate on a bin 0.83 as
+strong as one half a bin off (the same for every step of a single-rate test,
+so the thresholds never saw it; the sweep cannot carry it).
+
+The read-out gives, per rate, the amplitude with the OFF blocks' line power
+taken out in quadrature (a step inside the alpha band is read against OFF
+blocks that carry the eyes-open alpha; when the flicker blocks the alpha the
+correction over-subtracts, so a dip at the alpha rate is read with that in
+mind), the best rate, and the rate above it where the response has fallen to
+half, interpolated in log rate between the bracketing steps (a rate without
+a response counts as nothing; a response still over half at the fastest rate
+shown is said so). This is the eye's temporal tuning: in the camera runs the
+subject's response was strongest at 12 Hz, weak at 15 and gone at 20, which
+is what set the session rate, and the rate an eye stops following is a
+measure in its own right.
+
+The apparent latency comes from the phase. A response delayed by tau has a
+phase that falls by 360 tau degrees per hertz of rate, so over the rates that
+respond the slope of the phase against rate gives tau with the waveform's own
+constant offset taken out (Regan, 1966). The fit (`fit_latency` in
+`analysis/exam_readout.py`) first searches tau from 30 to 300 ms for the
+delay whose residual phases agree most, which fixes each phase's turn count
+(the panel's rates repeat only beyond 1.6 s, so the search has one answer),
+then puts a line through the unwrapped phases weighted by the relative
+amplitude; its slope is the latency and its scatter the standard error. Three
+responding rates are needed; on synthetic phases with 3 degrees of noise the
+fit is good to half a millisecond with five rates and to two milliseconds
+with the four rates up to 12 Hz an eye that stops at 12 would give. The
+stream's transport delay stays in the number (on the phantom the rebuilt
+EEG clock runs 3 / fs = 11.7 ms early, so a 120 ms eye reads 108), and it is
+the same for both eyes, so the difference between the eyes is the
+measurement, the one the clinical pattern VEP is used for: an eye whose
+response comes later than the other's. Each step's single-rate delay
+(`delay_ms`) stays ambiguous by whole periods and is not the latency.
 
 ## What the phantom gate checks
 
 `exam_gate.py` runs the full stack against `phantom_subject.py` with a logistic
 visibility in log bar width and log contrast (`--acuity-cutoff`,
-`--contrast-cutoff`, per eye), a dead sector (`--field-loss`) and the colour
-gains: right eye cutoff 8 arcmin and contrast 0.08 with quadrant 3 dead; left
-eye 16 arcmin and 0.2, whole; green 1, red 0.7, blue 0.4; the phantom's Oz
-(AUX) carries the strongest response. Because a line through the rising limb
-crosses zero below the half-visibility point, the gate asks that the flash
-respond in both eyes on AUX and that every other test be read on that
-channel, that each fitted threshold lie where the phantom's visibility runs
-from 0.02 to 0.6, that the left eye's thresholds be at least 1.3x the right's,
-that the field names exactly the dead quadrant, and that green >= red > blue
-in both eyes. The band's floor: the extrapolated crossing lands where the
+`--contrast-cutoff`, per eye), a dead sector (`--field-loss`), the colour
+gains, a latency and a flicker cut per eye (`--latency`, `--flicker-cut`: the
+response is half at that rate) and the alpha as a 1.5 Hz band rather than a
+pure line (`--alpha-band`): right eye cutoff 8 arcmin and contrast 0.08 with
+quadrant 3 dead, 120 ms late, holding to 40 Hz; left eye 16 arcmin and 0.2,
+whole, 150 ms late, half gone by 24 Hz; green 1, red 0.7, blue 0.4; the
+phantom's Oz (AUX) carries the strongest response. Because a line through
+the rising limb crosses zero below the half-visibility point, the gate asks
+that the flash respond in both eyes on AUX and that every other test be read
+on that channel, that each fitted threshold lie where the phantom's
+visibility runs from 0.02 to 0.6, that the left eye's thresholds be at least
+1.3x the right's, that the field names exactly the dead quadrant, that green
+>= red > blue in both eyes, and of the flicker sweep that every rate shown
+responds in both eyes, that the right eye is still over half at the fastest
+rate shown and the left eye's half rate lies within 15 % of 24 Hz, that each
+eye's apparent latency lies within 6 ms of the phantom's (its latency less
+the 11.7 ms packet offset) and that the left is 30 +/- 6 ms later than the
+right: twenty-three checks. The band's floor: the extrapolated crossing lands where the
 phantom's visibility is 3 to 5 % in every gate so far (2.8 % once, the left
 contrast of the first run of the new protocol, which is why the floor is 2 %
 and not the 3 % first used).
@@ -150,6 +205,30 @@ all sixteen again: right eye 4.0 arcmin and 0.026 with quadrant 3 silent,
 left eye 6.8 arcmin and 0.087; the left contrast crossing moved from 2.8 %
 to about 6 % of the phantom's visibility between the two runs, which is the
 fit's own spread over two 3 s blocks per step.
+
+Result on 27 October 2026 with the flicker sweep added and the line power
+taken as the projection on the rate itself (`runs/exam_gate6`, 12.9 min,
+five rates delivered at 60 fps: 6, 7.5, 10, 15, 30 Hz): all twenty-three
+checks pass. Right eye: flash 1.20 on AUX (line SNR 6650), every rate
+responds, still over half at 30 Hz (0.79 of the 6 Hz amplitude; the
+phantom's cut is 40), apparent latency 109 +/- 1 ms against the 108 expected
+(120 less the 11.7 ms packet offset), acuity 3.9 arcmin, the contrast line
+crossing at 0.026 below the faintest step shown (0.03 responded this time),
+quadrant 3 silent, R:G:B 0.78:1.00:0.41. Left eye: flash 1.03, every rate
+responds, half by 22.3 Hz (phantom 24; the log-linear interpolation between
+15 and 30 Hz of a fourth-order low-pass reads low by about 3 %), apparent
+latency 138 +/- 1 ms against 138, acuity 8.0 arcmin (finest bar with a
+response 14'), contrast 0.102, 4/4 quadrants, R:G:B 0.67:1.00:0.41. Between
+the eyes: latency left minus right +29 +/- 1 ms (dialled +30), sweep
+amplitude 0.99x, flash 0.86x, field 0.89x (1.04x over each eye's own
+flash). The phases of the right eye's sweep sat within 7 degrees of the
+108 ms model at every rate (33, -17, -116, 45, 173 degrees at 6, 7.5, 10,
+15, 30 Hz against 36, -22, -120, 45, 180). The exact projection reads the
+flash 1.20 where the three-bin mean read 1.04, and the ON/OFF statistic's
+OFF values scatter a little more with it (one sample of the noise spectrum
+instead of a mean of three), so a step at the edge of detection can go
+either way: the left eye's 10' step, significant in gates 4 and 5, was not
+here, and the threshold moved from 6.8-8.0 to 8.0 arcmin, inside the band.
 
 ## The first sitting (27 October 2026) and what it changed
 
@@ -197,7 +276,11 @@ the time; and (4) tests the field as four quadrants, each a quarter of the
 window touching the fixation, instead of sixteen small sectors. The response
 frequency stays the session's (12 Hz on the Quest, where the subject's
 response is strongest); in a reversal block each bar location swings at half
-that rate and the response locks to the swaps.
+that rate and the response locks to the swaps. Added the same afternoon:
+(5) the flicker sweep as the second test, the flash at several rates,
+because the flash is the one stimulus the sitting answered and the camera
+runs had found the subject's rate tuning by sweeping it; it adds the apparent
+latency, which the single-rate phase could not give.
 
 ## What this is and is not
 

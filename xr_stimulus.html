@@ -448,7 +448,7 @@ async function runSweep(m) {
   send({ type: "sweep_done" });
 }
 // ---- eye exam (xr_session.py --mode exam, exam.py) ----
-// Five tests per eye as ON/OFF blocks at the session frequency, eyes on the
+// Six tests per eye as ON/OFF blocks at the session frequency, eyes on the
 // centre dot, over the whole window (the lesson of the eye-as-a-camera runs:
 // the flash response grows with the area around the fixation, a small patch
 // gives a line under the noise): the whole window flickering white/black
@@ -459,7 +459,9 @@ async function runSweep(m) {
 // swings once the bars are too fine to resolve) with its bar width shrinking
 // (acuity) or its contrast falling (contrast); one sector of a grid flickering
 // white/black (field); the window flickering red, green or blue against black
-// (colour). `style: "onset"` gives the older pattern onset/offset grating
+// (colour); the flash again at several rates, one step per rate, each the
+// panel's nearest whole-frame half period (temporal: tuning and apparent
+// latency). `style: "onset"` gives the older pattern onset/offset grating
 // (grating / same-mean grey alternating). Every block carries the step's
 // description back (meta), every frame the size, contrast and plane shown, so
 // the scorer and the phantom see what was on screen; in a reversal block the
@@ -500,7 +502,9 @@ async function runExam(m) {
     if (running !== tok) return;
   }
   sub.textContent = "measuring display refresh…";
-  const hz = await planFlicker(m.freq);
+  let hz = await planFlicker(m.freq);
+  const sweep = m.test === "temporal";
+  const seen = [];                                       // the sweep's delivered rates
   // the patch: a square of patchSide x the short side, centred; 1 (the
   // default) = the whole window, every pixel of the panel
   const frac = m.patchSide == null ? 1 : m.patchSide;
@@ -516,7 +520,8 @@ async function runExam(m) {
   const reversal = grating && (m.style || "reversal") === "reversal";
   const steps = m.steps.map((s, i) => {
     const o = Object.assign({ step: i, test: m.test, size: 0, sizePx: 0, contrast: 1,
-                              sector: -1, plane: -1, cols: 1, rows: 1 }, s);
+                              sector: -1, plane: -1, rate: 0, hz: 0, skip: false,
+                              cols: 1, rows: 1 }, s);
     if (grating) {
       o.contrast = s.contrast == null ? 1 : s.contrast;
       o.sizePx = toPx(s.size); o.size = toArcmin(o.sizePx);
@@ -528,16 +533,29 @@ async function runExam(m) {
   const PLANE_CSS = ["#ff0000", "#00ff00", "#0000ff"];
   const style = grating ? (reversal ? "reversal" : "onset") : "flicker";
   let b = 0;
-  const nBlocks = m.reps * steps.length;
+  let nBlocks = m.reps * steps.length;
   for (let r = 0; r < m.reps && running === tok; r++) {
     for (const s of steps) {
       if (running !== tok) break;
+      if (s.skip) continue;
+      if (sweep) {
+        // one rate per step: the nearest the panel delivers with a whole number
+        // of frames per half period (60 fps: 30, 15, 10, 7.5, 6 Hz; 72 fps: 36,
+        // 18, 12, 9, 7.2, 6); a rate that lands on an earlier step's is dropped,
+        // so the sweep has one step per delivered rate
+        hz = await planFlicker(s.rate);
+        if (r === 0 && seen.some(h => Math.abs(h - hz) < 0.05)) { s.skip = true; nBlocks -= m.reps; continue; }
+        if (r === 0) seen.push(hz);
+        s.hz = hz;
+      }
       const meta = { step: s.step, test: s.test, size: s.size, sizePx: s.sizePx,
                      contrast: s.contrast, sector: s.sector, plane: s.plane, cols: s.cols, rows: s.rows,
+                     rate: s.rate, hz: s.hz, halfFrames: sweep ? halfFrames : undefined,
                      style, patchPx: [Math.round(pw), Math.round(ph)] };
       const what = m.test === "acuity" ? `bars ${s.size.toFixed(1)}' (${s.sizePx} px)`
         : m.test === "contrast" ? `contrast ${s.contrast}` : m.test === "field" ? `sector ${s.sector + 1}/${s.cols * s.rows}`
-        : m.test === "colour" ? ["red", "green", "blue"][s.plane] : "full-field flash";
+        : m.test === "colour" ? ["red", "green", "blue"][s.plane]
+        : sweep ? `flash at ${hz.toFixed(1)} Hz` : "full-field flash";
       for (const on of [true, false]) {
         frameCount = 0;
         send({ type: "block", b, on, phase: "start", hz, meta });
@@ -567,7 +585,7 @@ async function runExam(m) {
             // so the mean luminance never changes and only the pattern comes and goes
             if (fl) ctx.drawImage(s.canvas, px0, py0);
             else { ctx.fillStyle = greyCss; ctx.fillRect(px0, py0, pw, ph); }
-          } else if (m.test === "flash" && fl) {
+          } else if ((m.test === "flash" || sweep) && fl) {
             ctx.fillStyle = "#fff"; ctx.fillRect(px0, py0, pw, ph);
           } else if (m.test === "field" && fl) {
             const cw = pw / s.cols, ch = ph / s.rows;

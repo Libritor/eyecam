@@ -2131,8 +2131,9 @@ class Driver:
     async def run_exam(self, result, recorder):
         """Objective eye exam (exam.py): per eye, the whole window flickering
         white/black (flash: the camera's full-field calibration stimulus, the
-        eye's reference and the gate that a response exists at all), pattern
-        reversal gratings shrinking in bar width (acuity) and falling in
+        eye's reference and the gate that a response exists at all), the same
+        flash at several rates (temporal: the eye's tuning over rate and its
+        apparent latency from the phase slope), pattern reversal gratings shrinking in bar width (acuity) and falling in
         contrast (contrast), one flickering quadrant at a time around the
         fixation dot (field) and the three colour planes (colour), each as
         ON/OFF blocks at the session frequency over the whole window. Every
@@ -2153,6 +2154,7 @@ class Driver:
         plan = exam.plan(a)
         out = dict(eyes=eyes, tests=tests, freq=a.freq, ppd=a.exam_ppd, on_s=a.exam_on,
                    off_s=a.exam_off, reps=a.exam_reps, flash_pairs=a.exam_flash,
+                   rates=a.exam_rates,
                    style=a.exam_style, patch_side=a.exam_patch,
                    gamma=exam.DISPLAY_GAMMA, results={e: {} for e in eyes}, delivery={},
                    contact={}, flash_attempts={})
@@ -2462,13 +2464,13 @@ async def main():
     ap.add_argument("--target", default="text:NO")
     ap.add_argument("--sweep", default="7.5,10,12,15,20",
                     help="--mode sweep: flicker frequencies to test (Hz)")
-    # --mode exam (exam.py): per eye, acuity / contrast / field / colour
+    # --mode exam (exam.py): per eye, flash / rate sweep / acuity / contrast / field / colour
     ap.add_argument("--exam-eye", default="right,left",
                     help="--mode exam: the eye(s) tested, in order (right, left, both); "
                          "the other eye is covered by the subject")
-    ap.add_argument("--exam-tests", default="flash,acuity,contrast,field,colour",
+    ap.add_argument("--exam-tests", default="flash,temporal,acuity,contrast,field,colour",
                     help="exam: the tests, run in this fixed order (the flash first: "
-                         "it is the eye's reference)")
+                         "it is the eye's reference; then its sweep over rates)")
     ap.add_argument("--exam-style", default="reversal", choices=["reversal", "onset"],
                     help="exam: the grating tests' pattern: reversal = the bars swap "
                          "places at the flicker rate (every bar swings black/white like "
@@ -2477,6 +2479,10 @@ async def main():
     ap.add_argument("--exam-flash", type=int, default=5,
                     help="exam: ON/OFF pairs of the full-field flash (5 + 5 blocks let the "
                          "exact permutation test reach p = 0.004)")
+    ap.add_argument("--exam-rates", default="6,7.5,10,12,15,20,30",
+                    help="temporal: flicker rates of the full-field flash, Hz; the page "
+                         "takes the nearest rate it can show with a whole number of "
+                         "frames per half period and drops a rate that repeats one")
     ap.add_argument("--exam-sizes", default="40,28,20,14,10,7,5,3.5",
                     help="acuity: grating bar widths in arcmin, coarse to fine")
     ap.add_argument("--exam-contrasts", default="1,0.5,0.25,0.12,0.06,0.03",

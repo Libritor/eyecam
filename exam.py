@@ -1,9 +1,9 @@
 """Objective eye exam from the EEG: the plan of each test and the scoring of
 its blocks (xr_session.py --mode exam).
 
-The page (xr_stimulus.html, runExam) shows, per eye, five tests as ON/OFF
-blocks at the session's flicker frequency with the eyes on the centre dot,
-each over the whole window (what the eye-as-a-camera runs taught: the flash
+The page (xr_stimulus.html, runExam) shows, per eye, six tests as ON/OFF
+blocks at the session's flicker frequency (the sweep at its own rates) with
+the eyes on the centre dot, each over the whole window (what the eye-as-a-camera runs taught: the flash
 response grows with the flickering area around the fixation, and a small
 patch gives a line under the noise):
 
@@ -12,6 +12,15 @@ patch gives a line under the noise):
             it is the eye's reference (the channel and the amplitude every
             other test is read against) and the gate that the electrodes and
             the display deliver at all
+  temporal  the same full-field flash at several rates, one step per rate
+            (--exam-rates; the page delivers refresh / (2k) frames, so 6, 7.5,
+            10, 15 and 30 Hz on a 60 Hz panel, 6, 7.2, 9, 12, 18 and 36 Hz at
+            72 Hz): the response amplitude against rate, the eye's temporal
+            tuning (its best rate and the rate where the response has fallen
+            to half), and from the slope of the response phase against rate
+            over the rates that respond the apparent latency (Regan, 1966),
+            whose difference between the eyes is the pattern VEP's classic
+            measure
   acuity    a vertical black/white grating whose bars swap places at the
             flicker rate (pattern reversal): every bar location swings
             black-white like the flash, the mean luminance never changes, and
@@ -47,6 +56,14 @@ transport delay (common to every step), and one flicker period at 15 Hz is
 shorter than the visual pathway's delay. Compare it between sectors and
 between the eyes; do not read it as milliseconds from the retina.
 
+The flicker sweep turns the phase into a latency the honest way: a response
+delayed by tau has a phase that falls by 360 tau degrees per hertz of rate,
+so the slope of the phase against rate over the rates that respond gives the
+apparent latency (Regan, 1966) with the waveform's own constant offset taken
+out (analysis/exam_readout.py, fit_latency). The transport delay stays in it,
+the same for both eyes, so the difference between the eyes is the
+measurement.
+
     python exam.py runs/<session>     re-scores a session from the blocks
                                       exam.json stores and redoes the read-out
 """
@@ -55,12 +72,13 @@ import os
 from itertools import combinations
 
 import numpy as np
-from scipy.signal import periodogram
+from scipy.signal import get_window, periodogram
 
 import reconstruct
 
 CH_NAMES = ["TP9", "AF7", "AF8", "TP10"]
-TESTS = ["flash", "acuity", "contrast", "field", "colour"]
+TESTS = ["flash", "temporal", "acuity", "contrast", "field", "colour"]
+MULTI_RATE = {"temporal"}                   # tests whose steps differ in flicker rate
 EYES = ["right", "left", "both"]
 STYLES = ["reversal", "onset"]              # the grating tests' temporal pattern
 LOG_EXTRA = ("size", "contrast", "plane")   # columns appended to the frame log
@@ -84,12 +102,16 @@ def plan(a):
     sizes = [float(v) for v in str(a.exam_sizes).split(",") if v.strip()]
     contrasts = [float(v) for v in str(a.exam_contrasts).split(",") if v.strip()]
     cols, rows = [int(v) for v in str(a.exam_field).lower().split("x")]
-    if not sizes or not contrasts or cols < 1 or rows < 1:
-        raise ValueError("--exam-sizes, --exam-contrasts and --exam-field must not be empty")
+    rates = [float(v) for v in str(getattr(a, "exam_rates", "6,7.5,10,12,15,20,30")).split(",")
+             if v.strip()]
+    if not sizes or not contrasts or cols < 1 or rows < 1 or not rates or min(rates) <= 0:
+        raise ValueError("--exam-sizes, --exam-contrasts, --exam-rates and --exam-field must "
+                         "not be empty")
     if getattr(a, "exam_style", "reversal") not in STYLES:
         raise ValueError(f"--exam-style: one of {STYLES}")
     return {
         "flash": [dict(flash=1)],
+        "temporal": [dict(rate=r) for r in rates],
         "acuity": [dict(size=s, contrast=1.0) for s in sizes],
         "contrast": [dict(size=float(a.exam_contrast_size), contrast=c) for c in contrasts],
         "field": [dict(sector=i, cols=cols, rows=rows) for i in range(cols * rows)],
@@ -138,12 +160,20 @@ def _phase_origin(edges, t0, f):
     return float(t0 + (math.atan2(z.imag, z.real) / (2 * math.pi) % 1.0) * per)
 
 
-def _line(seg, fs, f0, half=0.15, flank=(0.5, 2.0)):
-    """(power at f0, flank noise power) from a hann periodogram, power per bin."""
+def _line(seg, fs, f0, flank=(0.5, 2.0)):
+    """(power at f0, flank noise power per bin). The line power is the
+    hann-windowed projection on f0 itself, the quantity the periodogram gives
+    at a grid frequency taken off the grid, so it does not depend on where f0
+    falls between bins (the three-bin mean it replaces read a line on a bin
+    0.83 as strong as one half a bin off, which the flicker sweep, whose
+    rates fall on and off the grid, cannot carry); the noise is the mean of
+    the hann periodogram's bins 0.5 to 2 Hz away from f0."""
     seg = seg - seg.mean()
-    f, p = periodogram(seg, fs=fs, window="hann", detrend="constant", scaling="spectrum")
-    h = max(half, (f[1] - f[0]) * 1.01)
-    pk = p[np.abs(f - f0) <= h].mean()
+    n = len(seg)
+    w = get_window("hann", n)
+    f, p = periodogram(seg, fs=fs, window=w, detrend="constant", scaling="spectrum")
+    x = np.sum(w * seg * np.exp(-2j * math.pi * f0 * np.arange(n) / fs))
+    pk = 2.0 * abs(x) ** 2 / w.sum() ** 2
     fl = (np.abs(f - f0) >= flank[0]) & (np.abs(f - f0) <= flank[1])
     return float(pk), (float(p[fl].mean()) if fl.any() else float("nan"))
 
@@ -170,19 +200,23 @@ def _perm_p(V, ons):
     return obs, best_c, float(np.mean(null >= obs - 1e-12)), len(null)
 
 
-def score_stage(session, blocks, hzs, metas, log_name, test, eye="", ref_ch=None):
+def score_stage(session, blocks, hzs, metas, log_name, test, eye="", ref_ch=None, fs=None):
     """Per step of one test: ON blocks of that step against all OFF blocks of
     the test. blocks [(kind, t0, t1)], hzs the page's frequency per block,
     metas the page's step description per block (dict or None). ref_ch: the
     eye's reference channel (the flash test's) for the amplitudes and phases;
-    without one, or with it out of contact, the test's own best channel."""
+    without one, or with it out of contact, the test's own best channel. A
+    test in MULTI_RATE (the flicker sweep) is scored step by step at each
+    step's own rate, taken from its blocks' logged edges, the OFF blocks
+    measured at that rate too. fs: the EEG sample rate to use (a re-score
+    passes the run's stored value); None infers it from the file."""
     path = os.path.join(session, "eeg.csv")
     names = csv_header(path) or CH_NAMES
     E = np.genfromtxt(path, delimiter=",", skip_header=1)
     if E.ndim != 2 or E.shape[0] < 10:
         return dict(test=test, eye=eye, ok=False, reason="no EEG", steps=[])
     et = E[:, 0]
-    fs = reconstruct.infer_fs(et)
+    fs = float(fs) if fs else reconstruct.infer_fs(et)
     L = np.genfromtxt(os.path.join(session, log_name), delimiter=",", skip_header=1)
     if L.ndim != 2:
         return dict(test=test, eye=eye, ok=False, reason="no frames logged", steps=[])
@@ -193,6 +227,7 @@ def score_stage(session, blocks, hzs, metas, log_name, test, eye="", ref_ch=None
     f_req = float(np.median([float(h) for h in hzs if h])) if any(hzs) else 15.0
     f_del = float(1 / np.median(per)) if len(per) >= 10 else f_req
 
+    multi = test in MULTI_RATE
     segs = []
     for (kind, t0, t1), hz, meta in zip(blocks, hzs, metas):
         sel = (et >= t0 + DISCARD_S) & (et <= t1)
@@ -200,9 +235,15 @@ def score_stage(session, blocks, hzs, metas, log_name, test, eye="", ref_ch=None
             continue
         idx = np.where(sel)[0]
         e0 = rise[(rise >= t0) & (rise <= t1)]
+        f_b = f_del
+        if multi:
+            # a sweep block has its own rate: from its own edges, else the page's
+            pb = np.diff(e0)
+            pb = pb[(pb > 0.01) & (pb < 0.5)]
+            f_b = float(1 / np.median(pb)) if len(pb) >= 5 else (float(hz) if hz else f_del)
         segs.append(dict(kind=kind, meta=dict(meta or {}), X=E[idx, 1:],
-                         t=_envelope_clock(et[idx], fs),
-                         edge=_phase_origin(e0, t0, f_del)))
+                         t=_envelope_clock(et[idx], fs), f=f_b,
+                         edge=_phase_origin(e0, t0, f_b)))
     if not segs or not any(s["kind"] == "on" for s in segs) \
             or sum(s["kind"] == "off" for s in segs) < 2:
         return dict(test=test, eye=eye, ok=False, reason="too few scorable blocks",
@@ -218,27 +259,52 @@ def score_stage(session, blocks, hzs, metas, log_name, test, eye="", ref_ch=None
     # noise can be picked as the test's channel by chance
     dead = np.median(stds, 0) > MAX_RMS_UV
     keep[:, dead] = False
-    V = np.zeros((len(segs), nch))             # the stat: log SNR at f plus at 2f
-    A = np.full((len(segs), nch), np.nan)      # noise-corrected line amplitude
-    Z = np.zeros((len(segs), nch), complex)    # phasor against the first flicker edge
-    for j, s in enumerate(segs):
-        for c in range(nch):
-            x = s["X"][:, c]
-            p1, n1 = _line(x, fs, f_del)
-            p2, n2 = _line(x, fs, 2 * f_del)
-            v = math.log(max(p1 / max(n1, 1e-12), 1e-9))
-            if np.isfinite(n2):
-                v += math.log(max(p2 / max(n2, 1e-12), 1e-9))
-            if keep[j, c] and np.isfinite(v):
-                V[j, c] = v
-                A[j, c] = math.sqrt(2 * (max(p1 - n1, 0.0)
-                                         + (max(p2 - n2, 0.0) if np.isfinite(n2) else 0.0)))
-            if s["edge"] is not None and keep[j, c]:
-                xd = x - x.mean()
-                Z[j, c] = np.sum(xd * np.exp(-2j * math.pi * f_del * (s["t"] - s["edge"])))
     on = np.array([s["kind"] == "on" for s in segs])
     step_of = np.array([int(s["meta"].get("step", -1)) if s["kind"] == "on" else -1
                         for s in segs])
+    # the rate each step is scored at: the session's for every test but the
+    # sweep, whose steps each have their own (the median over the step's ON blocks)
+    f_step = {}
+    for st in sorted(set(step_of[on])):
+        f_step[st] = (float(np.median([sg["f"] for sg, m in zip(segs, on & (step_of == st)) if m]))
+                      if multi else f_del)
+    freqs = sorted(set(f_step.values()))
+
+    def lines(x, f):
+        """(the stat: log SNR at f plus at 2f; the noise-corrected line amplitude)"""
+        p1, n1 = _line(x, fs, f)
+        p2, n2 = _line(x, fs, 2 * f)
+        v = math.log(max(p1 / max(n1, 1e-12), 1e-9))
+        if np.isfinite(n2):
+            v += math.log(max(p2 / max(n2, 1e-12), 1e-9))
+        amp = math.sqrt(2 * (max(p1 - n1, 0.0) + (max(p2 - n2, 0.0) if np.isfinite(n2) else 0.0)))
+        return v, amp
+    VF, AF = {}, {}                            # per rate: the stat and the amplitude, block x channel
+    for f in freqs:
+        V = np.zeros((len(segs), nch))
+        A = np.full((len(segs), nch), np.nan)
+        for j, sg in enumerate(segs):
+            for c in range(nch):
+                if keep[j, c]:
+                    v, amp = lines(sg["X"][:, c], f)
+                    if np.isfinite(v):
+                        V[j, c], A[j, c] = v, amp
+        VF[f], AF[f] = V, A
+    f_seg = [f_step.get(int(st), f_del) for st in step_of]       # each ON block's own rate
+    Z = np.zeros((len(segs), nch), complex)    # phasor against the block's flicker edges, at its rate
+    for j, sg in enumerate(segs):
+        if sg["edge"] is None or not on[j]:
+            continue
+        for c in range(nch):
+            if keep[j, c]:
+                xd = sg["X"][:, c] - sg["X"][:, c].mean()
+                Z[j, c] = np.sum(xd * np.exp(-2j * math.pi * f_seg[j] * (sg["t"] - sg["edge"])))
+    # every block at its own rate (an OFF block: the mean over the test's
+    # rates), for the channel rule; one rate for every test but the sweep
+    V = np.array([VF[f_seg[j]][j] if on[j] else np.mean([VF[f][j] for f in freqs], 0)
+                  for j in range(len(segs))])
+    A_own = np.array([AF[f_seg[j]][j] if on[j] else np.mean([AF[f][j] for f in freqs], 0)
+                      for j in range(len(segs))])
     # the test's own channel: the largest median ON amplitude among the
     # channels whose own ON/OFF difference of the stat is significant (exact
     # permutation per channel); the stat is a log SNR, which saturates on a
@@ -254,7 +320,7 @@ def score_stage(session, blocks, hzs, metas, log_name, test, eye="", ref_ch=None
     for c in range(nch):
         if not dead[c]:
             ch_p[c] = _perm_p(V[:, [c]], on)[2]
-    amp_on = np.array([np.nanmedian(A[on, c]) if np.isfinite(A[on, c]).any() else -np.inf
+    amp_on = np.array([np.nanmedian(A_own[on, c]) if np.isfinite(A_own[on, c]).any() else -np.inf
                        for c in range(nch)])
     amp_on[dead] = -np.inf
     sig = (ch_p < 0.05) & ~dead
@@ -264,13 +330,15 @@ def score_stage(session, blocks, hzs, metas, log_name, test, eye="", ref_ch=None
         ch = names.index(ref_ch)
     out_steps = []
     for st in sorted(set(step_of[on])):
+        f_st = f_step[st]
+        Vf, Af = VF[f_st], AF[f_st]
         m_on = on & (step_of == st)
         rows = m_on | ~on
-        Vs, ons = V[rows], m_on[rows]
+        Vs, ons = Vf[rows], m_on[rows]
         if ons.sum() < 1 or (~ons).sum() < 2:
             continue
         obs, best_c, p, n_null = _perm_p(Vs, ons)
-        amps = A[m_on, ch]
+        amps = Af[m_on, ch]
         z = Z[m_on, ch]
         z = z[np.abs(z) > 0]
         phase = sd = delay = None
@@ -280,19 +348,21 @@ def score_stage(session, blocks, hzs, metas, log_name, test, eye="", ref_ch=None
             R = abs(u)
             sd = (math.degrees(math.sqrt(-2 * math.log(max(R, 1e-9))))
                   if len(z) > 1 else None)
-            delay = ((-phase / 360.0) % 1.0) * 1000.0 / f_del
-        meta = next(s["meta"] for s in segs if s["kind"] == "on"
-                    and int(s["meta"].get("step", -1)) == st)
+            delay = ((-phase / 360.0) % 1.0) * 1000.0 / f_st
+        meta = next(sg["meta"] for sg in segs if sg["kind"] == "on"
+                    and int(sg["meta"].get("step", -1)) == st)
+        off_c = Af[~on, ch]
         out_steps.append(dict(
-            step=int(st), meta=meta, n_on=int(ons.sum()), n_off=int((~ons).sum()),
+            step=int(st), meta=meta, freq=f_st, n_on=int(ons.sum()), n_off=int((~ons).sum()),
             stat=obs, p=p, n_null=n_null, best=names[best_c],
             amp=float(np.nanmedian(amps)) if np.isfinite(amps).any() else None,
             amp_sd=float(np.nanstd(amps, ddof=1)) if np.isfinite(amps).sum() > 1 else None,
-            snr=float(math.exp(V[m_on, ch].mean())),
-            amps={names[c]: (float(np.nanmedian(A[m_on, c]))
-                             if np.isfinite(A[m_on, c]).any() else None) for c in range(nch)},
+            snr=float(math.exp(Vf[m_on, ch].mean())),
+            off_amp=float(np.nanmedian(off_c)) if np.isfinite(off_c).any() else None,
+            amps={names[c]: (float(np.nanmedian(Af[m_on, c]))
+                             if np.isfinite(Af[m_on, c]).any() else None) for c in range(nch)},
             phase_deg=phase, phase_sd_deg=sd, delay_ms=delay))
-    off_amps = {names[c]: (float(np.nanmedian(A[~on, c])) if np.isfinite(A[~on, c]).any()
+    off_amps = {names[c]: (float(np.nanmedian(A_own[~on, c])) if np.isfinite(A_own[~on, c]).any()
                            else None) for c in range(nch)}
     return dict(test=test, eye=eye, ok=True, names=names, channel=names[ch],
                 channel_best=names[best_ch],
@@ -301,7 +371,8 @@ def score_stage(session, blocks, hzs, metas, log_name, test, eye="", ref_ch=None
                                 for c in range(nch)},
                 reference=ref_ch if (ref_ch in names and ch == names.index(ref_ch)) else None,
                 style=next((m.get("style") for m in metas if m and m.get("style")), None),
-                freq=f_del, freq_requested=f_req, fs=float(fs),
+                freq=None if multi else f_del, freq_requested=None if multi else f_req,
+                rates=freqs if multi else None, fs=float(fs),
                 segment_s=float(n_min / fs), n_on=int(on.sum()), n_off=int((~on).sum()),
                 noise_amp=off_amps[names[ch]], off_amps=off_amps, steps=out_steps,
                 rms_uv={names[c]: float(np.median(stds[:, c])) for c in range(nch)},
@@ -328,7 +399,7 @@ def rescore(session):
             hz = [b[3] for b in res["blocks"]]
             meta = [b[4] for b in res["blocks"]]
             new = score_stage(session, bl, hz, meta, f"exam_{eye}_{test}_log.csv", test, eye=eye,
-                              ref_ch=ref_ch)
+                              ref_ch=ref_ch, fs=res.get("fs"))
             new["delivery"] = res.get("delivery")
             tests[test] = new
             if test == "flash":
@@ -346,6 +417,8 @@ def step_label(meta, test=None):
     test = test or meta.get("test")
     if test == "flash":
         return "flash"
+    if test == "temporal":
+        return f"{meta.get('hz') or meta.get('rate', 0):.3g} Hz"
     if test == "acuity":
         return f"{meta.get('size', 0):.3g}'"
     if test == "contrast":
@@ -367,7 +440,8 @@ def describe_stage(res):
         cells.append(f"{step_label(s['meta'], res['test'])} {amp} p{s['p']:.3f}")
     ch = res["channel"] + (f" (reference; own best {res['channel_best']})"
                            if res.get("channel_best") and res["channel_best"] != res["channel"] else "")
-    return (f"{res['eye']} {res['test']}: {ch} at {res['freq']:.2f} Hz, "
+    where = f"at {res['freq']:.2f} Hz" if res.get("freq") else "rate by rate"
+    return (f"{res['eye']} {res['test']}: {ch} {where}, "
             f"noise {res['noise_amp'] if res['noise_amp'] is None else round(res['noise_amp'], 2)}; "
             + " | ".join(cells))
 

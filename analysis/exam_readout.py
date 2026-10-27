@@ -6,6 +6,14 @@
             test's amplitude is also given relative to (rel_flash), so an
             electrode that drifts between the eyes cancels out of their
             comparison; no flash response = the sitting has no reference
+  temporal  the flash at several rates: the noise-corrected amplitude per rate
+            with the OFF blocks' line power taken out in quadrature (alpha under
+            a 10 Hz step), the best rate, the rate above it where the response
+            has fallen to half (log-linear between the bracketing rates; a
+            rate without a response counts as nothing), and the apparent
+            latency from the slope of the response phase against rate over the
+            rates that respond (Regan, 1966; fit_latency), whose difference
+            between the eyes is the measurement
   acuity    response amplitude against log bar width; a line through the limb
             that falls to the noise floor (from the step just below the finest
             bar still giving a significant response, through it, and up toward
@@ -35,8 +43,9 @@ import textwrap
 
 import numpy as np
 
-TESTS = ["flash", "acuity", "contrast", "field", "colour"]
+TESTS = ["flash", "temporal", "acuity", "contrast", "field", "colour"]
 ALPHA = 0.05
+LAT_WINDOW_S = (0.03, 0.30)   # apparent latencies searched (the pathway's 80-150 ms plus the rig's offset)
 RISE_FRAC = 0.1        # a limb point must add this fraction of the peak amplitude
 
 
@@ -54,6 +63,106 @@ def read_flash(stage):
                rms_uv=stage.get("rms_uv") or {}, dead=stage.get("dead") or [],
                freq=stage.get("freq"), n_on=s.get("n_on"), n_off=s.get("n_off"),
                responded=bool(s["p"] < ALPHA and s.get("amp")))
+    return out
+
+
+def fit_latency(rates, phases_deg, weights=None):
+    """Apparent latency from the response phase against rate (Regan, 1966): a
+    response delayed by tau has phase = phi0 - 360 f tau (mod 360), with phi0
+    the waveform's own constant offset. A grid over tau (LAT_WINDOW_S) picks
+    the delay whose residual phases agree most (largest weighted mean
+    resultant), which fixes each phase's turn count; a weighted line through
+    the unwrapped phases against rate then gives tau and its standard error.
+    Needs three rates. The rates' spacing must not alias within the window:
+    the panel's rates (6, 7.5, 10, 15, 30 or 6, 7.2, 9, 12, 18, 36 Hz) repeat
+    only beyond 1.6 s."""
+    f = np.asarray(rates, float)
+    ph = np.radians(np.asarray(phases_deg, float))
+    n = len(f)
+    if n < 3:
+        return dict(ok=False, reason="fewer than three rates respond", n=int(n))
+    w = np.ones(n) if weights is None else np.clip(np.asarray(weights, float), 1e-3, None)
+    taus = np.arange(LAT_WINDOW_S[0], LAT_WINDOW_S[1] + 1e-9, 0.0001)
+    E = np.exp(1j * (ph[None, :] + 2 * np.pi * f[None, :] * taus[:, None]))
+    R = np.abs((E * w[None, :]).sum(1)) / w.sum()
+    k = int(np.argmax(R))
+    tau0 = float(taus[k])
+    resid = ph + 2 * np.pi * f * tau0
+    z = (w * np.exp(1j * resid)).sum()
+    phi0 = math.atan2(z.imag, z.real)
+    unwrapped = phi0 + np.angle(np.exp(1j * (resid - phi0))) - 2 * np.pi * f * tau0
+    X = np.column_stack([np.ones(n), f])
+    XtW = X.T * w[None, :]
+    G = np.linalg.inv(XtW @ X)
+    beta = G @ (XtW @ unwrapped)
+    tau = -beta[1] / (2 * np.pi)
+    res = unwrapped - X @ beta
+    dof = n - 2
+    se = None
+    if dof > 0:
+        s2 = float((w * res ** 2).sum() / dof)
+        se = math.sqrt(G[1, 1] * s2) / (2 * np.pi)
+    return dict(ok=True, latency_ms=float(tau * 1000), latency_se_ms=None if se is None else float(se * 1000),
+                offset_deg=float(math.degrees(beta[0])), R=float(R[k]), n=int(n),
+                rates=f.tolist(), phase_unwrapped_deg=np.degrees(unwrapped).tolist(),
+                resid_deg=np.degrees(res).tolist(), weights=w.tolist(),
+                at_window_edge=bool(k == 0 or k == len(taus) - 1))
+
+
+def read_temporal(stage):
+    """The flicker sweep: amplitude against rate, the half-response rate and
+    the apparent latency."""
+    out = dict(ok=False)
+    if not stage or not stage.get("ok") or not stage.get("steps"):
+        out["reason"] = (stage or {}).get("reason", "not run")
+        return out
+    steps = [st for st in stage["steps"] if st.get("amp") is not None]
+    steps.sort(key=lambda st: st.get("freq") or st["meta"].get("hz") or 0.0)
+    f = np.array([st.get("freq") or st["meta"].get("hz") or np.nan for st in steps], float)
+    amp = np.array([float(st["amp"]) for st in steps])
+    p = np.array([float(st["p"]) for st in steps])
+    off = np.array([st["off_amp"] if st.get("off_amp") is not None else np.nan for st in steps], float)
+    ph = np.array([st["phase_deg"] if st.get("phase_deg") is not None else np.nan for st in steps], float)
+    sd = np.array([st["phase_sd_deg"] if st.get("phase_sd_deg") is not None else np.nan for st in steps], float)
+    ok_f = np.isfinite(f)
+    f, amp, p, off, ph, sd = f[ok_f], amp[ok_f], p[ok_f], off[ok_f], ph[ok_f], sd[ok_f]
+    # the OFF blocks' line power (alpha under a 10 Hz step) taken out in quadrature
+    corr = np.sqrt(np.clip(amp ** 2 - np.nan_to_num(off) ** 2, 0.0, None))
+    sig = (p < ALPHA) & (corr > 0)
+    out.update(rates=f.tolist(), amps=amp.tolist(), off_amps=off.tolist(), amps_corr=corr.tolist(),
+               p=p.tolist(), phase_deg=ph.tolist(), phase_sd_deg=sd.tolist(),
+               n_rates=int(len(f)), n_responding=int(sig.sum()),
+               responding=f[sig].tolist(), not_responding=f[~sig].tolist(),
+               channel=stage.get("channel"), noise_amp=stage.get("noise_amp"))
+    if len(f) < 2:
+        out["reason"] = "fewer than two scored rates"
+        return out
+    if not sig.any():
+        out["reason"] = "no rate responds"
+        return out
+    top = float(corr[sig].max())
+    rel = corr / top
+    rel_eff = np.where(sig, rel, 0.0)          # a rate without a response counts as nothing
+    i_best = int(np.flatnonzero(sig)[np.argmax(corr[sig])])
+    half, beyond = None, True
+    for i in range(i_best + 1, len(f)):
+        if rel_eff[i] < 0.5:
+            x0, x1 = math.log(f[i - 1]), math.log(f[i])
+            y0, y1 = rel_eff[i - 1], rel_eff[i]
+            half = float(math.exp(x0 + (y0 - 0.5) / (y0 - y1) * (x1 - x0)))
+            beyond = False
+            break
+    out.update(ok=True, relative=rel.tolist(), best_rate=float(f[i_best]), half_rate=half,
+               half_beyond_range=beyond, fastest_rate=float(f.max()), slowest_rate=float(f.min()))
+    use = sig & np.isfinite(ph)
+    if use.sum() >= 3:
+        fit = fit_latency(f[use], ph[use], weights=np.clip(rel[use], 0.05, 1.0))
+    else:
+        fit = dict(ok=False, reason="fewer than three rates respond", n=int(use.sum()))
+    out["latency"] = fit
+    if fit["ok"]:
+        out["latency_ms"] = fit["latency_ms"]
+        out["latency_se_ms"] = fit["latency_se_ms"]
     return out
 
 
@@ -244,6 +353,24 @@ def eye_text(eye, r):
                         "below cannot be read as the eye's")
         else:
             bits.append(f"flash: {fl.get('reason')}")
+    te = r.get("temporal")
+    if te:
+        if te.get("ok"):
+            s = (f"flicker sweep {te['slowest_rate']:.3g}-{te['fastest_rate']:.3g} Hz: "
+                 f"{te['n_responding']}/{te['n_rates']} rates respond, best {te['best_rate']:.3g} Hz")
+            s += (f", half by {te['half_rate']:.1f} Hz" if te.get("half_rate") is not None
+                  else f", still over half at {te['fastest_rate']:.3g} Hz")
+            lat = te.get("latency") or {}
+            if lat.get("ok"):
+                s += f"; apparent latency {lat['latency_ms']:.0f}"
+                if lat.get("latency_se_ms") is not None:
+                    s += f" +/- {lat['latency_se_ms']:.0f}"
+                s += f" ms ({lat['n']} rates, R {lat['R']:.2f})"
+            else:
+                s += f"; latency: {lat.get('reason', '-')}"
+            bits.append(s)
+        else:
+            bits.append(f"flicker sweep: {te.get('reason')}")
     ac = r.get("acuity")
     if ac:
         if ac.get("ok") and ac.get("beyond_range"):
@@ -334,6 +461,24 @@ def compare_eyes(eyes):
             rr[~np.isfinite(rr)] = np.nan
             out["field_ratio_median_rel_flash"] = (float(np.nanmedian(rr[list(both)]))
                                                    if np.isfinite(rr[list(both)]).any() else None)
+    ta, tb = L.get("temporal", {}), R.get("temporal", {})
+    la, lb = ta.get("latency") or {}, tb.get("latency") or {}
+    if la.get("ok") and lb.get("ok"):
+        out["latency_diff_ms"] = float(la["latency_ms"] - lb["latency_ms"])
+        if la.get("latency_se_ms") is not None and lb.get("latency_se_ms") is not None:
+            out["latency_diff_se_ms"] = float(math.hypot(la["latency_se_ms"], lb["latency_se_ms"]))
+    if ta.get("ok") and tb.get("ok"):
+        # amplitude ratio at the rates both eyes were shown (within 1 %)
+        ratios, rates = [], []
+        for i, fa_ in enumerate(ta["rates"]):
+            for j, fb_ in enumerate(tb["rates"]):
+                if abs(fa_ - fb_) <= 0.01 * fb_ and ta["amps_corr"][i] > 0 and tb["amps_corr"][j] > 0:
+                    ratios.append(math.log2(ta["amps_corr"][i] / tb["amps_corr"][j]))
+                    rates.append(fa_)
+        if ratios:
+            out.update(temporal_rates=rates, temporal_log2_ratio_lr=ratios,
+                       temporal_ratio_median=float(np.median(ratios)))
+        out["half_rate_left"], out["half_rate_right"] = ta.get("half_rate"), tb.get("half_rate")
     return out
 
 
@@ -343,6 +488,13 @@ def compare_text(c):
     bits = []
     if "flash_ratio_lr" in c:
         bits.append(f"flash amplitude left/right {c['flash_ratio_lr']:.2f}x")
+    if "latency_diff_ms" in c:
+        s = f"apparent latency left minus right {c['latency_diff_ms']:+.0f}"
+        if c.get("latency_diff_se_ms") is not None:
+            s += f" +/- {c['latency_diff_se_ms']:.0f}"
+        bits.append(s + " ms")
+    if "temporal_ratio_median" in c:
+        bits.append(f"flicker-sweep amplitude left/right median {2 ** c['temporal_ratio_median']:.2f}x")
     if "acuity_ratio_lr" in c:
         bits.append(f"acuity threshold left/right {c['acuity_ratio_lr']:.2f}x")
     if "contrast_ratio_lr" in c:
@@ -392,6 +544,12 @@ def draw(session, exam, eyes, compare, text):
                 _draw_flash(ax, d)
                 ttl = (f"{eye}: flash, {d['channel']} p {d['p']:.3f}" + ("" if d["responded"] else " (no response)")
                        if d.get("ok") else f"{eye}: flash, not scored")
+            elif t == "temporal":
+                _draw_temporal(ax, d)
+                lat = d.get("latency") or {}
+                ttl = (f"{eye}: flicker sweep, latency {lat['latency_ms']:.0f} ms" if lat.get("ok")
+                       else f"{eye}: flicker sweep, no latency" if d.get("ok")
+                       else f"{eye}: flicker sweep, not scored")
             elif t == "acuity":
                 _draw_curve(ax, d, "sizes", "bar width (arcmin)", invert=True, logbase=math.e)
                 ttl = (f"{eye}: acuity, below the finest bar shown" if d.get("ok") and d.get("beyond_range")
@@ -487,6 +645,46 @@ def _draw_curve(ax, d, xkey, xlabel, invert, logbase):
     ax.spines[["top", "right"]].set_visible(False)
 
 
+def _draw_temporal(ax, d):
+    """Amplitude against flicker rate (filled: significant), the half-response
+    rate, and on the right axis the unwrapped response phase with the fitted
+    line whose slope is the apparent latency."""
+    if not d.get("rates"):
+        ax.text(0.5, 0.5, d.get("reason", "not run"), ha="center", va="center",
+                transform=ax.transAxes, fontsize=7)
+        ax.set_xticks([]); ax.set_yticks([])
+        return
+    f = np.array(d["rates"], float); a = np.array(d["amps_corr"], float); p = np.array(d["p"], float)
+    sig = p < ALPHA
+    ax.plot(f, a, "-", color="#9db2c8", lw=0.8)
+    ax.plot(f[sig], a[sig], "o", ms=4, color="#1f4e79", label="significant")
+    ax.plot(f[~sig], a[~sig], "o", ms=4, mfc="white", color="#1f4e79", label="p >= 0.05")
+    ax.axhline(0, color="#888", lw=0.6)
+    if d.get("half_rate") is not None:
+        ax.axvline(d["half_rate"], color="#c0392b", lw=0.8, ls="--", label=f"half at {d['half_rate']:.1f} Hz")
+    ax.set_xscale("log")
+    ax.set_xticks(f); ax.set_xticklabels([f"{v:.3g}" for v in f], fontsize=6.5)
+    ax.minorticks_off()
+    ax.set_xlabel("flicker rate (Hz)"); ax.set_ylabel("response amplitude (a.u.)")
+    ax.set_ylim(0, max(float(np.nanmax(a)) if np.isfinite(a).any() else 1.0, 1e-6) * 1.3)
+    ax.legend(fontsize=6, frameon=False, loc="upper right")
+    ax.spines[["top"]].set_visible(False)
+    lat = d.get("latency") or {}
+    if lat.get("ok"):
+        ax2 = ax.twinx()
+        fr = np.array(lat["rates"], float); pu = np.array(lat["phase_unwrapped_deg"], float)
+        ax2.plot(fr, pu, "s", ms=3, color="#7f8c8d")
+        xx = np.linspace(fr.min(), fr.max(), 20)
+        ax2.plot(xx, lat["offset_deg"] - 360.0 * xx * lat["latency_ms"] / 1000.0, color="#7f8c8d", lw=0.8)
+        ax2.set_ylabel("phase (deg)", color="#7f8c8d", fontsize=7, labelpad=1)
+        ax2.tick_params(axis="y", colors="#7f8c8d", labelsize=6.5)
+        ax2.spines[["top"]].set_visible(False)
+        txt = f"apparent latency {lat['latency_ms']:.0f}"
+        if lat.get("latency_se_ms") is not None:
+            txt += f" +/- {lat['latency_se_ms']:.0f}"
+        ax.text(0.03, 0.05, txt + f" ms (R {lat['R']:.2f})", transform=ax.transAxes, fontsize=6.5)
+
+
 def _draw_flash(ax, d):
     """Per channel: the full-field flash's ON amplitude (bars) and the OFF
     amplitude (ticks); the reference channel filled, out-of-contact channels
@@ -573,6 +771,9 @@ def run(session):
             r["flash"] = read_flash(res.get("flash"))
             if r["flash"]["responded"]:
                 ref_amp = float(r["flash"]["amp"])
+        if "temporal" in exam["tests"]:
+            r["temporal"] = read_temporal(res.get("temporal"))
+            _rel_flash(r["temporal"], ref_amp, "amps")
         if "acuity" in exam["tests"]:
             r["acuity"] = read_acuity(res.get("acuity"))
             _rel_flash(r["acuity"], ref_amp, "amps")
