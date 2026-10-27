@@ -145,6 +145,11 @@ a 1.5x stronger AUX because the log-SNR statistic's ON-OFF difference
 saturates on a strong response; the test's own channel is now the largest
 median ON amplitude among the channels whose own ON/OFF difference is
 significant.
+A second run under the final code (`runs/exam_gate5`, 10.4 min) passes
+all sixteen again: right eye 4.0 arcmin and 0.026 with quadrant 3 silent,
+left eye 6.8 arcmin and 0.087; the left contrast crossing moved from 2.8 %
+to about 6 % of the phantom's visibility between the two runs, which is the
+fit's own spread over two 3 s blocks per step.
 
 ## The first sitting (27 October 2026) and what it changed
 
