@@ -3,19 +3,23 @@
   xr_session.py --mode exam --exam-eye right,left   <-WS/HTTP->  headless browser
         ^ OSC /muse/eeg
   phantom_subject.py --aux --acuity-cutoff right:8,left:16
-                     --contrast-cutoff right:0.08,left:0.2 --field-loss right:5
+                     --contrast-cutoff right:0.08,left:0.2 --field-loss right:2
                      --color-gain 0.7,1,0.4
 
 The phantom's right eye stops seeing bars finer than about 8 arcmin and
-contrasts below about 0.08 and has no response from sector 6 (index 5); its
-left eye is twice as coarse on both and whole. Both eyes respond to green
-most and blue least. PASS: every stage delivered; each fitted threshold lies
-in the band where the phantom's logistic visibility runs from 0.03 to 0.6
-(the linear extrapolation of the rising limb lands below the half-visibility
-point, so the band is the honest expectation); the left eye's thresholds are
-at least 1.3x the right's; the field read-out names exactly the knocked-out
-sector and nothing else; green >= red > blue in both eyes. 3 s blocks, two
-ON/OFF pairs per step: about 13 minutes for the two eyes.
+contrasts below about 0.08 and has no response from quadrant 3 (index 2 of
+the 2x2 field); its left eye is twice as coarse on both and whole. Both eyes
+respond to green most and blue least, and the phantom's Oz (AUX) carries the
+strongest response. PASS: every stage delivered; the full-field flash
+responds in both eyes (p < 0.05) on AUX, which then serves as the reference
+channel of every other test; each fitted threshold lies in the band where
+the phantom's logistic visibility runs from 0.02 to 0.6 (the linear
+extrapolation of the rising limb lands below the half-visibility point, at
+3 to 5 % on this phantom, so the band is the honest expectation; its floor
+was 0.03 until gate4's left contrast crossed at 2.8 %); the left eye's thresholds are at least
+1.3x the right's; the field read-out names exactly the knocked-out quadrant
+and nothing else; green >= red > blue in both eyes. 3 s blocks, five flash
+pairs and two ON/OFF pairs per step: about 14 minutes for the two eyes.
 
 Run:  python exam_gate.py        (BROWSER=<path> to choose the browser;
       EXAM_GATE_HTTP / EXAM_GATE_OSC for a second gate beside the first,
@@ -39,13 +43,19 @@ sys.path.insert(0, ROOT)
 from smooth_gate import browser_cmd  # noqa: E402
 from phantom_subject import ACUITY_W, CONTRAST_W  # noqa: E402
 
-EYE = {"right": dict(acuity=8.0, contrast=0.08, loss={5}),
+EYE = {"right": dict(acuity=8.0, contrast=0.08, loss={2}),
        "left": dict(acuity=16.0, contrast=0.2, loss=set())}
 GAIN = "0.7,1,0.4"
+REF = "AUX"        # the phantom's strongest channel: the flash must pick it as the reference
 
 
-def band(cut, w, lo=0.03, hi=0.6):
-    """Where a logistic visibility 1 / (1 + exp(-(ln x - ln cut) / w)) runs from lo to hi."""
+def band(cut, w, lo=0.02, hi=0.6):
+    """Where a logistic visibility 1 / (1 + exp(-(ln x - ln cut) / w)) runs from
+    lo to hi. The sweep-VEP rule extrapolates the rising limb to zero, which
+    on a logistic lands below the half point: on this phantom the crossings
+    fall where the visibility is 3 to 5 % (gate2: 4-5 %; gate4: 2.8 % for the
+    left contrast, 4-5 % for the rest), so the band's floor is 2 %, not a
+    tighter figure the fit's own noise would cross."""
     return cut * math.exp(w * math.log(lo / (1 - lo))), cut * math.exp(w * math.log(hi / (1 - hi)))
 
 
@@ -62,6 +72,12 @@ def verdict(full, code, t0=None):
     for eye, want in EYE.items():
         r = ro["eyes"].get(eye, {})
         ac, co, fi, col = r.get("acuity", {}), r.get("contrast", {}), r.get("field", {}), r.get("colour", {})
+        fl = r.get("flash", {})
+        checks[f"{eye} flash responds (p < 0.05) on {REF}"] = \
+            bool(fl.get("ok")) and fl.get("responded") and fl.get("channel") == REF
+        checks[f"{eye} every test read on the reference channel {REF}"] = all(
+            exam["results"].get(eye, {}).get(t, {}).get("channel") == REF
+            for t in ("acuity", "contrast", "field", "colour"))
         lo, hi = band(want["acuity"], ACUITY_W)
         checks[f"{eye} acuity threshold in the phantom's band {lo:.1f}-{hi:.1f} arcmin"] = \
             bool(ac.get("ok")) and lo <= ac["threshold"] <= hi

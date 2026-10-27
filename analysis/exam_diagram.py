@@ -65,35 +65,38 @@ def pipeline(ax):
             ha="left", va="center", fontsize=4.8, color="#555", style="italic")
 
 
-def stimulus_panel(ax, kind, side=1.0):
-    """What the headset shows: a black screen, the patch, the fixation dot."""
-    ax.set_xlim(0, 1.3); ax.set_ylim(0, 1.0); ax.set_aspect("equal"); ax.axis("off")
-    ax.add_patch(Rectangle((0, 0), 1.3, 1.0, fc="black", ec="none"))
-    px0, py0, s = 0.25, 0.1, 0.8
-    if kind in ("acuity", "contrast"):
+def stimulus_panel(ax, kind):
+    """What the headset shows: every stimulus fills the window, the fixation
+    dot at its centre."""
+    W, H = 1.3, 1.0
+    ax.set_xlim(0, W); ax.set_ylim(0, H); ax.set_aspect("equal"); ax.axis("off")
+    ax.add_patch(Rectangle((0, 0), W, H, fc="black", ec="#666", lw=0.4))
+    if kind == "flash":
+        ax.add_patch(Rectangle((0, 0), W, H, fc="white", ec="none", zorder=2))
+    elif kind in ("acuity", "contrast"):
         c = 1.0 if kind == "acuity" else 0.25
-        bars = 10 if kind == "acuity" else 6
+        bars = 12 if kind == "acuity" else 7
         hi, lo = byte(0.5 * (1 + c)), byte(0.5 * (1 - c))
-        img = np.zeros((2, 120, 3))
-        stripe = 120 // (2 * bars)
-        for i in range(120):
+        img = np.zeros((2, 130, 3))
+        stripe = 130 // (2 * bars)
+        for i in range(130):
             v = hi if (i // stripe) % 2 == 0 else lo
             img[:, i, :] = v
-        ax.imshow(img, extent=(px0, px0 + s, py0, py0 + s), interpolation="nearest", zorder=2)
+        ax.imshow(img, extent=(0, W, 0, H), interpolation="nearest", zorder=2)
+        ax.set_xlim(0, W); ax.set_ylim(0, H)
     elif kind == "field":
-        ax.add_patch(Rectangle((px0, py0), s, s, fc="black", ec="#444", lw=0.4, zorder=2))
-        for i in range(1, 4):
-            ax.plot([px0 + i * s / 4] * 2, [py0, py0 + s], color="#333", lw=0.3, zorder=3)
-            ax.plot([px0, px0 + s], [py0 + i * s / 4] * 2, color="#333", lw=0.3, zorder=3)
-        ax.add_patch(Rectangle((px0 + s / 4, py0 + 2 * s / 4), s / 4, s / 4, fc="white", ec="none", zorder=4))
+        ax.plot([W / 2] * 2, [0, H], color="#333", lw=0.3, zorder=3)
+        ax.plot([0, W], [H / 2] * 2, color="#333", lw=0.3, zorder=3)
+        ax.add_patch(Rectangle((0, H / 2), W / 2, H / 2, fc="white", ec="none", zorder=4))
     elif kind == "colour":
-        ax.add_patch(Rectangle((px0, py0), s, s, fc="#00c000", ec="none", zorder=2))
+        ax.add_patch(Rectangle((0, 0), W, H, fc="#00c000", ec="none", zorder=2))
     elif kind == "grey":
         g = byte(0.5)
-        ax.add_patch(Rectangle((px0, py0), s, s, fc=(g, g, g), ec="none", zorder=2))
-    cx, cy = px0 + s / 2, py0 + s / 2
+        ax.add_patch(Rectangle((0, 0), W, H, fc=(g, g, g), ec="none", zorder=2))
+    cx, cy = W / 2, H / 2
     ax.add_patch(Circle((cx, cy), 0.05, fc="black", ec="none", zorder=5))
     ax.add_patch(Circle((cx, cy), 0.03, fc="white", ec="none", zorder=6))
+    ax.add_patch(Rectangle((0, 0), W, H, fc="none", ec="#666", lw=0.5, zorder=7))   # the window's edge
 
 
 def timeline(ax):
@@ -110,9 +113,9 @@ def timeline(ax):
             t += 4
         ax.text(8 * k + 4, -0.3, lab, ha="center", va="top", fontsize=5, color="#333")
     ax.text(16.3, 0.5, "...", ha="left", va="center", fontsize=7)
-    ax.text(1.1, 1.5, "4 s ON (pattern or patch flickering at 12 Hz) / 4 s OFF (grey or black), two pairs per step;\n"
-            "each step's ON blocks are scored against all the test's OFF blocks",
-            ha="left", va="bottom", fontsize=4.9, color="#333", linespacing=1.3)
+    ax.text(1.1, 1.5, "4 s ON (the window flickering, or the bars swapping, at 12 Hz) / 4 s OFF (grey or black); five pairs\n"
+            "of flash, two per step of the rest; each step's ON blocks scored against all the test's OFF blocks",
+            ha="left", va="bottom", fontsize=4.6, color="#333", linespacing=1.3)
 
 
 def main():
@@ -122,11 +125,11 @@ def main():
                           bottom=0.02, hspace=0.35, wspace=0.08)
     ax = fig.add_subplot(gs[0, :]); pipeline(ax)
     ax.text(0.0, 1.0, "(a)", fontsize=7, weight="bold", va="top", ha="left")
-    kinds = [("acuity", "acuity: grating\non its mean grey,\nbars 40 to 3.5'"),
+    kinds = [("flash", "flash: the window\nwhite/black, the\neye's reference"),
+             ("acuity", "acuity: bars swap\nplaces (reversal),\n40 to 3.5'; OFF grey"),
              ("contrast", "contrast: one\nbar width,\ncontrast 1 to 0.03"),
-             ("grey", "OFF for both:\nthe grey alone"),
-             ("field", "field: one of\n4x4 sectors,\nwhite on black"),
-             ("colour", "colour: the patch\nred, green or\nblue on black")]
+             ("field", "field: one\nquadrant,\nwhite on black"),
+             ("colour", "colour: the window\nred, green or\nblue on black")]
     for j, (kind, lab) in enumerate(kinds):
         ax = fig.add_subplot(gs[1, j]); stimulus_panel(ax, kind)
         ax.text(0.5, -0.08, lab, transform=ax.transAxes, ha="center", va="top", fontsize=4.8, linespacing=1.2)

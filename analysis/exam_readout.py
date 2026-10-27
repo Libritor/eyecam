@@ -1,6 +1,11 @@
 """The eye exam read out: thresholds from the per-step responses in
 <session>/exam.json (written by xr_session.py --mode exam) and the report.
 
+  flash     the full-field flicker's response on every channel: the eye's
+            reference channel and amplitude (p < 0.05), which every other
+            test's amplitude is also given relative to (rel_flash), so an
+            electrode that drifts between the eyes cancels out of their
+            comparison; no flash response = the sitting has no reference
   acuity    response amplitude against log bar width; a line through the limb
             that falls to the noise floor (from the step just below the finest
             bar still giving a significant response, through it, and up toward
@@ -30,9 +35,33 @@ import textwrap
 
 import numpy as np
 
-TESTS = ["acuity", "contrast", "field", "colour"]
+TESTS = ["flash", "acuity", "contrast", "field", "colour"]
 ALPHA = 0.05
 RISE_FRAC = 0.1        # a limb point must add this fraction of the peak amplitude
+
+
+def read_flash(stage):
+    out = dict(ok=False, responded=False)
+    if not stage or not stage.get("ok") or not stage.get("steps"):
+        out["reason"] = (stage or {}).get("reason", "not run")
+        return out
+    s = stage["steps"][0]
+    amps_ch = {k: v for k, v in (s.get("amps") or {}).items()}
+    out.update(ok=True, p=float(s["p"]), amp=s.get("amp"), amp_sd=s.get("amp_sd"),
+               snr=s.get("snr"), channel=stage.get("channel"), best=s.get("best"),
+               amps_ch=amps_ch, off_amps=stage.get("off_amps") or {},
+               channel_p=stage.get("channel_p") or {},
+               rms_uv=stage.get("rms_uv") or {}, dead=stage.get("dead") or [],
+               freq=stage.get("freq"), n_on=s.get("n_on"), n_off=s.get("n_off"),
+               responded=bool(s["p"] < ALPHA and s.get("amp")))
+    return out
+
+
+def _rel_flash(d, ref_amp, key):
+    """Add key + '_rel_flash': the test's amplitudes over the eye's flash amplitude."""
+    if ref_amp and d.get(key) is not None:
+        d[key + "_rel_flash"] = [float(v) / ref_amp if v is not None and np.isfinite(v) else None
+                                 for v in d[key]]
 
 
 def fit_limb(xlog, amp, p):
@@ -205,6 +234,16 @@ def read_colour(stage):
 
 def eye_text(eye, r):
     bits = []
+    fl = r.get("flash")
+    if fl:
+        if fl.get("ok") and fl["responded"]:
+            s = f"flash {fl['channel']} {fl['amp']:.2f} (p {fl['p']:.3f}, line SNR {fl['snr']:.1f})"
+            bits.append(s)
+        elif fl.get("ok"):
+            bits.append(f"NO RESPONSE TO THE FULL-FIELD FLASH (p {fl['p']:.2f}): the finer tests "
+                        "below cannot be read as the eye's")
+        else:
+            bits.append(f"flash: {fl.get('reason')}")
     ac = r.get("acuity")
     if ac:
         if ac.get("ok") and ac.get("beyond_range"):
@@ -267,9 +306,9 @@ def compare_eyes(eyes):
         return {}
     L, R = eyes["left"], eyes["right"]
     out = {}
-    for t, key in (("acuity", "threshold"), ("contrast", "threshold")):
+    for t, key in (("flash", "amp"), ("acuity", "threshold"), ("contrast", "threshold")):
         a, b = L.get(t, {}), R.get(t, {})
-        if a.get("ok") and b.get("ok") and b[key] > 0:
+        if a.get("ok") and b.get("ok") and a.get(key) and b.get(key) and b[key] > 0:
             out[f"{t}_ratio_lr"] = float(a[key] / b[key])
     fa, fb = L.get("field", {}), R.get("field", {})
     if fa.get("ok") and fb.get("ok") and fa["n"] == fb["n"]:
@@ -285,6 +324,16 @@ def compare_eyes(eyes):
                    field_only_left=only_l, field_only_right=only_r,
                    field_ratio_median=float(np.nanmedian(ratio[list(both)])) if both else None,
                    field_phase_diff_median=float(np.nanmedian(dph[list(both)])) if both else None)
+        # the same ratio with each eye's sectors over its own flash: an
+        # electrode that changed between the eyes cancels
+        if fa.get("rel_flash") and fb.get("rel_flash") and both:
+            ra = np.array([v if v is not None else np.nan for v in fa["rel_flash"]], float)
+            rb = np.array([v if v is not None else np.nan for v in fb["rel_flash"]], float)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                rr = np.log2(ra / rb)
+            rr[~np.isfinite(rr)] = np.nan
+            out["field_ratio_median_rel_flash"] = (float(np.nanmedian(rr[list(both)]))
+                                                   if np.isfinite(rr[list(both)]).any() else None)
     return out
 
 
@@ -292,6 +341,8 @@ def compare_text(c):
     if not c:
         return ""
     bits = []
+    if "flash_ratio_lr" in c:
+        bits.append(f"flash amplitude left/right {c['flash_ratio_lr']:.2f}x")
     if "acuity_ratio_lr" in c:
         bits.append(f"acuity threshold left/right {c['acuity_ratio_lr']:.2f}x")
     if "contrast_ratio_lr" in c:
@@ -303,6 +354,8 @@ def compare_text(c):
             s += "; responding in the left eye only: " + ", ".join(f"s{k + 1}" for k in c["field_only_left"])
         if c["field_only_right"]:
             s += "; responding in the right eye only: " + ", ".join(f"s{k + 1}" for k in c["field_only_right"])
+        if c.get("field_ratio_median_rel_flash") is not None:
+            s += f" (each over its own flash: {2 ** c['field_ratio_median_rel_flash']:.2f}x)"
         if c.get("field_phase_diff_median") is not None:
             s += f"; phase difference median {c['field_phase_diff_median']:+.0f} deg"
         bits.append(s)
@@ -335,7 +388,11 @@ def draw(session, exam, eyes, compare, text):
         for j, t in enumerate(tests):
             ax = fig.add_subplot(gs[i, j])
             d = r.get(t, {})
-            if t == "acuity":
+            if t == "flash":
+                _draw_flash(ax, d)
+                ttl = (f"{eye}: flash, {d['channel']} p {d['p']:.3f}" + ("" if d["responded"] else " (no response)")
+                       if d.get("ok") else f"{eye}: flash, not scored")
+            elif t == "acuity":
                 _draw_curve(ax, d, "sizes", "bar width (arcmin)", invert=True, logbase=math.e)
                 ttl = (f"{eye}: acuity, below the finest bar shown" if d.get("ok") and d.get("beyond_range")
                        else f"{eye}: acuity, threshold {d['threshold']:.1f}' ({d['snellen']} eq.)"
@@ -381,10 +438,11 @@ def draw(session, exam, eyes, compare, text):
             ax.axis("off")
             ax.text(0, 1, textwrap.fill(compare_text(c), 70), va="top", fontsize=7.5, linespacing=1.4)
     fig.text(0.07, 0.45 / height, textwrap.fill(
-        "Response amplitudes at the flicker frequency and its double from one EEG channel, "
-        "noise-corrected, against the test's OFF blocks; open markers: not significant (p >= 0.05, "
-        "exact permutation). Thresholds by linear extrapolation of the limb that falls to the noise "
-        "floor, to zero amplitude (sweep-VEP rule). Not a clinical diagnosis.", int(width * 13)),
+        "Response amplitudes at the flicker frequency and its double from one EEG channel (the eye's "
+        "reference: the full-field flash's channel), noise-corrected, against the test's OFF blocks; "
+        "open markers: not significant (p >= 0.05, exact permutation). Thresholds by linear "
+        "extrapolation of the limb that falls to the noise floor, to zero amplitude (sweep-VEP rule). "
+        "Not a clinical diagnosis.", int(width * 13)),
         fontsize=6.5, color="#555", va="top", linespacing=1.3)
     pdf = os.path.join(session, "exam_report.pdf")
     fig.savefig(pdf)
@@ -426,6 +484,39 @@ def _draw_curve(ax, d, xkey, xlabel, invert, logbase):
         ax.invert_xaxis()
     ax.set_xlabel(xlabel); ax.set_ylabel("response amplitude (a.u.)")
     ax.legend(fontsize=6, frameon=False, loc="upper right")
+    ax.spines[["top", "right"]].set_visible(False)
+
+
+def _draw_flash(ax, d):
+    """Per channel: the full-field flash's ON amplitude (bars) and the OFF
+    amplitude (ticks); the reference channel filled, out-of-contact channels
+    hatched."""
+    if not d.get("ok"):
+        ax.text(0.5, 0.5, d.get("reason", "not run"), ha="center", va="center",
+                transform=ax.transAxes, fontsize=7)
+        ax.set_xticks([]); ax.set_yticks([])
+        return
+    names = list(d["amps_ch"].keys())
+    on = np.array([d["amps_ch"][n] if d["amps_ch"][n] is not None else 0.0 for n in names], float)
+    off = np.array([d["off_amps"].get(n) if d["off_amps"].get(n) is not None else np.nan for n in names], float)
+    x = np.arange(len(names))
+    bars = ax.bar(x, on, width=0.6, color="#1f4e79", alpha=0.35)
+    for n, b in zip(names, bars):
+        if n == d.get("channel") and d["responded"]:
+            b.set_alpha(1.0)
+        elif d.get("channel_p", {}).get(n, 1.0) < ALPHA:
+            b.set_alpha(0.6)
+        if n in d.get("dead", []):
+            b.set_hatch("///"); b.set_alpha(0.25)
+    ax.plot(x, off, "_", color="#c0392b", ms=14, mew=1.5, label="OFF blocks")
+    labels = []
+    for n in names:
+        rms = d.get("rms_uv", {}).get(n)
+        labels.append(n + (f"\n{rms:.0f} uV" if rms is not None else ""))
+    ax.set_xticks(x); ax.set_xticklabels(labels, fontsize=6.5)
+    ax.set_ylabel("flash amplitude (a.u.)")
+    ax.set_ylim(0, max(float(np.nanmax(on)) if np.isfinite(on).any() else 1.0, 1e-6) * 1.25)
+    ax.legend(fontsize=6, frameon=False, loc="upper left")
     ax.spines[["top", "right"]].set_visible(False)
 
 
@@ -477,14 +568,26 @@ def run(session):
     for eye in exam["eyes"]:
         res = exam["results"].get(eye, {})
         r = {}
+        ref_amp = None
+        if "flash" in exam["tests"]:
+            r["flash"] = read_flash(res.get("flash"))
+            if r["flash"]["responded"]:
+                ref_amp = float(r["flash"]["amp"])
         if "acuity" in exam["tests"]:
             r["acuity"] = read_acuity(res.get("acuity"))
+            _rel_flash(r["acuity"], ref_amp, "amps")
         if "contrast" in exam["tests"]:
             r["contrast"] = read_contrast(res.get("contrast"))
+            _rel_flash(r["contrast"], ref_amp, "amps")
         if "field" in exam["tests"]:
             r["field"] = read_field(res.get("field"))
+            _rel_flash(r["field"], ref_amp, "amp")
+            if "amp_rel_flash" in r["field"]:
+                r["field"]["rel_flash"] = r["field"].pop("amp_rel_flash")
         if "colour" in exam["tests"]:
             r["colour"] = read_colour(res.get("colour"))
+            _rel_flash(r["colour"], ref_amp, "amps")
+        r["ref_amp"] = ref_amp
         # electrodes the scorer set aside as out of contact, with their rms (the worst test)
         dead = {}
         for st in res.values():

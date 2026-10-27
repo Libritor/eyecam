@@ -3,6 +3,29 @@
 Written 2026-10-06. Branch `colour` (= `all-on-pc` + Khalil's smooth colour +
 Minu's analysis, merged; see README "Colour beyond black, white and blue").
 
+## Eye exam, next sitting (written 2026-10-27, after the null sitting)
+
+The exam was rebuilt on what the camera runs taught (docs/EXAM.md, "What the
+eye-as-a-camera runs changed"): every stimulus fills the window, each eye
+opens with the full-window white/black flash (the camera's calibration
+stimulus) which must respond (p < 0.05) before the rest is read and which
+sets the eye's reference channel and amplitude, the gratings swap their bars
+at 12 Hz (pattern reversal) instead of fading to grey, the field is four
+quadrants. Phantom gate: `python exam_gate.py` (16 checks, about 14 min).
+
+1. Wet the Oz cup, press both ear pads in under the strap, then check the
+   page's electrode badges; the driver measures every channel before each
+   eye and asks for a fix above 60 uV.
+2. `.\quest_run.ps1 -Run exam -Ppd 20` (right eye, then left, about 14 min).
+   The first screen is the flash; if it says NO RESPONSE TO THE FLASH, fix
+   the electrodes and pull the trigger (it retries twice). Without a flash
+   response the finer tests are not the eye's.
+3. Report: `runs/vr_exam<n>/exam_report.pdf`; `python exam.py runs/vr_exam<n>`
+   re-scores; `python exam.py merge ...` joins eyes from two sittings.
+4. Still open: the Quest browser's pixels per degree (`-Ppd`) for absolute
+   arcmin; the inter-eye comparison does not need it. `--exam-style onset`
+   runs the old grating for a same-sitting comparison if there is time.
+
 ## Tomorrow (2026-10-11): three runs, one launcher
 
 Everything below is phantom-checked. Laptop on mains, Quest on the USB

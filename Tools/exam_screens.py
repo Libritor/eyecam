@@ -29,9 +29,10 @@ def main():
     shutil.rmtree(os.path.join(ROOT, session), ignore_errors=True)
     os.makedirs(os.path.join(ROOT, session))
     cmd = [sys.executable, "xr_session.py", "--mode", "exam", "--exam-eye", "right",
-           "--exam-tests", "acuity,contrast,field,colour", "--exam-sizes", "40,10,4",
-           "--exam-contrasts", "1,0.12", "--exam-field", "4x4", "--exam-on", "2", "--exam-off", "1",
-           "--exam-reps", "1", "--freq", "15", "--exam-ppd", "30", "--session", session,
+           "--exam-tests", "flash,acuity,contrast,field,colour", "--exam-sizes", "40,10,4",
+           "--exam-contrasts", "1,0.12", "--exam-on", "2", "--exam-off", "1",
+           "--exam-reps", "1", "--exam-flash", "1", "--freq", "15", "--exam-ppd", "30",
+           "--session", session,
            "--http-port", str(HTTP), "--osc-port", str(OSC), "--spectator", "",
            "--signal-timeout", "120", "--linger", "1"]
     procs = []

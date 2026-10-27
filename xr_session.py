@@ -2129,14 +2129,18 @@ class Driver:
                 for c in range(min(width, len(names)))}
 
     async def run_exam(self, result, recorder):
-        """Objective eye exam (exam.py): per eye, pattern onset/offset
-        gratings shrinking in bar width (acuity) and falling in contrast
-        (contrast), one flickering sector at a time around the fixation dot
-        (field) and the three colour planes (colour), each as ON/OFF blocks at
-        the session frequency. Every step is scored against the test's OFF
-        blocks by the exact-line detector and an exact permutation test, with
-        its response phase against the logged flicker edges; the thresholds
-        are fitted by analysis/exam_readout.py, which also draws the report."""
+        """Objective eye exam (exam.py): per eye, the whole window flickering
+        white/black (flash: the camera's full-field calibration stimulus, the
+        eye's reference and the gate that a response exists at all), pattern
+        reversal gratings shrinking in bar width (acuity) and falling in
+        contrast (contrast), one flickering quadrant at a time around the
+        fixation dot (field) and the three colour planes (colour), each as
+        ON/OFF blocks at the session frequency over the whole window. Every
+        step is scored against the test's OFF blocks by the exact-line
+        detector and an exact permutation test, with its amplitude on the
+        eye's reference channel and its phase against the logged flicker
+        edges; the thresholds are fitted by analysis/exam_readout.py, which
+        also draws the report."""
         import exam
         a = self.args
         eyes = [e.strip() for e in str(a.exam_eye).split(",") if e.strip()]
@@ -2145,13 +2149,16 @@ class Driver:
         if bad or not eyes or not tests:
             raise ValueError(f"--exam-eye / --exam-tests: unknown {bad}; eyes {exam.EYES}, "
                              f"tests {exam.TESTS}")
+        tests = [t for t in exam.TESTS if t in tests]      # the flash first: it sets the reference
         plan = exam.plan(a)
         out = dict(eyes=eyes, tests=tests, freq=a.freq, ppd=a.exam_ppd, on_s=a.exam_on,
-                   off_s=a.exam_off, reps=a.exam_reps, patch_side=a.exam_patch,
+                   off_s=a.exam_off, reps=a.exam_reps, flash_pairs=a.exam_flash,
+                   style=a.exam_style, patch_side=a.exam_patch,
                    gamma=exam.DISPLAY_GAMMA, results={e: {} for e in eyes}, delivery={},
-                   contact={})
+                   contact={}, flash_attempts={})
         path = os.path.join(self.session, "exam.json")
         for eye in eyes:
+            ref_ch = None
             # contact check before the eye's first test: an electrode that is
             # loose under the headset strap gives the detector nothing to find
             # (vr_exam1: both ears at 100-280 uV rms for the whole sitting, and
@@ -2177,37 +2184,66 @@ class Driver:
                 await self.wait_for("go", timeout=a.signal_timeout)
             for ti, test in enumerate(tests):
                 steps = plan[test]
+                reps = exam.reps(a, test)
                 log = f"exam_{eye}_{test}_log.csv"
-                self.blocks, self.block_hz, self.block_cls, self.block_meta = [], [], [], []
-                self.spectate(type="stage", stage="exam", detail=f"{eye} {test}")
-                n_blocks = len(steps) * a.exam_reps
-                dur = n_blocks * (a.exam_on + a.exam_off)
-                print(f"exam: {eye} eye, {test}: {len(steps)} steps x {a.exam_reps}, "
-                      f"{a.exam_on:g} s on / {a.exam_off:g} s off ({dur / 60:.1f} min)")
-                self.open_log(log, extra=exam.LOG_EXTRA)
-                await self.send(cmd="start_exam", eye=eye, test=test, steps=steps,
-                                onS=a.exam_on, offS=a.exam_off, reps=a.exam_reps,
-                                freq=a.freq, ppd=a.exam_ppd, patchSide=a.exam_patch,
-                                intro=(ti == 0),
-                                label=f"EYE EXAM: {eye.upper()} - {test.upper()}")
-                await self.wait_for("exam_done", timeout=dur + a.signal_timeout + 120)
-                self.close_log()
-                await asyncio.sleep(0.7)
-                g0 = self.delivery_check(log, dur)
-                out["delivery"][f"{eye}/{test}"] = g0
-                if not g0["ok"]:
-                    print(f"STIMULUS NOT DELIVERED ({eye} {test}): " + g0["reason"])
-                try:
-                    res = exam.score_stage(self.session, self.blocks, self.block_hz,
-                                           self.block_meta, log, test, eye=eye)
-                except Exception as exc:
-                    print(f"{eye} {test}: scoring failed: {exc!r}")
-                    res = dict(test=test, eye=eye, ok=False, reason=repr(exc), steps=[])
-                res["delivery"] = g0
-                out["results"][eye][test] = res
-                with open(path, "w") as f:      # after every test: a crash keeps the rest
-                    json.dump(out, f, indent=1)
-                print(exam.describe_stage(res))
+                # the flash is tried again (after an electrode check on the
+                # headset) when it gives no response: without a full-field
+                # response the finer tests cannot have one either
+                for attempt in range(3 if test == "flash" else 1):
+                    self.blocks, self.block_hz, self.block_cls, self.block_meta = [], [], [], []
+                    self.spectate(type="stage", stage="exam", detail=f"{eye} {test}")
+                    n_blocks = len(steps) * reps
+                    dur = n_blocks * (a.exam_on + a.exam_off)
+                    print(f"exam: {eye} eye, {test}: {len(steps)} steps x {reps}, "
+                          f"{a.exam_on:g} s on / {a.exam_off:g} s off ({dur / 60:.1f} min)")
+                    self.open_log(log, extra=exam.LOG_EXTRA)
+                    await self.send(cmd="start_exam", eye=eye, test=test, steps=steps,
+                                    onS=a.exam_on, offS=a.exam_off, reps=reps,
+                                    freq=a.freq, ppd=a.exam_ppd, patchSide=a.exam_patch,
+                                    style=a.exam_style, intro=(ti == 0 and attempt == 0),
+                                    label=f"EYE EXAM: {eye.upper()} - {test.upper()}")
+                    await self.wait_for("exam_done", timeout=dur + a.signal_timeout + 120)
+                    self.close_log()
+                    await asyncio.sleep(0.7)
+                    g0 = self.delivery_check(log, dur)
+                    out["delivery"][f"{eye}/{test}"] = g0
+                    if not g0["ok"]:
+                        print(f"STIMULUS NOT DELIVERED ({eye} {test}): " + g0["reason"])
+                    try:
+                        res = exam.score_stage(self.session, self.blocks, self.block_hz,
+                                               self.block_meta, log, test, eye=eye, ref_ch=ref_ch)
+                    except Exception as exc:
+                        print(f"{eye} {test}: scoring failed: {exc!r}")
+                        res = dict(test=test, eye=eye, ok=False, reason=repr(exc), steps=[])
+                    res["delivery"] = g0
+                    out["results"][eye][test] = res
+                    with open(path, "w") as f:      # after every test: a crash keeps the rest
+                        json.dump(out, f, indent=1)
+                    print(exam.describe_stage(res))
+                    if test != "flash":
+                        break
+                    ref_ch, ref_amp = exam.reference(res)
+                    p = res["steps"][0]["p"] if res.get("ok") and res.get("steps") else None
+                    out["flash_attempts"].setdefault(eye, []).append(
+                        dict(p=p, channel=res.get("channel"), amp=ref_amp, rms_uv=res.get("rms_uv")))
+                    if ref_ch is not None:
+                        print(f"{eye} eye: flash response on {ref_ch} (p {p:.3f}), the reference "
+                              f"for this eye's tests")
+                        break
+                    ptxt = f"p {p:.2f}" if p is not None else res.get("reason", "not scored")
+                    if self.auto or attempt == 2:
+                        print(f"WARNING: {eye} eye: no response to the full-field flash ({ptxt}); "
+                              "going on without a reference")
+                        break
+                    print(f"{eye} eye: no response to the full-field flash ({ptxt}) - asking for "
+                          "an electrode check and trying again")
+                    self.spectate(type="log", msg=f"{eye}: no flash response ({ptxt})")
+                    await self.send(cmd="arm", title="NO RESPONSE TO THE FLASH", warn=True,
+                                    text=f"the full-field flicker gave no EEG response ({ptxt}). "
+                                         "Wet the top electrode and press it to the scalp, press "
+                                         "the ear pads in, keep the eyes on the dot, then pull the "
+                                         "trigger to try the flash again")
+                    await self.wait_for("go", timeout=a.signal_timeout)
         summary, text = {}, ""
         try:
             sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -2430,23 +2466,35 @@ async def main():
     ap.add_argument("--exam-eye", default="right,left",
                     help="--mode exam: the eye(s) tested, in order (right, left, both); "
                          "the other eye is covered by the subject")
-    ap.add_argument("--exam-tests", default="acuity,contrast,field,colour")
+    ap.add_argument("--exam-tests", default="flash,acuity,contrast,field,colour",
+                    help="exam: the tests, run in this fixed order (the flash first: "
+                         "it is the eye's reference)")
+    ap.add_argument("--exam-style", default="reversal", choices=["reversal", "onset"],
+                    help="exam: the grating tests' pattern: reversal = the bars swap "
+                         "places at the flicker rate (every bar swings black/white like "
+                         "the flash, the mean never changes); onset = the grating comes "
+                         "and goes on a same-mean grey")
+    ap.add_argument("--exam-flash", type=int, default=5,
+                    help="exam: ON/OFF pairs of the full-field flash (5 + 5 blocks let the "
+                         "exact permutation test reach p = 0.004)")
     ap.add_argument("--exam-sizes", default="40,28,20,14,10,7,5,3.5",
                     help="acuity: grating bar widths in arcmin, coarse to fine")
     ap.add_argument("--exam-contrasts", default="1,0.5,0.25,0.12,0.06,0.03",
                     help="contrast: Michelson contrasts of the grating")
     ap.add_argument("--exam-contrast-size", type=float, default=20.0,
                     help="contrast: bar width of the grating, arcmin")
-    ap.add_argument("--exam-field", default="4x4",
-                    help="field: sectors across x down over the patch")
+    ap.add_argument("--exam-field", default="2x2",
+                    help="field: sectors across x down over the window (2x2 = quadrants, "
+                         "each a quarter of the window around the fixation dot)")
     ap.add_argument("--exam-on", type=float, default=4.0, help="exam: ON block, s")
     ap.add_argument("--exam-off", type=float, default=4.0, help="exam: OFF block, s")
     ap.add_argument("--exam-reps", type=int, default=2, help="exam: ON/OFF pairs per step")
     ap.add_argument("--exam-ppd", type=float, default=30.0,
                     help="exam: the display's CSS pixels per degree of visual angle; "
                          "sets the arcmin scale of the gratings (measure it for the headset)")
-    ap.add_argument("--exam-patch", type=float, default=0.6,
-                    help="exam: test patch side as a fraction of the short screen side")
+    ap.add_argument("--exam-patch", type=float, default=1.0,
+                    help="exam: test patch side as a fraction of the short screen side; "
+                         "1 = the whole window (the response grows with the area)")
     ap.add_argument("--page-token", default="",
                     help="only pages opened with ?k=<token> may drive the "
                          "session (stale tabs on other devices are ignored)")

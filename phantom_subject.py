@@ -75,7 +75,7 @@ LATENCY = 0.12             # visual pathway delay of the phase-locked response (
 ACUITY_W = 0.25
 CONTRAST_W = 0.35
 EXAM_LOGS = tuple(f"exam_{e}_{t}_log.csv" for e in ("right", "left", "both")
-                  for t in ("acuity", "contrast", "field", "colour"))
+                  for t in ("flash", "acuity", "contrast", "field", "colour"))
 
 
 def logistic(u, w):

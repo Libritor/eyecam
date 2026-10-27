@@ -1,25 +1,42 @@
 """Objective eye exam from the EEG: the plan of each test and the scoring of
 its blocks (xr_session.py --mode exam).
 
-The page (xr_stimulus.html, runExam) shows, per eye, four tests as ON/OFF
-blocks at the session's flicker frequency with the eyes on the centre dot:
+The page (xr_stimulus.html, runExam) shows, per eye, five tests as ON/OFF
+blocks at the session's flicker frequency with the eyes on the centre dot,
+each over the whole window (what the eye-as-a-camera runs taught: the flash
+response grows with the flickering area around the fixation, and a small
+patch gives a line under the noise):
 
-  acuity    a vertical black/white grating appearing and disappearing on a grey
-            of the same mean luminance (pattern onset/offset), its bar width
-            shrinking step by step (arcmin, set by --exam-sizes and --exam-ppd)
+  flash     the whole window flickering white/black: the full-field flicker the
+            camera's calibration uses, the strongest response the rig gives;
+            it is the eye's reference (the channel and the amplitude every
+            other test is read against) and the gate that the electrodes and
+            the display deliver at all
+  acuity    a vertical black/white grating whose bars swap places at the
+            flicker rate (pattern reversal): every bar location swings
+            black-white like the flash, the mean luminance never changes, and
+            nothing swings once the bars are too fine to resolve; its bar
+            width shrinks step by step (arcmin, set by --exam-sizes and
+            --exam-ppd). --exam-style onset gives the older pattern
+            onset/offset grating on a same-mean grey instead.
   contrast  the same grating at one bar width, its contrast falling step by step
-  field     one sector of a grid over the patch flickering white/black at a time
-  colour    the whole patch flickering red, green or blue against black
+  field     one sector of a grid over the window flickering white/black at a
+            time (2x2 quadrants by default, each a quarter of the window)
+  colour    the whole window flickering red, green or blue against black
 
 The driver logs every frame (exam_<eye>_<test>_log.csv, the usual columns plus
-size, contrast, plane) and every block edge with the page's description of the
-step, then calls score_stage() on each test: for every step, how much of the
-flicker frequency (and its double) the EEG carries during that step's ON blocks
-against the test's OFF blocks, by the exact-line periodogram and an exact
-permutation test over the ON/OFF labels, plus the noise-corrected amplitude on
-the test's best channel and the phase of the response against the logged
-flicker edges. The thresholds are fitted afterwards by
-analysis/exam_readout.py, which also draws the report.
+size, contrast, plane; in a reversal block the flicker column marks the frames
+on which the bars swapped, so the logged edges are the reversals) and every
+block edge with the page's description of the step, then calls score_stage()
+on each test: for every step, how much of the flicker frequency (and its
+double) the EEG carries during that step's ON blocks against the test's OFF
+blocks, by the exact-line periodogram and an exact permutation test over the
+ON/OFF labels, plus the noise-corrected amplitude on the eye's reference
+channel (the flash test's best channel when the flash responded, else the
+test's own best) and the phase of the response against the logged flicker
+edges. The thresholds are fitted afterwards by analysis/exam_readout.py,
+which also draws the report and gives every amplitude relative to the eye's
+flash.
 
 Everything here is a response amplitude and its statistics. Nothing here is a
 diagnosis.
@@ -43,12 +60,14 @@ from scipy.signal import periodogram
 import reconstruct
 
 CH_NAMES = ["TP9", "AF7", "AF8", "TP10"]
-TESTS = ["acuity", "contrast", "field", "colour"]
+TESTS = ["flash", "acuity", "contrast", "field", "colour"]
 EYES = ["right", "left", "both"]
+STYLES = ["reversal", "onset"]              # the grating tests' temporal pattern
 LOG_EXTRA = ("size", "contrast", "plane")   # columns appended to the frame log
 DISPLAY_GAMMA = 2.2                         # the page's grey and contrast scale
 DISCARD_S = 0.5                             # dropped from every block start
 MAX_RMS_UV = 60.0                           # a channel above this for a whole test is out of contact
+FLASH_P = 0.05                              # the flash counts as a response below this
 
 
 def csv_header(path):
@@ -67,12 +86,33 @@ def plan(a):
     cols, rows = [int(v) for v in str(a.exam_field).lower().split("x")]
     if not sizes or not contrasts or cols < 1 or rows < 1:
         raise ValueError("--exam-sizes, --exam-contrasts and --exam-field must not be empty")
+    if getattr(a, "exam_style", "reversal") not in STYLES:
+        raise ValueError(f"--exam-style: one of {STYLES}")
     return {
+        "flash": [dict(flash=1)],
         "acuity": [dict(size=s, contrast=1.0) for s in sizes],
         "contrast": [dict(size=float(a.exam_contrast_size), contrast=c) for c in contrasts],
         "field": [dict(sector=i, cols=cols, rows=rows) for i in range(cols * rows)],
         "colour": [dict(plane=k) for k in range(3)],
     }
+
+
+def reps(a, test):
+    """ON/OFF pairs per step: the flash has one step and gets --exam-flash
+    pairs (an exact permutation test over 5 + 5 blocks reaches p = 0.004;
+    4 + 4 floors at 0.014), every other test --exam-reps per step."""
+    return int(getattr(a, "exam_flash", 5)) if test == "flash" else int(a.exam_reps)
+
+
+def reference(flash_res):
+    """The eye's reference from its scored flash test: (channel, amplitude)
+    when the flash responded (p < FLASH_P), else (None, None)."""
+    if not flash_res or not flash_res.get("ok") or not flash_res.get("steps"):
+        return None, None
+    s = flash_res["steps"][0]
+    if s.get("p") is None or s["p"] >= FLASH_P or s.get("amp") is None:
+        return None, None
+    return flash_res.get("channel"), float(s["amp"])
 
 
 def _envelope_clock(t, fs):
@@ -130,10 +170,12 @@ def _perm_p(V, ons):
     return obs, best_c, float(np.mean(null >= obs - 1e-12)), len(null)
 
 
-def score_stage(session, blocks, hzs, metas, log_name, test, eye=""):
+def score_stage(session, blocks, hzs, metas, log_name, test, eye="", ref_ch=None):
     """Per step of one test: ON blocks of that step against all OFF blocks of
     the test. blocks [(kind, t0, t1)], hzs the page's frequency per block,
-    metas the page's step description per block (dict or None)."""
+    metas the page's step description per block (dict or None). ref_ch: the
+    eye's reference channel (the flash test's) for the amplitudes and phases;
+    without one, or with it out of contact, the test's own best channel."""
     path = os.path.join(session, "eeg.csv")
     names = csv_header(path) or CH_NAMES
     E = np.genfromtxt(path, delimiter=",", skip_header=1)
@@ -197,13 +239,29 @@ def score_stage(session, blocks, hzs, metas, log_name, test, eye=""):
     on = np.array([s["kind"] == "on" for s in segs])
     step_of = np.array([int(s["meta"].get("step", -1)) if s["kind"] == "on" else -1
                         for s in segs])
-    # the test's channel: the largest ON-OFF difference of the stat over every step
+    # the test's own channel: the largest median ON amplitude among the
+    # channels whose own ON/OFF difference of the stat is significant (exact
+    # permutation per channel); the stat is a log SNR, which saturates on a
+    # strong response and scatters around zero in OFF blocks, so its ON-OFF
+    # difference alone picked an ear over a 1.5x stronger Oz on the phantom.
+    # Without any significant channel: the largest ON-OFF difference of the stat.
     diff_all = V[on].mean(0) - V[~on].mean(0)
     diff_all[dead] = -np.inf
     if not np.isfinite(diff_all).any():
         return dict(test=test, eye=eye, ok=False, reason="every channel out of contact",
                     steps=[], dead=[names[c] for c in range(nch) if dead[c]])
-    ch = int(np.argmax(diff_all))
+    ch_p = np.ones(nch)
+    for c in range(nch):
+        if not dead[c]:
+            ch_p[c] = _perm_p(V[:, [c]], on)[2]
+    amp_on = np.array([np.nanmedian(A[on, c]) if np.isfinite(A[on, c]).any() else -np.inf
+                       for c in range(nch)])
+    amp_on[dead] = -np.inf
+    sig = (ch_p < 0.05) & ~dead
+    best_ch = int(np.argmax(np.where(sig, amp_on, -np.inf))) if sig.any() else int(np.argmax(diff_all))
+    ch = best_ch
+    if ref_ch in names and not dead[names.index(ref_ch)]:
+        ch = names.index(ref_ch)
     out_steps = []
     for st in sorted(set(step_of[on])):
         m_on = on & (step_of == st)
@@ -237,6 +295,12 @@ def score_stage(session, blocks, hzs, metas, log_name, test, eye=""):
     off_amps = {names[c]: (float(np.nanmedian(A[~on, c])) if np.isfinite(A[~on, c]).any()
                            else None) for c in range(nch)}
     return dict(test=test, eye=eye, ok=True, names=names, channel=names[ch],
+                channel_best=names[best_ch],
+                channel_p={names[c]: float(ch_p[c]) for c in range(nch)},
+                channel_amp_on={names[c]: (float(amp_on[c]) if np.isfinite(amp_on[c]) else None)
+                                for c in range(nch)},
+                reference=ref_ch if (ref_ch in names and ch == names.index(ref_ch)) else None,
+                style=next((m.get("style") for m in metas if m and m.get("style")), None),
                 freq=f_del, freq_requested=f_req, fs=float(fs),
                 segment_s=float(n_min / fs), n_on=int(on.sum()), n_off=int((~on).sum()),
                 noise_amp=off_amps[names[ch]], off_amps=off_amps, steps=out_steps,
@@ -254,16 +318,21 @@ def rescore(session):
     with open(path) as f:
         out = json.load(f)
     for eye, tests in out["results"].items():
-        for test, res in tests.items():
+        ref_ch = None
+        for test in [t for t in TESTS if t in tests]:    # the flash first: it sets the reference
+            res = tests[test]
             if not res.get("blocks"):
                 print(f"{eye} {test}: no blocks stored, left as it was")
                 continue
             bl = [(b[0], b[1], b[2]) for b in res["blocks"]]
             hz = [b[3] for b in res["blocks"]]
             meta = [b[4] for b in res["blocks"]]
-            new = score_stage(session, bl, hz, meta, f"exam_{eye}_{test}_log.csv", test, eye=eye)
+            new = score_stage(session, bl, hz, meta, f"exam_{eye}_{test}_log.csv", test, eye=eye,
+                              ref_ch=ref_ch)
             new["delivery"] = res.get("delivery")
             tests[test] = new
+            if test == "flash":
+                ref_ch, _ = reference(new)
             print(describe_stage(new))
     with open(path, "w") as f:
         json.dump(out, f, indent=1)
@@ -275,6 +344,8 @@ def rescore(session):
 
 def step_label(meta, test=None):
     test = test or meta.get("test")
+    if test == "flash":
+        return "flash"
     if test == "acuity":
         return f"{meta.get('size', 0):.3g}'"
     if test == "contrast":
@@ -294,7 +365,9 @@ def describe_stage(res):
     for s in res["steps"]:
         amp = f"{s['amp']:.2f}" if s["amp"] is not None else "-"
         cells.append(f"{step_label(s['meta'], res['test'])} {amp} p{s['p']:.3f}")
-    return (f"{res['eye']} {res['test']}: {res['channel']} at {res['freq']:.2f} Hz, "
+    ch = res["channel"] + (f" (reference; own best {res['channel_best']})"
+                           if res.get("channel_best") and res["channel_best"] != res["channel"] else "")
+    return (f"{res['eye']} {res['test']}: {ch} at {res['freq']:.2f} Hz, "
             f"noise {res['noise_amp'] if res['noise_amp'] is None else round(res['noise_amp'], 2)}; "
             + " | ".join(cells))
 

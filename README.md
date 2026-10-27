@@ -874,15 +874,21 @@ the scoring so the response to the sound starting and stopping does not count.
 ## Eye exam (acuity, contrast, field and colour, per eye)
 
 `xr_session.py --mode exam` uses the same rig as an objective eye test: with one
-eye covered and the other on the dot, a grating appears and disappears on a grey
-of the same mean luminance at the flicker frequency while its bars get finer
-(acuity) or fainter (contrast), one sector of a 4x4 grid flickers at a time
-(field), and the patch flickers red, green and blue (colour). Every step is
-scored against the test's OFF blocks by the exact-line detector and an exact
-permutation test; the acuity and contrast thresholds come from a line through
-the rising limb of amplitude against log bar width or log contrast,
-extrapolated to zero (the sweep-VEP rule); the field reports amplitude and
-phase per sector and, with both eyes, their ratio and difference. The report is
+eye covered and the other on the dot, the whole window flickers white/black
+first (the flash: the camera's calibration stimulus, the eye's reference and
+the proof that a response exists at all), then a black/white grating swaps its
+bars at the flicker rate (pattern reversal: every resolved bar swings like the
+flash, the mean never changes) while the bars get finer (acuity) or fainter
+(contrast), one quadrant of the window flickers at a time (field), and the
+window flickers red, green and blue (colour). Every stimulus fills the window
+because the camera runs showed the response grows with the flickering area and
+a small square gives nothing. Every step is scored against the test's OFF
+blocks by the exact-line detector and an exact permutation test, on the
+channel the flash responded on; the acuity and contrast thresholds come from a
+line through the rising limb of amplitude against log bar width or log
+contrast, extrapolated to zero (the sweep-VEP rule); the field reports
+amplitude and phase per quadrant and, with both eyes, their ratio and
+difference, also with each eye over its own flash. The report is
 `runs/<session>/exam_report.pdf`. `python exam_gate.py` runs the whole stack
 against a phantom whose eyes have set cut-offs and a dead sector;
 `.\quest_run.ps1 -Run exam -Ppd <px/deg>` runs it on the headset. The arcmin

@@ -448,22 +448,33 @@ async function runSweep(m) {
   send({ type: "sweep_done" });
 }
 // ---- eye exam (xr_session.py --mode exam, exam.py) ----
-// Four tests per eye as ON/OFF blocks at the session frequency, eyes on the
-// centre dot: a grating appearing and disappearing on a grey of the same mean
-// (pattern onset/offset) with its bar width shrinking (acuity) or its contrast
-// falling (contrast); one sector of a grid flickering white/black (field); the
-// patch flickering red, green or blue against black (colour). Every block
-// carries the step's description back (meta), every frame the size, contrast
-// and plane shown, so the scorer and the phantom see what was on screen. Bar
-// widths are rounded to whole device pixels and the width delivered is reported.
+// Five tests per eye as ON/OFF blocks at the session frequency, eyes on the
+// centre dot, over the whole window (the lesson of the eye-as-a-camera runs:
+// the flash response grows with the area around the fixation, a small patch
+// gives a line under the noise): the whole window flickering white/black
+// (flash: the same full-field flicker the calibration of the camera uses, the
+// reference every other test is read against); a black/white grating whose
+// bars swap places at the flicker rate (pattern reversal: every bar location
+// swings black-white like the flash, the mean never changes, and nothing
+// swings once the bars are too fine to resolve) with its bar width shrinking
+// (acuity) or its contrast falling (contrast); one sector of a grid flickering
+// white/black (field); the window flickering red, green or blue against black
+// (colour). `style: "onset"` gives the older pattern onset/offset grating
+// (grating / same-mean grey alternating). Every block carries the step's
+// description back (meta), every frame the size, contrast and plane shown, so
+// the scorer and the phantom see what was on screen; in a reversal block the
+// flicker column marks the frames on which the bars swapped, so the logged
+// edges are the reversals (the events the response locks to). Bar widths are
+// rounded to whole device pixels and the width delivered is reported.
 const EXAM_GAMMA = 2.2;
 const examByte = L => Math.round(255 * Math.pow(Math.max(0, Math.min(1, L)), 1 / EXAM_GAMMA));
-function gratingCanvas(side, stripePx, contrast) {
+function gratingCanvas(w, h, stripePx, contrast, shift = 0) {
+  // a vertical grating w x h; shift = 1 starts with the dark bar (the other phase)
   const off = document.createElement("canvas");
-  off.width = off.height = Math.max(1, Math.round(side));
+  off.width = Math.max(1, Math.round(w)); off.height = Math.max(1, Math.round(h));
   const c = off.getContext("2d");
   const hi = examByte(0.5 * (1 + contrast)), lo = examByte(0.5 * (1 - contrast));
-  for (let x = 0, i = 0; x < off.width; x += stripePx, i++) {
+  for (let x = 0, i = shift; x < off.width; x += stripePx, i++) {
     const v = i % 2 ? lo : hi;
     c.fillStyle = `rgb(${v},${v},${v})`; c.fillRect(x, 0, stripePx, off.height);
   }
@@ -490,34 +501,43 @@ async function runExam(m) {
   }
   sub.textContent = "measuring display refresh…";
   const hz = await planFlicker(m.freq);
-  const side = Math.min(cv.width, cv.height) * (m.patchSide || 0.6);
-  const px0 = (cv.width - side) / 2, py0 = (cv.height - side) / 2;
+  // the patch: a square of patchSide x the short side, centred; 1 (the
+  // default) = the whole window, every pixel of the panel
+  const frac = m.patchSide == null ? 1 : m.patchSide;
+  const full = frac >= 1;
+  const pw = full ? cv.width : Math.min(cv.width, cv.height) * frac;
+  const ph = full ? cv.height : pw;
+  const px0 = (cv.width - pw) / 2, py0 = (cv.height - ph) / 2;
   const g = examByte(0.5), greyCss = `rgb(${g},${g},${g})`;
   const scale = (m.ppd || 30) * devicePixelRatio;        // device px per degree
   const toPx = arcmin => Math.max(1, Math.round(arcmin / 60 * scale));
   const toArcmin = px => px / scale * 60;
   const grating = m.test === "acuity" || m.test === "contrast";
+  const reversal = grating && (m.style || "reversal") === "reversal";
   const steps = m.steps.map((s, i) => {
     const o = Object.assign({ step: i, test: m.test, size: 0, sizePx: 0, contrast: 1,
                               sector: -1, plane: -1, cols: 1, rows: 1 }, s);
     if (grating) {
       o.contrast = s.contrast == null ? 1 : s.contrast;
       o.sizePx = toPx(s.size); o.size = toArcmin(o.sizePx);
-      o.canvas = gratingCanvas(side, o.sizePx, o.contrast);
+      o.canvas = gratingCanvas(pw, ph, o.sizePx, o.contrast, 0);
+      if (reversal) o.canvasB = gratingCanvas(pw, ph, o.sizePx, o.contrast, 1);
     }
     return o;
   });
   const PLANE_CSS = ["#ff0000", "#00ff00", "#0000ff"];
+  const style = grating ? (reversal ? "reversal" : "onset") : "flicker";
   let b = 0;
   const nBlocks = m.reps * steps.length;
   for (let r = 0; r < m.reps && running === tok; r++) {
     for (const s of steps) {
       if (running !== tok) break;
       const meta = { step: s.step, test: s.test, size: s.size, sizePx: s.sizePx,
-                     contrast: s.contrast, sector: s.sector, plane: s.plane, cols: s.cols, rows: s.rows };
+                     contrast: s.contrast, sector: s.sector, plane: s.plane, cols: s.cols, rows: s.rows,
+                     style, patchPx: [Math.round(pw), Math.round(ph)] };
       const what = m.test === "acuity" ? `bars ${s.size.toFixed(1)}' (${s.sizePx} px)`
         : m.test === "contrast" ? `contrast ${s.contrast}` : m.test === "field" ? `sector ${s.sector + 1}/${s.cols * s.rows}`
-        : ["red", "green", "blue"][s.plane];
+        : m.test === "colour" ? ["red", "green", "blue"][s.plane] : "full-field flash";
       for (const on of [true, false]) {
         frameCount = 0;
         send({ type: "block", b, on, phase: "start", hz, meta });
@@ -526,24 +546,35 @@ async function runExam(m) {
         // the phase origin is the first frame DRAWN (the other stages set it one
         // frame earlier and so open every block with a lone ON frame, which a
         // phase read-out would take for a flicker edge)
-        let first = true;
+        let first = true, lastPhase = -1;
         while (now() - t0 < dur && running === tok) {
           await frameTs(); frameCount++;
           if (first) { flickerT0 = lastTs / 1000; first = false; }
           const t = now();
-          const fl = on && flickerOn();
+          let fl = on && flickerOn();
           black();
-          if (grating) {
+          if (grating && reversal) {
+            // ON: the bars swap places once per flicker period (each phase lasts
+            // one period, so the swaps come at the session frequency); OFF: the
+            // same-mean grey alone. fl marks the frame of a swap.
+            if (on) {
+              const phase = Math.floor((lastTs / 1000 - flickerT0 + 0.5 / refreshHz) * hz) % 2;
+              ctx.drawImage(phase ? s.canvasB : s.canvas, px0, py0);
+              fl = phase !== lastPhase; lastPhase = phase;
+            } else { ctx.fillStyle = greyCss; ctx.fillRect(px0, py0, pw, ph); }
+          } else if (grating) {
             // ON: the grating on its own grey, alternating; OFF: the grey alone,
             // so the mean luminance never changes and only the pattern comes and goes
             if (fl) ctx.drawImage(s.canvas, px0, py0);
-            else { ctx.fillStyle = greyCss; ctx.fillRect(px0, py0, side, side); }
+            else { ctx.fillStyle = greyCss; ctx.fillRect(px0, py0, pw, ph); }
+          } else if (m.test === "flash" && fl) {
+            ctx.fillStyle = "#fff"; ctx.fillRect(px0, py0, pw, ph);
           } else if (m.test === "field" && fl) {
-            const cw = side / s.cols, ch = side / s.rows;
+            const cw = pw / s.cols, ch = ph / s.rows;
             ctx.fillStyle = "#fff";
             ctx.fillRect(px0 + (s.sector % s.cols) * cw, py0 + Math.floor(s.sector / s.cols) * ch, cw, ch);
           } else if (m.test === "colour" && fl) {
-            ctx.fillStyle = PLANE_CSS[s.plane]; ctx.fillRect(px0, py0, side, side);
+            ctx.fillStyle = PLANE_CSS[s.plane]; ctx.fillRect(px0, py0, pw, ph);
           }
           dot(cv.width / 2, cv.height / 2);
           send({ type: "frame", stage: "exam", pt: t, gx: on ? s.sector : -1, gy: -1,
