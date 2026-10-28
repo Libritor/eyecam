@@ -77,7 +77,13 @@ from scipy.signal import get_window, periodogram
 import reconstruct
 
 CH_NAMES = ["TP9", "AF7", "AF8", "TP10"]
-TESTS = ["flash", "temporal", "acuity", "contrast", "field", "colour"]
+TESTS = ["flash", "temporal", "acuity", "contrast", "field", "gaze", "colour"]
+# gaze: the whole window flickers while the fixation dot sits at the centre or
+# out toward an edge, so the stimulus falls on the retina to one side of the
+# fovea (looking left, the window lies in the right visual field, from the
+# fovea out to the window's far edge); offsets are fractions of the window's
+# width and height from the centre (the driver's --exam-gaze sets the size)
+GAZE_NAMES = ["centre", "up", "down", "left", "right"]
 MULTI_RATE = {"temporal"}                   # tests whose steps differ in flicker rate
 EYES = ["right", "left", "both"]
 STYLES = ["reversal", "onset"]              # the grating tests' temporal pattern
@@ -116,8 +122,19 @@ def plan(a):
         "acuity": [dict(size=s, contrast=1.0) for s in sizes],
         "contrast": [dict(size=float(a.exam_contrast_size), contrast=c) for c in contrasts],
         "field": [dict(sector=i, cols=cols, rows=rows) for i in range(cols * rows)],
+        "gaze": [dict(gaze=i, name=n, gx=x, gy=y) for i, (n, x, y) in enumerate(gaze_positions(a))],
         "colour": [dict(plane=k) for k in range(3)],
     }
+
+
+def gaze_positions(a):
+    """(name, x, y) of the fixation dot for the gaze test: the centre and four
+    offsets of --exam-gaze (fraction of the window's width / height; 0.42 puts
+    the dot at 84 % of the way from the centre to the edge), y down."""
+    g = float(getattr(a, "exam_gaze", 0.42))
+    if not 0 < g < 0.5:
+        raise ValueError("--exam-gaze: a fraction of the window between 0 and 0.5")
+    return [("centre", 0.0, 0.0), ("up", 0.0, -g), ("down", 0.0, g), ("left", -g, 0.0), ("right", g, 0.0)]
 
 
 def reps(a, test):
@@ -443,6 +460,8 @@ def step_label(meta, test=None):
         return f"c {meta.get('contrast', 0):.3g}"
     if test == "field":
         return f"s{int(meta.get('sector', -1))}"
+    if test == "gaze":
+        return f"looking {meta.get('name') or meta.get('gaze')}"
     if test == "colour":
         return ["red", "green", "blue"][int(meta.get("plane", 0))]
     return str(meta)

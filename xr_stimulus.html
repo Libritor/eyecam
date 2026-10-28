@@ -521,7 +521,7 @@ async function runExam(m) {
   const steps = m.steps.map((s, i) => {
     const o = Object.assign({ step: i, test: m.test, size: 0, sizePx: 0, contrast: 1,
                               sector: -1, plane: -1, rate: 0, hz: 0, skip: false,
-                              cols: 1, rows: 1 }, s);
+                              cols: 1, rows: 1, gaze: -1, gx: 0, gy: 0, name: "" }, s);
     if (grating) {
       o.contrast = s.contrast == null ? 1 : s.contrast;
       o.sizePx = toPx(s.size); o.size = toArcmin(o.sizePx);
@@ -551,11 +551,22 @@ async function runExam(m) {
       const meta = { step: s.step, test: s.test, size: s.size, sizePx: s.sizePx,
                      contrast: s.contrast, sector: s.sector, plane: s.plane, cols: s.cols, rows: s.rows,
                      rate: s.rate, hz: s.hz, halfFrames: sweep ? halfFrames : undefined,
+                     gaze: s.gaze, gx: s.gx, gy: s.gy, name: s.name,
                      style, patchPx: [Math.round(pw), Math.round(ph)] };
       const what = m.test === "acuity" ? `bars ${s.size.toFixed(1)}' (${s.sizePx} px)`
         : m.test === "contrast" ? `contrast ${s.contrast}` : m.test === "field" ? `sector ${s.sector + 1}/${s.cols * s.rows}`
         : m.test === "colour" ? ["red", "green", "blue"][s.plane]
+        : m.test === "gaze" ? `whole window, looking ${s.name}`
         : sweep ? `flash at ${hz.toFixed(1)} Hz` : "full-field flash";
+      // the fixation dot: the centre for every test but gaze, whose steps move it
+      const dx = cv.width / 2 + (s.gx || 0) * cv.width, dy = cv.height / 2 + (s.gy || 0) * cv.height;
+      if (m.test === "gaze") {
+        // the dot has moved: a moment for the eye to land on it before the block
+        sub.textContent = `${eye} eye, gaze: look at the dot (${s.name})`;
+        black(); dot(dx, dy);
+        await sleep(1200);
+        if (running !== tok) break;
+      }
       for (const on of [true, false]) {
         frameCount = 0;
         send({ type: "block", b, on, phase: "start", hz, meta });
@@ -585,7 +596,7 @@ async function runExam(m) {
             // so the mean luminance never changes and only the pattern comes and goes
             if (fl) ctx.drawImage(s.canvas, px0, py0);
             else { ctx.fillStyle = greyCss; ctx.fillRect(px0, py0, pw, ph); }
-          } else if ((m.test === "flash" || sweep) && fl) {
+          } else if ((m.test === "flash" || sweep || m.test === "gaze") && fl) {
             ctx.fillStyle = "#fff"; ctx.fillRect(px0, py0, pw, ph);
           } else if (m.test === "field" && fl) {
             const cw = pw / s.cols, ch = ph / s.rows;
@@ -594,7 +605,7 @@ async function runExam(m) {
           } else if (m.test === "colour" && fl) {
             ctx.fillStyle = PLANE_CSS[s.plane]; ctx.fillRect(px0, py0, pw, ph);
           }
-          dot(cv.width / 2, cv.height / 2);
+          dot(dx, dy);
           send({ type: "frame", stage: "exam", pt: t, gx: on ? s.sector : -1, gy: -1,
                  lum: on ? 1 : 0, fl: fl ? 1 : 0, size: s.size, contrast: s.contrast, plane: s.plane });
         }

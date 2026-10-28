@@ -27,6 +27,7 @@ the two eyes cancels out of their comparison.
 | acuity | a vertical black/white grating whose bars swap places at the flicker rate (pattern reversal): every bar location swings black/white like the flash, the mean luminance never changes, and nothing swings once the bars are too fine to resolve | bar width, coarse to fine (`--exam-sizes`, arcmin) | a grey of the same mean | the bar width at which the response is extrapolated to vanish (sweep-VEP rule), and the finest bar still giving a significant response |
 | contrast | the same reversing grating at one bar width (`--exam-contrast-size`) | Michelson contrast (`--exam-contrasts`) | the grey alone | the contrast at which the response is extrapolated to vanish, as log sensitivity |
 | field | one quadrant of the window flickering white/black, the eyes on the centre dot | the quadrant (`--exam-field`, 2x2; finer grids allowed) | black | amplitude and phase per sector; sectors without a significant response; with two eyes, the sector-by-sector ratio and phase difference, also with each eye over its own flash |
+| gaze | the whole window flickering white/black while the fixation dot sits at the centre or out toward an edge (up, down, left, right; `--exam-gaze`, 0.42 of the window from the centre), so the stimulus falls to one side of the fovea | the dot's position; the dot moves 1.2 s before each step's blocks | black | amplitude and phase per position, each over the centre position and over the best; positions without a significant response; with two eyes, the position-by-position ratio |
 | colour | the whole window flickering red, green or blue against black | the plane | black | amplitude per plane, R:G:B |
 
 `--exam-style onset` gives the older grating stimulus (the grating appearing
@@ -38,8 +39,22 @@ scored and phased at the reversal rate, the session frequency.
 
 Defaults: 4 s ON / 4 s OFF, five pairs of flash, two ON/OFF pairs per step of
 the others, the whole window (`--exam-patch 1`); seven rates asked (five or
-six delivered), eight bar widths, six contrasts, four quadrants, three
-planes: about 8 minutes per eye.
+six delivered), eight bar widths, six contrasts, four quadrants, five gaze
+positions, three planes: about 9.5 minutes per eye.
+
+The gaze test (added 28 October 2026 after the first sitting that measured a
+human response) answers "do all parts of the eye respond?" in the only way a
+single occipital electrode can: the whole window flickers while the eye
+fixates the centre, then a dot 84 % of the way to the top, bottom, left and
+right edges of the window. Looking left, the window lies in the right visual
+field from the fovea out to the window's far edge, and so on, which puts the
+flicker on retina the central-fixation tests never reach. The read-out gives
+each position's amplitude over the centre's and over the best, the positions
+without a response, and between the eyes the ratio position by position. The
+quadrant test (field) covers the central field at fixation; the gaze test
+reaches outward. Both are coarse: with one electrode the response is dominated
+by the central few degrees (cortical magnification), so a peripheral loss shows
+only as a missing or weak position, never as a map.
 `--exam-eye right,left` runs the right eye and then the left with a "cover
 your other eye" screen between them; `both` tests binocularly. When the flash
 gives no response (p >= 0.05) the page asks for an electrode check (wet the
@@ -166,7 +181,8 @@ responds in both eyes, that the right eye is still over half at the fastest
 rate shown and the left eye's half rate lies within 15 % of 24 Hz, that each
 eye's apparent latency lies within 6 ms of the phantom's (its latency less
 the 11.7 ms packet offset) and that the left is 30 +/- 6 ms later than the
-right: twenty-three checks. The band's floor: the extrapolated crossing lands where the
+right, and of the gaze test that the whole window responds at every fixation
+position in both eyes: twenty-five checks. The band's floor: the extrapolated crossing lands where the
 phantom's visibility is 3 to 5 % in every gate so far (2.8 % once, the left
 contrast of the first run of the new protocol, which is why the floor is 2 %
 and not the 3 % first used).
@@ -291,3 +307,15 @@ place in the field and colour, and how the two eyes differ. They are not a
 refraction, a visual field test or a diagnosis; the next steps (a blur study
 with trial lenses against a letter chart, then a normative cohort) are what
 would tie them to clinical measures.
+
+Result on 28 October 2026 with the gaze test added (`runs/exam_gate`, 17.9 min,
+headless Chrome at 60 fps, 15.00 Hz delivered): all twenty-five checks pass.
+Right eye: acuity 3.8', contrast 0.029, quadrant 3 silent, latency 108 ms,
+over half at 30 Hz, gaze 5/5 with every position 0.94 to 0.98 of the centre;
+left eye: 7.8', 0.082, 4/4 quadrants, 138 ms, half by 22.5 Hz, gaze 5/5 at
+0.90 to 0.96 of the centre; latency difference +30 ms; gaze amplitude
+left/right 0.89 to 0.92 at every position. The first run with the test
+(`exam_gate_run_1858.log`) failed only the two gaze checks, because the
+phantom follows a fixed list of exam logs and the new log was not on it: the
+phantom was blind through the gaze blocks while every other check held. That
+is what the gate is for.

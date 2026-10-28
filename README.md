@@ -882,7 +882,9 @@ apparent latency, whose difference between the eyes is the pattern VEP's
 classic measure), then a black/white grating swaps its
 bars at the flicker rate (pattern reversal: every resolved bar swings like the
 flash, the mean never changes) while the bars get finer (acuity) or fainter
-(contrast), one quadrant of the window flickers at a time (field), and the
+(contrast), one quadrant of the window flickers at a time (field), the whole
+window flickers while the dot sits at the centre and then up, down, left and
+right, so the stimulus falls to one side of the fovea (gaze), and the
 window flickers red, green and blue (colour). Every stimulus fills the window
 because the camera runs showed the response grows with the flickering area and
 a small square gives nothing. Every step is scored against the test's OFF

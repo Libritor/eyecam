@@ -2479,7 +2479,11 @@ async def main():
     ap.add_argument("--exam-eye", default="right,left",
                     help="--mode exam: the eye(s) tested, in order (right, left, both); "
                          "the other eye is covered by the subject")
-    ap.add_argument("--exam-tests", default="flash,temporal,acuity,contrast,field,colour",
+    ap.add_argument("--exam-gaze", type=float, default=0.42,
+                    help="gaze: how far the fixation dot moves from the centre for the up / "
+                         "down / left / right steps, as a fraction of the window (0.42 = 84 %% "
+                         "of the way to the edge); the whole window flickers at every position")
+    ap.add_argument("--exam-tests", default="flash,temporal,acuity,contrast,field,gaze,colour",
                     help="exam: the tests, run in this fixed order (the flash first: "
                          "it is the eye's reference; then its sweep over rates)")
     ap.add_argument("--exam-style", default="reversal", choices=["reversal", "onset"],

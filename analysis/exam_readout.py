@@ -43,7 +43,7 @@ import textwrap
 
 import numpy as np
 
-TESTS = ["flash", "temporal", "acuity", "contrast", "field", "colour"]
+TESTS = ["flash", "temporal", "acuity", "contrast", "field", "gaze", "colour"]
 ALPHA = 0.05
 LAT_WINDOW_S = (0.03, 0.30)   # apparent latencies searched (the pathway's 80-150 ms plus the rig's offset)
 RISE_FRAC = 0.1        # a limb point must add this fraction of the peak amplitude
@@ -338,6 +338,36 @@ def read_field(stage):
     return out
 
 
+def read_gaze(stage):
+    """The whole-window flicker at each fixation position: amplitude, p and
+    phase per position, each over the centre position and over the best one;
+    the positions without a significant response."""
+    out = dict(ok=False)
+    if not stage or not stage.get("ok") or not stage.get("steps"):
+        out["reason"] = (stage or {}).get("reason", "not run")
+        return out
+    steps = sorted(stage["steps"], key=lambda s: int(s["meta"].get("gaze", 0)))
+    names = [str(s["meta"].get("name") or f"g{s['meta'].get('gaze')}") for s in steps]
+    amp = np.array([s["amp"] if s["amp"] is not None else np.nan for s in steps], float)
+    p = np.array([s["p"] for s in steps], float)
+    ph = np.array([s["phase_deg"] if s.get("phase_deg") is not None else np.nan for s in steps], float)
+    resp = (p < ALPHA) & np.isfinite(amp) & (amp > 0)
+    best = float(np.nanmax(amp[resp])) if resp.any() else float("nan")
+    rel = amp / best if np.isfinite(best) and best > 0 else amp * np.nan
+    centre = names.index("centre") if "centre" in names else 0
+    c_amp = amp[centre] if resp[centre] else float("nan")
+    rel_centre = amp / c_amp if np.isfinite(c_amp) and c_amp > 0 else amp * np.nan
+    out.update(ok=True, n=len(names), names=names, centre=centre, amp=amp.tolist(), p=p.tolist(),
+               rel=[None if not np.isfinite(v) else float(v) for v in rel],
+               rel_centre=[None if not np.isfinite(v) else float(v) for v in rel_centre],
+               phase_deg=[None if not np.isfinite(v) else float(v) for v in ph],
+               responding=[int(k) for k in np.where(resp)[0]],
+               not_responding=[int(k) for k in np.where(~resp)[0]],
+               n_responding=int(resp.sum()), channel=stage.get("channel"), freq=stage.get("freq"),
+               noise_amp=stage.get("noise_amp"))
+    return out
+
+
 def read_colour(stage):
     out = dict(ok=False)
     if not stage or not stage.get("ok") or not stage.get("steps"):
@@ -425,6 +455,19 @@ def eye_text(eye, r):
             bits.append(s)
         else:
             bits.append(f"field: {fi.get('reason')}")
+    ga = r.get("gaze")
+    if ga:
+        if ga.get("ok"):
+            s = f"gaze {ga['n_responding']}/{ga['n']} positions respond"
+            if ga["not_responding"]:
+                s += " (nothing looking " + ", ".join(ga["names"][k] for k in ga["not_responding"]) + ")"
+            over = [f"{ga['names'][k]} {v:.2f}" for k, v in enumerate(ga["rel_centre"])
+                    if k != ga["centre"] and v is not None]
+            if over:
+                s += "; over the centre: " + ", ".join(over)
+            bits.append(s)
+        else:
+            bits.append(f"gaze: {ga.get('reason')}")
     col = r.get("colour")
     if col:
         if col.get("ok"):
@@ -477,6 +520,17 @@ def compare_eyes(eyes):
             rr[~np.isfinite(rr)] = np.nan
             out["field_ratio_median_rel_flash"] = (float(np.nanmedian(rr[list(both)]))
                                                    if np.isfinite(rr[list(both)]).any() else None)
+    ga, gb = L.get("gaze", {}), R.get("gaze", {})
+    if ga.get("ok") and gb.get("ok") and ga["names"] == gb["names"]:
+        la_, lb_ = np.array(ga["amp"], float), np.array(gb["amp"], float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ratio = np.log2(la_ / lb_)
+        ratio[~np.isfinite(ratio)] = np.nan
+        both = sorted(set(ga["responding"]) & set(gb["responding"]))
+        out.update(gaze_names=ga["names"], gaze_log2_ratio_lr=ratio.tolist(),
+                   gaze_only_left=sorted(set(ga["responding"]) - set(gb["responding"])),
+                   gaze_only_right=sorted(set(gb["responding"]) - set(ga["responding"])),
+                   gaze_ratio_median=float(np.nanmedian(ratio[both])) if both else None)
     ta, tb = L.get("temporal", {}), R.get("temporal", {})
     la, lb = ta.get("latency") or {}, tb.get("latency") or {}
     if la.get("ok") and lb.get("ok"):
@@ -526,6 +580,19 @@ def compare_text(c):
             s += f" (each over its own flash: {2 ** c['field_ratio_median_rel_flash']:.2f}x)"
         if c.get("field_phase_diff_median") is not None:
             s += f"; phase difference median {c['field_phase_diff_median']:+.0f} deg"
+        bits.append(s)
+    if "gaze_log2_ratio_lr" in c:
+        med = c.get("gaze_ratio_median")
+        s = "gaze amplitude left/right " + (f"median {2 ** med:.2f}x" if med is not None else "-")
+        names = c.get("gaze_names", [])
+        per = [f"{names[k]} {2 ** v:.2f}x" for k, v in enumerate(c["gaze_log2_ratio_lr"])
+               if v is not None and np.isfinite(v)]
+        if per:
+            s += " (" + ", ".join(per) + ")"
+        if c.get("gaze_only_left"):
+            s += "; responding in the left eye only looking " + ", ".join(names[k] for k in c["gaze_only_left"])
+        if c.get("gaze_only_right"):
+            s += "; responding in the right eye only looking " + ", ".join(names[k] for k in c["gaze_only_right"])
         bits.append(s)
     return "Between the eyes: " + "; ".join(bits) if bits else ""
 
@@ -580,6 +647,10 @@ def draw(session, exam, eyes, compare, text):
                 _draw_field(ax, d, fig)
                 ttl = (f"{eye}: field, {d['n_responding']}/{d['n']} sectors respond"
                        if d.get("ok") else f"{eye}: field, not scored")
+            elif t == "gaze":
+                _draw_gaze(ax, d)
+                ttl = (f"{eye}: gaze, {d['n_responding']}/{d['n']} positions respond"
+                       if d.get("ok") else f"{eye}: gaze, not scored")
             else:
                 _draw_colour(ax, d)
                 ttl = f"{eye}: colour planes" if d.get("ok") else f"{eye}: colour, not scored"
@@ -758,6 +829,45 @@ def _draw_field(ax, d, fig):
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="amplitude / best sector")
 
 
+def _draw_gaze(ax, d):
+    """Amplitude at each fixation position over the best one; hatched = not
+    significant. Laid out as the positions sit: up above, down below, left and
+    right beside the centre."""
+    if not d.get("ok"):
+        ax.text(0.5, 0.5, d.get("reason", "not run"), ha="center", va="center",
+                transform=ax.transAxes, fontsize=7)
+        ax.set_xticks([]); ax.set_yticks([])
+        return
+    pos = {"centre": (0, 0), "up": (0, 1), "down": (0, -1), "left": (-1, 0), "right": (1, 0)}
+    rel = [np.nan if v is None else v for v in d["rel"]]
+    p = np.array(d["p"], float)
+    for k, name in enumerate(d["names"]):
+        x, y = pos.get(name, (k, 0))
+        v = rel[k]
+        face = plt_cmap(v) if np.isfinite(v) else "#eeeeee"
+        ax.add_patch(matplotlib_rect((x - 0.45, y - 0.45), 0.9, 0.9, facecolor=face,
+                                     edgecolor="#333", hatch="///" if p[k] >= ALPHA else None,
+                                     alpha=0.55 if p[k] >= ALPHA else 1.0))
+        ax.text(x, y + 0.12, name, ha="center", va="center", fontsize=7)
+        ax.text(x, y - 0.15, "-" if not np.isfinite(v) else f"{v:.2f}", ha="center", va="center", fontsize=7)
+    ax.set_xlim(-1.6, 1.6); ax.set_ylim(-1.6, 1.6)
+    ax.set_aspect("equal")
+    ax.set_xticks([]); ax.set_yticks([])
+    for s in ("top", "right", "left", "bottom"):
+        ax.spines[s].set_visible(False)
+    ax.set_xlabel("whole-window flicker; amplitude / best position", fontsize=7)
+
+
+def plt_cmap(v):
+    import matplotlib
+    return matplotlib.colormaps["magma"](0.15 + 0.8 * float(np.clip(v, 0, 1)))
+
+
+def matplotlib_rect(*args, **kw):
+    from matplotlib.patches import Rectangle
+    return Rectangle(*args, **kw)
+
+
 def _draw_colour(ax, d):
     if not d.get("ok"):
         ax.text(0.5, 0.5, d.get("reason", "not run"), ha="center", va="center",
@@ -801,6 +911,9 @@ def run(session):
             _rel_flash(r["field"], ref_amp, "amp")
             if "amp_rel_flash" in r["field"]:
                 r["field"]["rel_flash"] = r["field"].pop("amp_rel_flash")
+        if "gaze" in exam["tests"]:
+            r["gaze"] = read_gaze(res.get("gaze"))
+            _rel_flash(r["gaze"], ref_amp, "amp")
         if "colour" in exam["tests"]:
             r["colour"] = read_colour(res.get("colour"))
             _rel_flash(r["colour"], ref_amp, "amps")

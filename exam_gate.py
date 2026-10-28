@@ -94,7 +94,10 @@ def verdict(full, code, t0=None):
             bool(fl.get("ok")) and fl.get("responded") and fl.get("channel") == REF
         checks[f"{eye} every test read on the reference channel {REF}"] = all(
             exam["results"].get(eye, {}).get(t, {}).get("channel") == REF
-            for t in ("temporal", "acuity", "contrast", "field", "colour"))
+            for t in ("temporal", "acuity", "contrast", "field", "gaze", "colour"))
+        ga = r.get("gaze", {})
+        checks[f"{eye} gaze: the whole window responds at every fixation position"] = \
+            bool(ga.get("ok")) and ga.get("n_responding") == ga.get("n")
         te = r.get("temporal", {})
         checks[f"{eye} flicker sweep: every rate shown responds (at least four)"] = \
             bool(te.get("ok")) and te.get("n_rates", 0) >= 4 and te["n_responding"] == te["n_rates"]
