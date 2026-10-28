@@ -84,7 +84,8 @@ STYLES = ["reversal", "onset"]              # the grating tests' temporal patter
 LOG_EXTRA = ("size", "contrast", "plane")   # columns appended to the frame log
 DISPLAY_GAMMA = 2.2                         # the page's grey and contrast scale
 DISCARD_S = 0.5                             # dropped from every block start
-MAX_RMS_UV = 60.0                           # a channel above this for a whole test is out of contact
+MAX_RMS_UV = 60.0                           # a channel above this for a whole test is noisy: kept only if it responds
+OPEN_RMS_UV = 300.0                         # above this the input is open or railing: out of contact outright
 FLASH_P = 0.05                              # the flash counts as a response below this
 
 
@@ -257,7 +258,17 @@ def score_stage(session, blocks, hzs, metas, log_name, test, eye="", ref_ch=None
     # a channel out of contact for the whole test (sustained rms far above EEG:
     # vr_exam1's ear electrodes sat at 100-280 uV) must not be scored, or its
     # noise can be picked as the test's channel by chance
-    dead = np.median(stds, 0) > MAX_RMS_UV
+    # two tiers. Above OPEN_RMS_UV the input is open or railing (mains rail to
+    # rail) and is set aside outright. Between MAX_RMS_UV and OPEN_RMS_UV the
+    # electrode is noisy but may still carry the response: in vr_exam6 the left
+    # eye's Oz cup sat at 105 uV rms and gave a 12 Hz line SNR of 6-18 in every
+    # ON block against under 1.5 in every OFF block (exact p 0.004), and the old
+    # single threshold threw it away and read that eye on a forehead channel.
+    # A noisy channel is therefore kept when its own ON/OFF statistic is
+    # significant, decided below once the statistic exists.
+    med_rms = np.median(stds, 0)
+    noisy = med_rms > MAX_RMS_UV
+    dead = med_rms > OPEN_RMS_UV
     keep[:, dead] = False
     on = np.array([s["kind"] == "on" for s in segs])
     step_of = np.array([int(s["meta"].get("step", -1)) if s["kind"] == "on" else -1
@@ -312,14 +323,16 @@ def score_stage(session, blocks, hzs, metas, log_name, test, eye="", ref_ch=None
     # difference alone picked an ear over a 1.5x stronger Oz on the phantom.
     # Without any significant channel: the largest ON-OFF difference of the stat.
     diff_all = V[on].mean(0) - V[~on].mean(0)
-    diff_all[dead] = -np.inf
-    if not np.isfinite(diff_all).any():
-        return dict(test=test, eye=eye, ok=False, reason="every channel out of contact",
-                    steps=[], dead=[names[c] for c in range(nch) if dead[c]])
     ch_p = np.ones(nch)
     for c in range(nch):
         if not dead[c]:
             ch_p[c] = _perm_p(V[:, [c]], on)[2]
+    # the noisy tier is out of contact unless its own response is significant
+    dead = dead | (noisy & (ch_p >= 0.05))
+    diff_all[dead] = -np.inf
+    if not np.isfinite(diff_all).any():
+        return dict(test=test, eye=eye, ok=False, reason="every channel out of contact",
+                    steps=[], dead=[names[c] for c in range(nch) if dead[c]])
     amp_on = np.array([np.nanmedian(A_own[on, c]) if np.isfinite(A_own[on, c]).any() else -np.inf
                        for c in range(nch)])
     amp_on[dead] = -np.inf
@@ -337,7 +350,12 @@ def score_stage(session, blocks, hzs, metas, log_name, test, eye="", ref_ch=None
         Vs, ons = Vf[rows], m_on[rows]
         if ons.sum() < 1 or (~ons).sum() < 2:
             continue
-        obs, best_c, p, n_null = _perm_p(Vs, ons)
+        # the step's family-wise test runs over the channels in contact only: a
+        # noisy electrode that failed its own test must not widen the family
+        # (it used to enter as a zero column, which could never win)
+        live = np.where(~dead)[0]
+        obs, best_i, p, n_null = _perm_p(Vs[:, live], ons)
+        best_c = int(live[best_i])
         amps = Af[m_on, ch]
         z = Z[m_on, ch]
         z = z[np.abs(z) > 0]

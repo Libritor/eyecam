@@ -183,6 +183,18 @@ def fit_limb(xlog, amp, p):
     the curve alone, which lands far too low, is avoided."""
     order = np.argsort(xlog)              # ascending: the threshold side first
     x, y, pp = xlog[order], amp[order], p[order]
+    # two asked sizes that the panel delivered as the same width (vr_exam6: 5'
+    # and 7' both became 6 px) are one step: the mean amplitude, the smaller p
+    xs_u = []
+    for xv in x:
+        if not xs_u or abs(xv - xs_u[-1]) > 1e-9:
+            xs_u.append(xv)
+    if len(xs_u) < len(x):
+        x_m, y_m, p_m = [], [], []
+        for xv in xs_u:
+            m = np.abs(x - xv) <= 1e-9
+            x_m.append(xv); y_m.append(float(np.nanmean(y[m]))); p_m.append(float(np.min(pp[m])))
+        x, y, pp = np.array(x_m), np.array(y_m), np.array(p_m)
     sig = np.where((pp < ALPHA) & (y > 0))[0]
     if len(sig) == 0:
         return dict(ok=False, reason="no step with a significant response")
@@ -205,9 +217,13 @@ def fit_limb(xlog, amp, p):
         return dict(ok=False, reason="the finest step shown still responds at full "
                                       "strength: threshold beyond the range shown",
                     finest_sig=float(x[i0]), beyond_range=True)
-    if sum(pp[i] < ALPHA for i in used) < 2:
+    if sum(pp[i] < ALPHA for i in used) < 2 and int(np.sum(pp[i0:] < ALPHA)) < 3:
         # one responding step among silent ones is not a limb: a sweep that
-        # works responds at every coarse step down to its threshold
+        # works responds at every coarse step down to its threshold. A single
+        # step in the limb is accepted when the response goes on at the coarser
+        # steps (a curve that saturates right above threshold, vr_exam6 left
+        # eye: 6' responds, 3' does not, 9'-39' respond), because then the fall
+        # from the finest responding step to the silent one below is the limb.
         return dict(ok=False, reason="only one step responds: no limb to fit",
                     finest_sig=float(x[i0]))
     xs, ys = x[used], y[used]
