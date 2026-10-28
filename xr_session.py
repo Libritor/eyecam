@@ -2167,7 +2167,11 @@ class Driver:
             # the signal check's rail test had passed them); the page asks for a
             # fix and a trigger pull until every channel holds, up to three times
             for attempt in range(4):
-                await asyncio.sleep(3.2)
+                # two seconds to settle after the trigger pull (the hand and the
+                # head move; vr_exam3 read every channel in the hundreds of uV
+                # four times over while the electrodes were in fact fine on the
+                # forehead), then the last three seconds are measured
+                await asyncio.sleep(5.2)
                 rms = self.contact_rms()
                 out["contact"][f"{eye}/{attempt}"] = rms
                 bad = {k: v for k, v in rms.items() if v > exam.MAX_RMS_UV}
