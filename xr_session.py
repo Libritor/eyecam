@@ -2426,9 +2426,16 @@ def http_page(connection, request):
         return None
     with open(os.path.join(ROOT, "xr_stimulus.html"), "rb") as f:
         body = f.read()
+    # never let a browser keep this page: the Quest browser served a copy cached
+    # from an earlier sitting for every exam run until 2026-10-28 (the flash
+    # test drew nothing because that copy predated it), so the page must be
+    # fetched afresh on every open
     return Response(200, "OK", Headers([
         ("Content-Type", "text/html; charset=utf-8"),
         ("Content-Length", str(len(body))),
+        ("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"),
+        ("Pragma", "no-cache"),
+        ("Expires", "0"),
         ("Connection", "close")]), body)
 
 

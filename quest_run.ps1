@@ -93,7 +93,12 @@ $adb = @(); if ($quest) { $adb = @("-s", $quest); "quest: $quest" } else { "no Q
 Start-Sleep 1
 # -f 0x10000000 (new task): without it a browser that restored last night's tab shows that tab
 # and never loads the session page; with it the page opens in front (2026-10-12)
-& adb @adb shell "am start -a android.intent.action.VIEW -d 'http://127.0.0.1:8082/?k=quest' -f 0x10000000 com.oculus.browser" | Select-Object -First 1
+# the &v= stamp makes every launch a new URL, so the headset browser cannot hand
+# back a cached copy of the page (it did so for every exam sitting before
+# 2026-10-28: a page from before the flash test, which drew nothing); the
+# server also sends no-store now
+$stamp = [int][double]::Parse((Get-Date -UFormat %s))
+& adb @adb shell "am start -a android.intent.action.VIEW -d 'http://127.0.0.1:8082/?k=quest&v=$stamp' -f 0x10000000 com.oculus.browser" | Select-Object -First 1
 Start-Sleep 10
 Get-Content $log | Where-Object { $_ -notmatch 'pygame|Hello' } | Select-Object -Last 6
 "when it is done: python analysis/vision_readout.py runs/$Session --seal targets_img/vision_today_seal.json   (vision)"
