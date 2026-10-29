@@ -4,7 +4,8 @@ xr_session.py --print-port <COMn | auto | sim> turns a 3D-object session into
 scan-and-print:
 
   PRE-CONNECT (before the EEG recorder starts, before anything is shown)
-    1. the object is one the printing step can make (the die: die_print.py)
+    1. the object is one the printing step can make (die_print.py has a relief
+       map for it: the die, the globe, the donut, the Rubik's cube)
     2. the operator has said the print bed is clear (--print-bed-clear;
        quest_run.ps1 -PrintPort asks)
     3. the slicer works: the die about to be shown is built and sliced now,
@@ -34,7 +35,7 @@ import numpy as np
 import printer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PRINTABLE = {"die"}                      # objects die_print.py can make
+PRINTABLE = None                         # objects die_print.py can make: those with a relief map there
 
 
 def mesh_spec(a):
@@ -95,11 +96,14 @@ class PrintJob:
             raise RuntimeError("--print-port needs a 3D object to print: --mode planes --mesh-object "
                                "mesh:die, or --mode bwb --bwb-target mesh:die")
         import mesh3d
+        import die_print
         obj = mesh3d.from_spec(spec, a.mesh_layout)
-        if obj.name not in PRINTABLE or (obj.grid_w, obj.grid_h) != (9, 6):
-            raise RuntimeError(f"printing is ready for the die (mesh:die, 9 x 6 atlas); "
-                               f"{obj.name} cannot be printed yet")
-        log(f"  1. object: {obj.name}, {len(obj.cells)} cells")
+        if obj.name not in die_print.RELIEF:
+            raise RuntimeError(f"printing is ready for {', '.join(die_print.RELIEF)} (each has a relief "
+                               f"map in die_print.RELIEF); {obj.name} has none yet")
+        self.object = obj.name
+        log(f"  1. object: {obj.name}, {len(obj.cells)} cells on a {obj.grid_w} x {obj.grid_h} atlas; relief "
+            + ", ".join(f"{c} {h:+g}" for c, h in die_print.RELIEF[obj.name].items()) + " (x --print-depth)")
         if not a.print_bed_clear:
             raise RuntimeError("the printer will start on its own when the scan ends: clear the "
                                "print bed, load filament, then add --print-bed-clear "
@@ -118,11 +122,12 @@ class PrintJob:
         mesh3d.write_obj(obj, shown, os.path.join(dry, "mesh_shown.obj"))
         t0 = time.time()
         res = die_print.make_print(dry, mesh="mesh_shown.obj", size=a.print_size, depth=a.print_depth,
-                                   name="die_shown", out=dry, slice_models=(a.print_model,),
-                                   printer=a.printer, extra=self.extra(), log=lambda *x: None)
+                                   name=f"{obj.name}_shown", out=dry, slice_models=(a.print_model,),
+                                   printer=a.printer, extra=self.extra(), log=lambda *x: None,
+                                   object_name=obj.name)
         info = res["info"][a.print_model] or {}
         est = float(info.get("TIME", 0) or 0)
-        log(f"  3. slicer: CuraEngine in {die_print.CURA_DIR}, profile {a.printer}; the shown die "
+        log(f"  3. slicer: CuraEngine in {die_print.CURA_DIR}, profile {a.printer}; the shown {obj.name} "
             f"slices in {time.time() - t0:.0f} s: about {est / 3600:.1f} h, "
             f"{info.get('Filament used', '?')} of filament")
         # 4. the printer
@@ -175,11 +180,12 @@ class PrintJob:
             return None
         import die_print
         t0 = time.time()
-        log("building and slicing the decoded die...")
+        name = getattr(self, "object", None) or "die"
+        log(f"building and slicing the decoded {name}...")
         res = die_print.make_print(self.session, mesh="mesh_decoded.obj", size=a.print_size,
-                                   depth=a.print_depth, name="die_decoded_eeg", out=self.folder,
+                                   depth=a.print_depth, name=f"{name}_decoded_eeg", out=self.folder,
                                    slice_models=(a.print_model,), printer=a.printer,
-                                   extra=self.extra(), log=lambda *x: None)
+                                   extra=self.extra(), log=lambda *x: None, object_name=name)
         gcode = res["gcode"][a.print_model]
         proc, logf = printer.start_print_process(gcode, self.port, self.folder, a.print_baud)
         info = res["info"][a.print_model] or {}

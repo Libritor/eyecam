@@ -12,13 +12,15 @@
 #   .\quest_run.ps1 -Run custom -Extra "--mode visual --choice bw --target pix:NO --grid-w 9 --grid-h 5 --spc 8"
 #   .\quest_run.ps1 -Run die               # the die, a 3D object, by planes (about 19 min)
 #   .\quest_run.ps1 -Run die -PrintPort COM5   # ...and 3D-print it the moment the scan ends
+#   .\quest_run.ps1 -Run globe             # the globe: 96 cells, ocean / land / ice (about 32 min)
+#   .\quest_run.ps1 -Run globe -PrintPort COM5 # ...printed as a relief globe (ocean sunk, ice raised)
 #
 # -Session names the folder under runs/ (default: <run><n>, the next free number).
 # -PrintPort (COMn, auto, or sim): PRE-CONNECT the 3D printer before anything
 #   starts. The printer and the slicer are checked here, you confirm the bed is
 #   clear, and the session holds the printer until the scan ends, then prints.
 param(
-    [ValidateSet("vision", "eight", "officer", "wedge", "photo", "cphoto", "grey", "die", "custom")] [string] $Run = "vision",
+    [ValidateSet("vision", "eight", "officer", "wedge", "photo", "cphoto", "grey", "die", "globe", "custom")] [string] $Run = "vision",
     [string] $Session = "",
     [string] $Target = "",
     [string] $Extra = "",
@@ -63,6 +65,9 @@ switch ($Run) {
     "die"     { $args_ = @("--mode", "planes", "--mesh-object", "mesh:die", "--plane-spc", "5,5,8",
                            "--plane-passes", "1", "--rest-every", "48"); $prefix = "vr_die"
                 "the die: 54 cells (9 x 6 atlas), about 16 min of scanning plus calibration" }
+    "globe"   { $args_ = @("--mode", "planes", "--mesh-object", "mesh:globe", "--plane-spc", "5,5,8",
+                           "--plane-passes", "1", "--rest-every", "48"); $prefix = "vr_globe"
+                "the globe: 96 cells (12 x 8 atlas; blue ocean, green land, white ice), about 29 min of scanning plus calibration" }
     "custom"  { $args_ = @(); $prefix = "vr_custom" }
 }
 if ($Extra -ne "") { $args_ += ($Extra -split " ") }
@@ -78,7 +83,7 @@ if ($PrintPort -ne "") {
     $ok = Read-Host "Is the print bed clear and empty, and is filament loaded? (y/n)"
     if ($ok -notmatch '^(y|yes)$') { "not started: clear the bed and load filament, then run this again"; exit 6 }
     $args_ += @("--print-port", $PrintPort, "--print-bed-clear")
-    "printer pre-connected; the session holds it and prints the decoded die when the scan ends"
+    "printer pre-connected; the session holds it and prints the decoded object when the scan ends"
 }
 if ($Session -eq "") {
     $n = 1

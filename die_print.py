@@ -1,22 +1,30 @@
-"""Turn the die decoded from the EEG (runs/<run>/mesh_decoded.obj) into files a 3D printer takes.
+"""Turn a 3D object decoded from the EEG (runs/<run>/mesh_decoded.obj, any mesh3d.py
+object: the die, the globe, the donut, the Rubik's cube) into files a 3D printer takes.
 
 Two models come out:
 
-  <name>.stl         the die exactly as the decoder produced it: the same rounded-cube
-                     geometry as the die that was shown, scaled to --size mm across the
-                     flats, duplicate seam vertices merged so the surface is closed.
-                     The EEG result on this model is the colour of its 54 cells, which a
-                     single-colour printer cannot reproduce (see <name>_cells.png).
-  <name>_relief.stl  the same die with the decoded colours made physical: every white
-                     cell stays flush, every black cell is sunk by --depth mm, every red
-                     cell is raised by --depth mm, with vertical walls between cells.
+  <name>.stl         the object exactly as the decoder produced it: the same geometry
+                     as the object that was shown, scaled to --size mm across, duplicate
+                     seam vertices merged so the surface is closed. The EEG result on
+                     this model is the colour of its cells, which a single-colour
+                     printer cannot reproduce (see <name>_cells.png, the painting guide).
+  <name>_relief.stl  the same object with the decoded colours made physical: each colour
+                     at its own height along the surface normal, with walls between
+                     cells. The map is per object (RELIEF; --relief overrides it):
+                       die    white flush, black sunk --depth, red raised --depth
+                       globe  green land flush, blue ocean sunk, white ice raised
+                       donut  brown dough flush, pink icing up half a step, sprinkles up one
+                       rubik  six colours at six heights, white flush
 
 With --slice each model is sliced with the CuraEngine shipped inside the installed
 UltiMaker Cura (printer profile --printer, raft + tree support as in the user's Cura
-set-up) and a .gcode is written beside the .stl.
+set-up) and a .gcode is written beside the .stl. Objects other than the die are turned
+so their +Y (the globe's north pole, the donut's icing) prints upward (--y-up / --no-y-up).
 
     python die_print.py                       # runs/vr_die1, 40 mm, STL only
     python die_print.py --slice --copy-to %USERPROFILE%\\Downloads
+    python die_print.py --object mesh:globe --shown --slice --preview   # the globe as designed,
+                                              # before any scan: runs/globe_shown/print/
 """
 import argparse
 import os
@@ -48,7 +56,36 @@ def find_cura():
 
 CURA_DIR = find_cura() or CURA_DIR
 
-COLOURS = {"white": (255, 255, 255), "black": (0, 0, 0), "red": (255, 0, 0)}
+import bwb  # noqa: E402  (the scan's palette: the texture's cells are these colours exactly)
+
+COLOURS = {name: tuple(int(round(255 * v)) for v in rgb) for name, rgb in bwb.PALETTE.items()}
+
+# relief map per object: colour -> height in units of --depth (0 flush, negative sunk)
+RELIEF = {
+    "die": {"white": 0.0, "black": -1.0, "red": +1.0},
+    "globe": {"green": 0.0, "blue": -1.0, "white": +1.0},
+    "donut": {"brown": 0.0, "pink": +0.5, "white": +1.0, "yellow": +1.0},
+    "rubik": {"white": 0.0, "yellow": +0.5, "orange": +1.0, "red": -0.5, "blue": -1.0, "green": +1.5},
+}
+Y_UP = {"die": False}        # the die's STL stays as the vr_die1 files were made; the rest turn +Y up
+
+
+def relief_map(object_name, colours_present, depth, spec=None):
+    """{colour: mm} for the colours in the texture. spec 'blue:-1.2,green:0' (mm)
+    overrides the object's map; a colour in neither is flush."""
+    units = dict(RELIEF.get(object_name or "", {}))
+    mm = {c: depth * h for c, h in units.items()}
+    for part in str(spec or "").split(","):
+        if ":" in part:
+            c, v = part.split(":", 1)
+            mm[c.strip()] = float(v)
+    return {c: float(mm.get(c, 0.0)) for c in colours_present}
+
+
+def rotate_y_up(verts):
+    """mesh3d's +Y (the top of the object) to +Z, which the slicer prints upward."""
+    v = np.asarray(verts, float)
+    return np.column_stack([v[:, 0], -v[:, 2], v[:, 1]])
 
 
 # ── OBJ with per-vertex texture coordinates ─────────────────────────────────
@@ -79,10 +116,18 @@ def classify(rgb):
     return best
 
 
-def cell_colours(uvs, quads, texture, grid=(9, 6)):
+def texture_grid(texture, px=32):
+    """The scan grid (columns, rows) a mesh3d texture encodes: write_obj paints
+    px pixels a cell."""
+    W, H = Image.open(texture).size
+    return max(1, W // px), max(1, H // px)
+
+
+def cell_colours(uvs, quads, texture, grid=None):
     """Colour of the texture under each quad's centre and the (column,row) cell it lies in."""
     im = Image.open(texture).convert("RGB")
     W, H = im.size
+    grid = grid or texture_grid(texture)
     out = []
     for vi, ti in quads:
         uv = uvs[ti].mean(axis=0)
@@ -193,13 +238,14 @@ def relief_mesh(base, old2new, quads, cells, depth_of):
     return m, np.array(out_c)[keep]
 
 
-def preview_png(m, colours, out):
-    """Three views of the relief die, cells in their decoded colours, walls grey."""
+def preview_png(m, colours, out, title=None):
+    """Three views of the relief object, cells in their decoded colours, walls grey."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-    rgb = {"white": (0.92, 0.92, 0.92), "black": (0.08, 0.08, 0.08), "red": (0.85, 0.1, 0.1), "wall": (0.55, 0.55, 0.6)}
+    rgb = {name: tuple(0.08 + 0.84 * v / 255.0 for v in c) for name, c in COLOURS.items()}
+    rgb["wall"] = (0.55, 0.55, 0.6)
     V, F = np.asarray(m.vertices), np.asarray(m.faces)
     N = np.asarray(m.face_normals)
     fig = plt.figure(figsize=(12, 4.2), dpi=110)
@@ -217,7 +263,7 @@ def preview_png(m, colours, out):
         ax.set_xlim(c[0] - r, c[0] + r); ax.set_ylim(c[1] - r, c[1] + r); ax.set_zlim(c[2] - r, c[2] + r)
         ax.set_box_aspect((1, 1, 1)); ax.view_init(elev=elev, azim=azim); ax.set_axis_off()
         ax.set_facecolor("#1e1e1e")
-    fig.suptitle("die decoded from EEG, relief for printing: black sunk, red raised, white flush",
+    fig.suptitle(title or "die decoded from EEG, relief for printing: black sunk, red raised, white flush",
                  color="#dddddd", fontsize=11)
     fig.tight_layout()
     fig.savefig(out, facecolor=fig.get_facecolor())
@@ -239,9 +285,10 @@ def report(m, name):
           f"faces per edge {edge_report(m)}")
 
 
-def cells_png(texture, out, cell_px=48, grid=(9, 6)):
-    """The decoded 9 x 6 cell grid, enlarged, as a painting guide for the printed die."""
+def cells_png(texture, out, cell_px=48, grid=None):
+    """The decoded cell grid, enlarged, as a painting guide for the printed object."""
     im = Image.open(texture).convert("RGB")
+    grid = grid or texture_grid(texture)
     im = im.resize((grid[0] * cell_px, grid[1] * cell_px), Image.NEAREST)
     im.save(out)
 
@@ -484,10 +531,12 @@ def fix_header(gcode, filament_diameter):
 
 def make_print(run, mesh="mesh_decoded.obj", size=40.0, depth=1.2, name="die_decoded_eeg",
                out=None, slice_models=("relief",), printer="creality_ender3pro", extra=None,
-               log=print):
-    """The die in `run`/<mesh> as STL (plain and relief) and, for each model in
-    slice_models ("plain", "relief"), G-code. Returns dict(stl=..., relief=...,
-    gcode={model: path}, info={model: slicer summary}, cells={colour: n})."""
+               log=print, object_name="die", relief=None, y_up=None, preview=False):
+    """The object in `run`/<mesh> as STL (plain and relief) and, for each model in
+    slice_models ("plain", "relief"), G-code. object_name picks the relief map
+    (RELIEF) and the printing orientation (Y_UP); relief 'colour:mm,...'
+    overrides the map. Returns dict(stl=..., relief=..., gcode={model: path},
+    info={model: slicer summary}, cells={colour: n}, relief_mm={colour: mm})."""
     out = out or os.path.join(run, "print")
     os.makedirs(out, exist_ok=True)
     obj = os.path.join(run, mesh)
@@ -497,32 +546,66 @@ def make_print(run, mesh="mesh_decoded.obj", size=40.0, depth=1.2, name="die_dec
     counts = defaultdict(set)
     for cell, col in cells:
         counts[col].add(cell)
+    if y_up is None:
+        y_up = Y_UP.get(object_name, True)
+    if y_up:
+        verts = rotate_y_up(verts)
     half = float(np.abs(verts).max())
     base, old2new = merged_mesh(verts, quads, size / (2 * half))
+    report(base, f"{object_name} (as in the mesh)")
     stl = os.path.join(out, name + ".stl")
     base.export(stl)
-    rel, _ = relief_mesh(base, old2new, quads, cells, {"white": 0.0, "black": -depth, "red": +depth})
+    depth_of = relief_map(object_name, counts.keys(), depth, relief)
+    rel, rel_col = relief_mesh(base, old2new, quads, cells, depth_of)
+    desc = ", ".join(f"{c} {d:+.1f} mm" if d else f"{c} flush" for c, d in sorted(depth_of.items()))
+    report(rel, f"{object_name} relief ({desc})")
     stl_rel = os.path.join(out, name + "_relief.stl")
     rel.export(stl_rel)
     cells_png(texture, os.path.join(out, name + "_cells.png"))
-    res = dict(stl=stl, relief=stl_rel, gcode={}, info={},
+    res = dict(stl=stl, relief=stl_rel, gcode={}, info={}, relief_mm=depth_of, y_up=bool(y_up),
                cells={k: len(v) for k, v in sorted(counts.items())},
-               watertight=dict(plain=bool(base.is_watertight), relief=bool(rel.is_watertight)))
+               watertight=dict(plain=bool(base.is_watertight), relief=bool(rel.is_watertight)),
+               files=[stl, stl_rel, os.path.join(out, name + "_cells.png")])
+    if preview:
+        png = os.path.join(out, name + "_relief_preview.png")
+        preview_png(rel, rel_col, png, title=f"{object_name}, relief for printing: {desc}")
+        res["files"].append(png)
     for model in slice_models:
         src = stl if model == "plain" else stl_rel
         g = os.path.splitext(src)[0] + ".gcode"
         res["info"][model] = slice_stl(src, g, printer, dict(extra or {}))
         res["gcode"][model] = g
+        res["files"].append(g)
     return res
+
+
+def shown_object(spec, run):
+    """Write the object as designed (mesh3d's target colours) to run/mesh_shown.obj
+    and return (object name, 'mesh_shown.obj', the mesh3d object)."""
+    import mesh3d
+    obj = mesh3d.from_spec(spec)
+    names, rgb = bwb.classes_of(obj.colours)
+    os.makedirs(run, exist_ok=True)
+    mesh3d.write_obj(obj, rgb[obj.target()], os.path.join(run, "mesh_shown.obj"))
+    return obj.name, "mesh_shown.obj", obj
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--run", default=os.path.join(HERE, "runs", "vr_die1"))
+    ap.add_argument("--run", default=None, help="session folder holding the OBJ (default runs/vr_die1; "
+                                                "with --object: runs/<object>_shown)")
     ap.add_argument("--mesh", default="mesh_decoded.obj", help="OBJ in the run folder (mesh_decoded.obj or mesh_shown.obj)")
-    ap.add_argument("--size", type=float, default=40.0, help="width across the flats, mm")
-    ap.add_argument("--depth", type=float, default=1.2, help="relief step for black (sunk) and red (raised) cells, mm")
-    ap.add_argument("--name", default="die_decoded_eeg")
+    ap.add_argument("--object", default=None, help="the mesh3d object spec, e.g. mesh:globe: picks the relief "
+                                                   "map and the orientation (default: the die)")
+    ap.add_argument("--shown", action="store_true", help="with --object: build the object as designed into "
+                                                         "the run folder (mesh_shown.obj) and print that")
+    ap.add_argument("--size", type=float, default=40.0, help="width across, mm")
+    ap.add_argument("--depth", type=float, default=1.2, help="relief step, mm (the object's map scales it)")
+    ap.add_argument("--relief", default=None, help="override the relief map: 'blue:-1.2,green:0,white:1.2' (mm)")
+    ap.add_argument("--y-up", dest="y_up", action="store_true", default=None,
+                    help="turn the mesh so its +Y prints upward (default for every object but the die)")
+    ap.add_argument("--no-y-up", dest="y_up", action="store_false")
+    ap.add_argument("--name", default=None, help="file stem (default <object>_decoded_eeg, or <object>_shown)")
     ap.add_argument("--out", default=None, help="output folder (default <run>/print)")
     ap.add_argument("--slice", action="store_true", help="also write G-code with CuraEngine")
     ap.add_argument("--preview", action="store_true", help="render <name>_relief_preview.png (matplotlib)")
@@ -531,48 +614,34 @@ def main():
     ap.add_argument("--copy-to", default=None, help="folder to copy the STL and G-code files into")
     a = ap.parse_args()
 
-    out = a.out or os.path.join(a.run, "print")
-    os.makedirs(out, exist_ok=True)
-    obj = os.path.join(a.run, a.mesh)
-    verts, uvs, quads = load_obj(obj)
-    texture = os.path.join(a.run, os.path.splitext(a.mesh)[0] + ".png")
-    cells = cell_colours(uvs, quads, texture)
-    counts = defaultdict(set)
-    for cell, col in cells:
-        counts[col].add(cell)
-    print(f"{os.path.basename(obj)}: {len(verts)} vertices, {len(quads)} quads, cells "
-          + ", ".join(f"{k} {len(v)}" for k, v in sorted(counts.items())))
-
-    half = float(np.abs(verts).max())
-    scale = a.size / (2 * half)
-    base, old2new = merged_mesh(verts, quads, scale)
-    report(base, "die (as decoded)")
-    stl = os.path.join(out, a.name + ".stl")
-    base.export(stl)
-
-    depth_of = {"white": 0.0, "black": -a.depth, "red": +a.depth}
-    rel, rel_col = relief_mesh(base, old2new, quads, cells, depth_of)
-    report(rel, f"die relief (black -{a.depth} mm, red +{a.depth} mm)")
-    stl_rel = os.path.join(out, a.name + "_relief.stl")
-    rel.export(stl_rel)
-    cells_png(texture, os.path.join(out, a.name + "_cells.png"))
-
-    files = [stl, stl_rel, os.path.join(out, a.name + "_cells.png")]
-    if a.preview:
-        preview_png(rel, rel_col, os.path.join(out, a.name + "_relief_preview.png"))
-        files.append(os.path.join(out, a.name + "_relief_preview.png"))
-    if a.slice:
-        extra = dict(s.split("=", 1) for s in a.set)
-        for s in (stl, stl_rel):
-            g = os.path.splitext(s)[0] + ".gcode"
-            slice_stl(s, g, a.printer, extra)
-            files.append(g)
+    object_name, mesh = "die", a.mesh
+    if a.object:
+        import mesh3d
+        object_name = mesh3d.from_spec(a.object).name
+    run = a.run or os.path.join(HERE, "runs", f"{object_name}_shown" if a.shown else "vr_die1")
+    if a.shown:
+        if not a.object:
+            raise SystemExit("--shown needs --object mesh:<name>")
+        object_name, mesh, obj3d = shown_object(a.object, run)
+        print(f"{object_name} as designed: {len(obj3d.cells)} cells on a {obj3d.grid_w} x {obj3d.grid_h} "
+              f"atlas -> {os.path.join(run, mesh)}")
+    name = a.name or f"{object_name}_{'shown' if a.shown else 'decoded_eeg'}"
+    extra = dict(s.split("=", 1) for s in a.set)
+    res = make_print(run, mesh=mesh, size=a.size, depth=a.depth, name=name, out=a.out,
+                     slice_models=("plain", "relief") if a.slice else (), printer=a.printer,
+                     extra=extra, object_name=object_name, relief=a.relief, y_up=a.y_up, preview=a.preview)
+    print(f"{mesh}: cells " + ", ".join(f"{k} {v}" for k, v in res["cells"].items())
+          + "; relief " + ", ".join(f"{c} {d:+.1f} mm" for c, d in sorted(res["relief_mm"].items())))
+    for model, info in res["info"].items():
+        if info:
+            print(f"{model} G-code: about {float(info.get('TIME', 0) or 0) / 3600:.1f} h, "
+                  f"{info.get('Filament used', '?')} of filament")
     if a.copy_to:
         os.makedirs(a.copy_to, exist_ok=True)
-        for f in files:
+        for f in res["files"]:
             shutil.copy2(f, a.copy_to)
         print("copied to", a.copy_to)
-    print("wrote", out)
+    print("wrote", a.out or os.path.join(run, "print"))
 
 
 if __name__ == "__main__":

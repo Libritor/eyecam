@@ -879,6 +879,34 @@ brightness model (response ~ √luminance).
 
 ![globe, simulated](docs/figures/mesh_globe_sim.png)
 
+### The second object: the globe, printed as a relief (29 October 2026)
+
+The die printed well, so the printer now takes every built-in object.
+`die_print.RELIEF` holds a height map per object (in units of `--depth`,
+1.2 mm): the die's white flush, black sunk, red raised; the globe's green
+land flush, blue ocean sunk, white ice raised; the donut's dough flush,
+icing up half a step, sprinkles up one; the Rubik's cube's six colours at
+six heights. Objects other than the die are turned so their +Y (the globe's
+north pole, the donut's icing) prints upward. The object as designed can be
+built before any scan:
+
+```
+python die_print.py --object mesh:globe --shown --slice --preview   # runs/globe_shown/print/
+python Tools/print_gcode_check.py --run runs/globe_shown --mesh mesh_shown.obj --object globe --name globe_shown
+.\quest_run.ps1 -Run globe                                          # scan it (96 cells, about 32 min)
+.\quest_run.ps1 -Run globe -PrintPort COM5                          # ...and print the decoded globe
+```
+
+`docs/results/globe_shown/` holds the globe as designed, 40 mm across, for
+the Ender-3 Pro: `globe_shown.stl` and `.gcode` (the plain sphere, 1.7 h),
+`globe_shown_relief.stl` and `.gcode` (ocean sunk 1.2 mm, ice raised 1.2 mm,
+land flush; 212 layers, 1.8 h, 9.3 m of filament), the 12 x 8 painting
+guide and the preview. The G-code check rebuilds the printed surface from
+the relief G-code and finds all 96 cells at their height within 0.35 mm,
+the 74 sunk or raised ones among them. A globe has no flat face: it prints
+on its raft with tree support under the southern hemisphere, which lands on
+the Antarctic ice cap, the one cell the supports may scar.
+
 ### Scan and print: the decoded die goes straight to the 3D printer
 
 `--print-port` turns a die session into scan-and-print. The die is scanned with
@@ -895,7 +923,8 @@ that port, then asks whether the bed is clear and filament is loaded. Only a
 "y" starts the session. The session then checks everything again before the
 EEG recorder or the headset page start (`print_on_scan.py`):
 
-1. the object is printable (the die for now),
+1. the object is printable (the die, the globe, the donut and the Rubik's
+   cube: each has a relief map in `die_print.py`),
 2. the operator confirmed the bed (`--print-bed-clear`),
 3. the slicer works, by building and slicing the die that is about to be
    shown, with the settings the decoded one will get (this also gives the
@@ -910,9 +939,11 @@ any check fails, the session stops before the subject has scanned a cell.
 through the planes scan (5 / 5 / 8 s per plane), about 16 min plus
 calibration.
 
-**3. Printing, the moment it is decoded.** The decoded die is built by
-`die_print.py` (relief: black cells sunk 1.2 mm, the red pip raised, white
-flush; `--print-model plain` for the shape alone), sliced for the Ender-3 Pro
+**3. Printing, the moment it is decoded.** The decoded object is built by
+`die_print.py` (relief: each colour at its own height along the surface
+normal, the die's black cells sunk 1.2 mm and its red pip raised, the
+globe's ocean sunk and ice raised with the land flush, white flush;
+`--print-model plain` for the shape alone), sliced for the Ender-3 Pro
 (`--printer`, `--print-set key=value`), and handed to its own print process
 (`printer.py print`). That process streams the G-code over USB with line
 numbers and checksums, resending any line the printer asks for again. The
@@ -1088,7 +1119,8 @@ and the small result files for each session are in `docs/results`.
 | `phantom_subject.py` | synthetic subject for end-to-end tests, including colour tags and audio |
 | `printer.py` | the 3D printer link: Marlin over USB serial (line numbers, checksums, resends), pre-connect check, print process, status and cancel; a simulated printer for tests |
 | `print_on_scan.py` | scan-and-print: pre-connect before the scan, then build, slice and print the decoded die the moment it is decoded |
-| `die_print.py` | the decoded die as STL (plain and relief) and G-code, sliced with the CuraEngine inside UltiMaker Cura |
+| `die_print.py` | a decoded object (the die, the globe, the donut, the Rubik's cube; `--object mesh:<name> --shown` for the object as designed) as STL (plain and relief) and G-code, sliced with the CuraEngine inside UltiMaker Cura |
+| `Tools/print_gcode_check.py` | rebuilds the printed surface from the relief G-code and measures every cell against its relief height; `docs/results/globe_shown` holds the globe's check (96 of 96) |
 | `targets.py` | text, pixel-font, image and colour targets |
 | `mesh3d.py` | 3D objects for the colour scan: built-in objects and OBJ import, unfolding into the scan grid, painting the decoded grid back on, textured OBJ export, renders |
 | `mesh_view.js`, `mesh_viewer_template.html` | the 3D renderer shared by the headset result screen and the per-session `mesh_viewer.html` |
