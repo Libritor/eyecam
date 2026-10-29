@@ -9,7 +9,8 @@
 #   .\quest_run.ps1 -Run wedge             # the step wedge, 12 levels x 4 rows (about 7 min)
 #   .\quest_run.ps1 -Run photo             # one of the gallery photos, sealed, 12 x 12 (about 25 min)
 #   .\quest_run.ps1 -Run cphoto -Target targets_img/<name>_12x14.png   # a colour poster from make_colour_photo.py
-#   .\quest_run.ps1 -Run exam -Ppd 20         # the eye exam, right eye then left (about 20 min; docs/EXAM.md)
+#   .\quest_run.ps1 -Run exam -Ppd 20         # the eye exam, right eye then left (about 32 min; docs/EXAM.md)
+#   .\quest_run.ps1 -Run exam -Ppd 20 -Extra "--exam-tests flash,temporal,acuity,contrast,field"   # a shorter sitting
 #   .\quest_run.ps1 -Run custom -Extra "--mode visual --choice bw --target pix:NO --grid-w 9 --grid-h 5 --spc 8"
 #
 # -Session names the folder under runs/ (default: <run><n>, the next free number).
@@ -57,7 +58,7 @@ switch ($Run) {
                 "grey picture $Target is ${gw} x ${gh}, about $([math]::Round($gw * $gh * 8 / 60)) min a pass (up to two); " +
                 "flicker patch a square $([math]::Round($PatchSide * [math]::Max($gw, $gh), 1)) cells wide" }
     "exam"    { $args_ = @("--mode", "exam", "--exam-eye", "right,left", "--exam-ppd", "$Ppd"); $prefix = "vr_exam"
-                "eye exam at $Ppd px/deg: right eye then left, about 20 min (full-window flash, flicker sweep, reversal gratings, quadrants, gaze positions, colour); cover the other eye with the patch" }
+                "eye exam at $Ppd px/deg: right eye then left, about 32 min (full-window flash, flicker sweep, reversal gratings, vernier offsets, contrast at three bar widths, quadrants, gaze positions, four meridians, red/green flicker photometry, colour; --exam-tests picks a subset); cover the other eye with the patch" }
     "custom"  { $args_ = @(); $prefix = "vr_custom" }
 }
 if ($Extra -ne "") { $args_ += ($Extra -split " ") }

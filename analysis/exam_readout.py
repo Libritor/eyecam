@@ -28,6 +28,20 @@
             sectors without a significant response are listed; with two eyes,
             the sector-by-sector amplitude ratio and phase difference
   colour    amplitude per plane, red : green : blue
+  vernier   amplitude against log offset of the jumping strips, the same limb
+            rule -> threshold offset in arcmin (a hyperacuity; Norcia,
+            Wesemann and Manny, 1999)
+  csf       the contrast limb at each of the test's bar widths, joined with the
+            contrast test's own point: log contrast sensitivity against cycles
+            per degree, and the bar width where it peaks
+  meridian  amplitude per orientation of the bars over the best; the weakest
+            meridian and how far below the best it lies (astigmatism leaves one
+            meridian weak and the one at right angles strong)
+  photometry  amplitude against the first field's share of the pair's
+            luminance; the null fitted as a * M(share; p0) + b, M the exchange's
+            luminance modulation for an eye whose two fields match at share p0,
+            so p0 is the eye's isoluminant point (the display's standard
+            observer: 0.5), b / (a + b) the chromatic response left at the null
 
     python analysis/exam_readout.py runs/<session>
 
@@ -43,8 +57,10 @@ import textwrap
 
 import numpy as np
 
-TESTS = ["flash", "temporal", "acuity", "contrast", "field", "gaze", "colour"]
+TESTS = ["flash", "temporal", "acuity", "vernier", "contrast", "csf", "field", "gaze",
+         "meridian", "photometry", "colour"]
 ALPHA = 0.05
+PANELS_PER_ROW = 6      # the report wraps an eye's panels past this many
 LAT_WINDOW_S = (0.03, 0.30)   # apparent latencies searched (the pathway's 80-150 ms plus the rig's offset)
 RISE_FRAC = 0.1        # a limb point must add this fraction of the peak amplitude
 
@@ -297,6 +313,179 @@ def read_contrast(stage):
     return out
 
 
+def read_vernier(stage):
+    """The jumping strips: amplitude against log offset, the sweep-VEP limb
+    rule, threshold offset in arcmin."""
+    out = dict(ok=False)
+    if not stage or not stage.get("ok"):
+        out["reason"] = (stage or {}).get("reason", "not run")
+        return out
+    steps, off, amp, p, sd = _steps(stage, "offset")
+    out.update(offsets=off.tolist(), amps=amp.tolist(), p=p.tolist(), amp_sd=sd.tolist(),
+               noise_amp=stage.get("noise_amp"), channel=stage.get("channel"), freq=stage.get("freq"),
+               bar=float(steps[0]["meta"].get("size", 0)) if steps else None)
+    if len(off) < 2:
+        out["reason"] = "fewer than two scored steps"
+        return out
+    fit = fit_limb(np.log(off), amp, p)
+    out["fit"] = fit
+    if fit.get("finest_sig") is not None:
+        out["finest_sig"] = float(math.exp(fit["finest_sig"]))
+    if not fit["ok"]:
+        out["reason"] = fit["reason"]
+        return out
+    thr = float(math.exp(fit["x_thr_log"]))
+    out.update(ok=True, threshold=thr,
+               beyond_range=bool(fit.get("beyond_range") or thr < 0.5 * float(off.min())),
+               note=fit.get("note", ""))
+    return out
+
+
+def read_csf(stage, contrast_point=None):
+    """The contrast limb at each of the csf test's bar widths, joined with the
+    contrast test's own threshold (contrast_point, read_contrast's output):
+    log contrast sensitivity against cycles per degree (a bar of w arcmin is
+    half a cycle: 30 / w cpd)."""
+    out = dict(ok=False, points=[], per_size=[])
+    if not stage or not stage.get("ok"):
+        out["reason"] = (stage or {}).get("reason", "not run")
+    else:
+        steps = [s for s in stage.get("steps", []) if s.get("amp") is not None]
+        sizes = sorted({round(float(s["meta"].get("size", 0)), 3) for s in steps}, reverse=True)
+        for sz in sizes:
+            sub = [s for s in steps if round(float(s["meta"].get("size", 0)), 3) == sz]
+            c = np.array([float(s["meta"]["contrast"]) for s in sub])
+            a = np.array([float(s["amp"]) for s in sub])
+            p = np.array([float(s["p"]) for s in sub])
+            d = dict(size=sz, cpd=30.0 / sz if sz > 0 else None, contrasts=c.tolist(), amps=a.tolist(),
+                     p=p.tolist(), ok=False)
+            if len(c) >= 2:
+                fit = fit_limb(np.log10(c), a, p)
+                d["fit"] = fit
+                if fit.get("finest_sig") is not None:
+                    d["faintest_sig"] = float(10 ** fit["finest_sig"])
+                if fit["ok"]:
+                    thr = float(10 ** fit["x_thr_log"])
+                    d.update(ok=True, threshold=thr, log_cs=float(-math.log10(thr)),
+                             beyond_range=bool(fit.get("beyond_range") or thr < 0.5 * float(c.min())))
+                else:
+                    d["reason"] = fit["reason"]
+            else:
+                d["reason"] = "fewer than two scored steps"
+            out["per_size"].append(d)
+        out.update(ok=True, sizes=sizes, channel=stage.get("channel"), freq=stage.get("freq"),
+                   noise_amp=stage.get("noise_amp"))
+    pts = [dict(size=d["size"], cpd=d["cpd"], log_cs=d["log_cs"], threshold=d["threshold"],
+                beyond_range=d.get("beyond_range", False), source="csf")
+           for d in out["per_size"] if d.get("ok") and d.get("cpd")]
+    cp = contrast_point or {}
+    if cp.get("ok") and cp.get("size"):
+        pts.append(dict(size=float(cp["size"]), cpd=30.0 / float(cp["size"]), log_cs=cp["log_cs"],
+                        threshold=cp["threshold"], beyond_range=cp.get("beyond_range", False),
+                        source="contrast"))
+    pts.sort(key=lambda d: d["cpd"])
+    out["points"], out["n_points"] = pts, len(pts)
+    if pts:
+        best = max(pts, key=lambda d: d["log_cs"])
+        out.update(peak_cpd=best["cpd"], peak_log_cs=best["log_cs"], peak_size=best["size"])
+    elif out.get("ok"):
+        out["reason"] = "no contrast threshold at any bar width"
+    return out
+
+
+def read_meridian(stage):
+    """The turned grating: amplitude per orientation over the best; the
+    weakest meridian and its share of the best (astigmatism leaves one
+    meridian weak and the one at right angles strong)."""
+    out = dict(ok=False)
+    if not stage or not stage.get("ok") or not stage.get("steps"):
+        out["reason"] = (stage or {}).get("reason", "not run")
+        return out
+    steps = sorted([s for s in stage["steps"] if s.get("amp") is not None],
+                   key=lambda s: float(s["meta"].get("angle", 0)))
+    ang = np.array([float(s["meta"].get("angle", 0)) for s in steps])
+    amp = np.array([float(s["amp"]) for s in steps])
+    p = np.array([float(s["p"]) for s in steps])
+    resp = (p < ALPHA) & np.isfinite(amp) & (amp > 0)
+    out.update(n=len(ang), angles=ang.tolist(), amps=amp.tolist(), p=p.tolist(),
+               size=float(steps[0]["meta"].get("size", 0)) if steps else None,
+               responding=[int(k) for k in np.where(resp)[0]],
+               not_responding=[int(k) for k in np.where(~resp)[0]], n_responding=int(resp.sum()),
+               channel=stage.get("channel"), freq=stage.get("freq"), noise_amp=stage.get("noise_amp"))
+    if not resp.any():
+        out["reason"] = "no orientation responds at this bar width"
+        return out
+    best = float(np.nanmax(amp[resp]))
+    rel = amp / best
+    rel_eff = np.where(resp, rel, 0.0)
+    out.update(ok=True, rel=[float(v) if np.isfinite(v) else None for v in rel],
+               best_angle=float(ang[int(np.argmax(rel_eff))]),
+               weakest_angle=float(ang[int(np.argmin(rel_eff))]),
+               ratio_min_max=float(rel_eff.min()))
+    return out
+
+
+def photometry_modulation(mix, p0):
+    """Luminance modulation of the exchange of two fields, the first holding
+    `mix` of the pair's luminance, for an eye whose two fields match at `p0`
+    (its first-field efficiency scaled so the null falls there)."""
+    k = (1.0 - p0) / max(p0, 1e-6)
+    ya, yb = mix * k, 1.0 - mix
+    return abs(ya - yb) / max(ya + yb, 1e-9)
+
+
+def read_photometry(stage):
+    """Heterochromatic flicker photometry, per colour pair: amplitude against
+    the first field's share; the null fitted as a * M(share; p0) + b over a
+    grid of p0 (least squares, a > 0): p0 the eye's isoluminant share, b the
+    chromatic response left at the null, as a fraction of the largest fitted
+    response."""
+    out = dict(ok=False, pairs={})
+    if not stage or not stage.get("ok") or not stage.get("steps"):
+        out["reason"] = (stage or {}).get("reason", "not run")
+        return out
+    steps = [s for s in stage["steps"] if s.get("amp") is not None]
+    for pair in sorted({str(s["meta"].get("pair") or "rg") for s in steps}):
+        sub = sorted([s for s in steps if str(s["meta"].get("pair") or "rg") == pair],
+                     key=lambda s: float(s["meta"].get("mix", 0)))
+        x = np.array([float(s["meta"].get("mix", 0)) for s in sub])
+        amp = np.array([float(s["amp"]) for s in sub])
+        p = np.array([float(s["p"]) for s in sub])
+        resp = (p < ALPHA) & (amp > 0)
+        d = dict(pair=pair, mixes=x.tolist(), amps=amp.tolist(), p=p.tolist(), n=len(x),
+                 n_responding=int(resp.sum()), responding=[int(k) for k in np.where(resp)[0]],
+                 dimmest=float(x[int(np.argmin(amp))]) if len(x) else None, fit_ok=False)
+        if len(x) < 3:
+            d["reason"] = "fewer than three shares scored"
+        else:
+            best = None
+            for p0 in np.arange(0.05, 0.9501, 0.0025):
+                M = np.array([photometry_modulation(v, p0) for v in x])
+                X = np.column_stack([M, np.ones(len(x))])
+                beta, *_ = np.linalg.lstsq(X, amp, rcond=None)
+                if beta[0] <= 0:
+                    continue
+                sse = float(np.sum((X @ beta - amp) ** 2))
+                if best is None or sse < best[0]:
+                    best = (sse, float(p0), float(beta[0]), float(beta[1]), M)
+            if best is None:
+                d["reason"] = "the amplitude does not rise away from any null"
+            else:
+                sse, p0, a, b, M = best
+                top = a * float(M.max()) + max(b, 0.0)
+                d.update(fit_ok=True, null=p0, a=a, b=b, sse=sse,
+                         residual=float(max(b, 0.0) / top) if top > 0 else None,
+                         shift=float(p0 - 0.5), interior=bool(x.min() < p0 < x.max()),
+                         fitted=[float(a * m + b) for m in M])
+        out["pairs"][pair] = d
+    out["ok"] = bool(out["pairs"])
+    rg = out["pairs"].get("rg")
+    if rg and rg.get("fit_ok"):
+        out.update(null=rg["null"], residual=rg["residual"], shift=rg["shift"], interior=rg["interior"])
+    out.update(channel=stage.get("channel"), freq=stage.get("freq"), noise_amp=stage.get("noise_amp"))
+    return out
+
+
 def _wrap(deg):
     return (deg + 180.0) % 360.0 - 180.0
 
@@ -434,6 +623,21 @@ def eye_text(eye, r):
             if ac.get("finest_sig") is not None:
                 s += f" (finest bar with a response {ac['finest_sig']:.1f}')"
             bits.append(s)
+    ve = r.get("vernier")
+    if ve:
+        if ve.get("ok") and ve.get("beyond_range"):
+            bits.append(f"vernier threshold below the finest offset shown ({min(ve['offsets']):.2f}'; "
+                        f"the line crosses zero at {ve['threshold']:.2f}', not a measurement)")
+        elif ve.get("ok"):
+            s = f"vernier threshold {ve['threshold']:.2f}' (extrapolated"
+            if ve.get("finest_sig") is not None:
+                s += f"; finest offset with a response {ve['finest_sig']:.2f}'"
+            bits.append(s + ")")
+        else:
+            s = f"vernier: {ve.get('reason')}"
+            if ve.get("finest_sig") is not None:
+                s += f" (finest offset with a response {ve['finest_sig']:.2f}')"
+            bits.append(s)
     co = r.get("contrast")
     if co:
         if co.get("ok") and co.get("beyond_range"):
@@ -446,6 +650,16 @@ def eye_text(eye, r):
             bits.append(s + ")")
         else:
             bits.append(f"contrast: {co.get('reason')}")
+    cs = r.get("csf")
+    if cs:
+        if cs.get("points"):
+            s = "CSF log sensitivity " + ", ".join(
+                f"{pt['log_cs']:.2f} at {pt['cpd']:.1f} cpd" + (" (beyond the range)" if pt["beyond_range"] else "")
+                for pt in cs["points"])
+            s += f"; peak at {cs['peak_cpd']:.1f} cpd ({cs['peak_size']:.0f}' bars)"
+            bits.append(s)
+        else:
+            bits.append(f"CSF: {cs.get('reason', 'no threshold at any bar width')}")
     fi = r.get("field")
     if fi:
         if fi.get("ok"):
@@ -468,6 +682,34 @@ def eye_text(eye, r):
             bits.append(s)
         else:
             bits.append(f"gaze: {ga.get('reason')}")
+    me = r.get("meridian")
+    if me:
+        if me.get("ok"):
+            s = f"meridians {me['n_responding']}/{me['n']} respond at {me['size']:.0f}' bars"
+            if me["not_responding"]:
+                s += " (nothing at " + ", ".join(f"{me['angles'][k]:g} deg" for k in me["not_responding"]) + ")"
+            s += (f"; weakest {me['weakest_angle']:g} deg at {me['ratio_min_max']:.2f} of the best "
+                  f"({me['best_angle']:g} deg)")
+            bits.append(s)
+        else:
+            bits.append(f"meridian: {me.get('reason')}")
+    ph = r.get("photometry")
+    if ph:
+        pairs = ph.get("pairs") or {}
+        for pair, d in pairs.items():
+            name, first = ("blue/yellow", "blue") if pair == "by" else ("red/green", "red")
+            if d.get("fit_ok"):
+                s = (f"{name} photometry: null at {first} share {d['null']:.2f} ({d['shift']:+.2f} from the "
+                     f"display's match)")
+                if d.get("residual") is not None:
+                    s += f", {100 * d['residual']:.0f} % of the response left at the null"
+                if not d.get("interior"):
+                    s += "; the null lies outside the shares shown"
+                bits.append(s)
+            else:
+                bits.append(f"{name} photometry: {d.get('reason')}")
+        if not pairs:
+            bits.append(f"photometry: {ph.get('reason')}")
     col = r.get("colour")
     if col:
         if col.get("ok"):
@@ -492,10 +734,32 @@ def compare_eyes(eyes):
         return {}
     L, R = eyes["left"], eyes["right"]
     out = {}
-    for t, key in (("flash", "amp"), ("acuity", "threshold"), ("contrast", "threshold")):
+    for t, key in (("flash", "amp"), ("acuity", "threshold"), ("contrast", "threshold"),
+                   ("vernier", "threshold")):
         a, b = L.get(t, {}), R.get(t, {})
         if a.get("ok") and b.get("ok") and a.get(key) and b.get(key) and b[key] > 0:
             out[f"{t}_ratio_lr"] = float(a[key] / b[key])
+    ca, cb = L.get("csf", {}), R.get("csf", {})
+    if ca.get("points") and cb.get("points"):
+        rat = {}
+        for pa in ca["points"]:
+            for pb in cb["points"]:
+                if abs(pa["size"] - pb["size"]) <= 0.01 * pb["size"] and pb["threshold"] > 0:
+                    rat[f"{pa['size']:g}"] = float(pa["threshold"] / pb["threshold"])
+        if rat:
+            out["csf_ratio_lr"] = rat
+    ma, mb = L.get("meridian", {}), R.get("meridian", {})
+    if ma.get("ok") and mb.get("ok") and ma["angles"] == mb["angles"]:
+        la_, lb_ = np.array(ma["amps"], float), np.array(mb["amps"], float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ratio = np.log2(la_ / lb_)
+        ratio[~np.isfinite(ratio)] = np.nan
+        out.update(meridian_angles=ma["angles"], meridian_log2_ratio_lr=ratio.tolist(),
+                   meridian_weakest_left=ma["weakest_angle"], meridian_weakest_right=mb["weakest_angle"])
+    pa_, pb_ = (L.get("photometry") or {}).get("pairs") or {}, (R.get("photometry") or {}).get("pairs") or {}
+    for pair in pa_:
+        if pa_[pair].get("fit_ok") and pb_.get(pair, {}).get("fit_ok"):
+            out[f"photometry_{pair}_null_diff"] = float(pa_[pair]["null"] - pb_[pair]["null"])
     fa, fb = L.get("field", {}), R.get("field", {})
     if fa.get("ok") and fb.get("ok") and fa["n"] == fb["n"]:
         la, lb = np.array(fa["amp"], float), np.array(fb["amp"], float)
@@ -569,6 +833,21 @@ def compare_text(c):
         bits.append(f"acuity threshold left/right {c['acuity_ratio_lr']:.2f}x")
     if "contrast_ratio_lr" in c:
         bits.append(f"contrast threshold left/right {c['contrast_ratio_lr']:.2f}x")
+    if "vernier_ratio_lr" in c:
+        bits.append(f"vernier threshold left/right {c['vernier_ratio_lr']:.2f}x")
+    if "csf_ratio_lr" in c:
+        bits.append("CSF contrast threshold left/right " + ", ".join(
+            f"{v:.2f}x at {k}'" for k, v in c["csf_ratio_lr"].items()))
+    if "meridian_log2_ratio_lr" in c:
+        per = [f"{a:g} deg {2 ** v:.2f}x" for a, v in zip(c["meridian_angles"], c["meridian_log2_ratio_lr"])
+               if v is not None and np.isfinite(v)]
+        s = "meridian amplitude left/right " + (", ".join(per) if per else "-")
+        s += (f"; weakest meridian left {c['meridian_weakest_left']:g} deg, "
+              f"right {c['meridian_weakest_right']:g} deg")
+        bits.append(s)
+    for pair, name in (("rg", "red/green"), ("by", "blue/yellow")):
+        if f"photometry_{pair}_null_diff" in c:
+            bits.append(f"{name} null left minus right {c[f'photometry_{pair}_null_diff']:+.2f}")
     if "field_log2_ratio_lr" in c:
         med = c.get("field_ratio_median")
         s = "field amplitude left/right " + (f"median {2 ** med:.2f}x" if med is not None else "-")
@@ -606,7 +885,9 @@ def draw(session, exam, eyes, compare, text):
     names = exam["eyes"]
     tests = [t for t in TESTS if t in exam["tests"]]
     extra = 1 if compare.get("field_log2_ratio_lr") else 0
-    nrow, ncol = len(names) + extra, max(len(tests), 2)
+    ncol = min(max(len(tests), 2), PANELS_PER_ROW)
+    rows_per_eye = max(1, math.ceil(len(tests) / ncol))      # an eye's panels wrap past six
+    nrow = len(names) * rows_per_eye + extra
     width = 3.1 * ncol
     summary = textwrap.wrap(text.replace("\n", "  |  "), int(width * 12))   # ~12 chars/in at 7 pt
     top_in = 0.4 + 0.14 * len(summary) + 0.45          # title, summary lines, room for the panel titles
@@ -621,7 +902,7 @@ def draw(session, exam, eyes, compare, text):
     for i, eye in enumerate(names):
         r = eyes[eye]
         for j, t in enumerate(tests):
-            ax = fig.add_subplot(gs[i, j])
+            ax = fig.add_subplot(gs[i * rows_per_eye + j // ncol, j % ncol])
             d = r.get(t, {})
             if t == "flash":
                 _draw_flash(ax, d)
@@ -651,6 +932,23 @@ def draw(session, exam, eyes, compare, text):
                 _draw_gaze(ax, d)
                 ttl = (f"{eye}: gaze, {d['n_responding']}/{d['n']} positions respond"
                        if d.get("ok") else f"{eye}: gaze, not scored")
+            elif t == "vernier":
+                _draw_curve(ax, d, "offsets", "vernier offset (arcmin)", invert=True, logbase=math.e)
+                ttl = (f"{eye}: vernier, below the finest offset shown" if d.get("ok") and d.get("beyond_range")
+                       else f"{eye}: vernier, threshold {d['threshold']:.2f}'"
+                       if d.get("ok") else f"{eye}: vernier, no threshold")
+            elif t == "csf":
+                _draw_csf(ax, d)
+                ttl = (f"{eye}: CSF, {d['n_points']} points, peak {d['peak_cpd']:.1f} cpd"
+                       if d.get("points") else f"{eye}: CSF, no threshold")
+            elif t == "meridian":
+                _draw_meridian(ax, d)
+                ttl = (f"{eye}: meridians, weakest {d['weakest_angle']:g} deg at {d['ratio_min_max']:.2f}"
+                       if d.get("ok") else f"{eye}: meridians, no response")
+            elif t == "photometry":
+                _draw_photometry(ax, d)
+                ttl = (f"{eye}: photometry, null at {d['null']:.2f}" if d.get("null") is not None
+                       else f"{eye}: photometry, no null fitted")
             else:
                 _draw_colour(ax, d)
                 ttl = f"{eye}: colour planes" if d.get("ok") else f"{eye}: colour, not scored"
@@ -858,6 +1156,104 @@ def _draw_gaze(ax, d):
     ax.set_xlabel("whole-window flicker; amplitude / best position", fontsize=7)
 
 
+def _draw_csf(ax, d):
+    """Log contrast sensitivity against spatial frequency: the csf test's bar
+    widths (circles) and the contrast test's own point (square); open markers
+    are thresholds beyond the range shown."""
+    pts = d.get("points") or []
+    if not pts:
+        ax.text(0.5, 0.5, d.get("reason", "not run"), ha="center", va="center",
+                transform=ax.transAxes, fontsize=7)
+        ax.set_xticks([]); ax.set_yticks([])
+        return
+    f = np.array([p["cpd"] for p in pts]); y = np.array([p["log_cs"] for p in pts])
+    ax.plot(f, y, "-", color="#9db2c8", lw=0.8)
+    for p in pts:
+        ax.plot(p["cpd"], p["log_cs"], "s" if p["source"] == "contrast" else "o", ms=5, color="#1f4e79",
+                mfc="white" if p["beyond_range"] else "#1f4e79")
+        ax.text(p["cpd"], p["log_cs"] + 0.04, f"{p['size']:.0f}'", ha="center", fontsize=6.5, color="#555")
+    for sz in d.get("per_size", []):
+        if not sz.get("ok") and sz.get("cpd"):
+            ax.plot(sz["cpd"], 0.0, "x", ms=6, color="#e74c3c")
+            ax.text(sz["cpd"], 0.06, "none", ha="center", fontsize=6.5, color="#e74c3c")
+    ax.set_xscale("log")
+    ax.set_xticks(f); ax.set_xticklabels([f"{v:.2g}" for v in f], fontsize=6.5)
+    ax.minorticks_off()
+    ax.set_xlabel("spatial frequency (cycles/deg)"); ax.set_ylabel("log contrast sensitivity")
+    ax.set_ylim(0, max(float(y.max()) * 1.25, 0.5))
+    ax.spines[["top", "right"]].set_visible(False)
+
+
+def _draw_meridian(ax, d):
+    """A rose of the bars' orientations: each meridian drawn as a line through
+    the centre at the bars' tilt, its length the amplitude over the best;
+    dashed where not significant."""
+    if not d.get("ok") and not d.get("angles"):
+        ax.text(0.5, 0.5, d.get("reason", "not run"), ha="center", va="center",
+                transform=ax.transAxes, fontsize=7)
+        ax.set_xticks([]); ax.set_yticks([])
+        return
+    ang = np.array(d["angles"], float); p = np.array(d["p"], float)
+    amp = np.array(d["amps"], float)
+    best = float(np.nanmax(amp[p < ALPHA])) if (p < ALPHA).any() else float(np.nanmax(amp))
+    rel = amp / best if best > 0 else amp * 0
+    for th in np.arange(0, 1.01, 0.25):
+        ax.add_patch(matplotlib_circle((0, 0), th, fill=False, color="#ddd", lw=0.6))
+    for a_, r_, p_ in zip(ang, rel, p):
+        # the bars tilt clockwise from vertical by a_: a line along the bars
+        dx, dy = math.sin(math.radians(a_)), math.cos(math.radians(a_))
+        r_ = float(np.clip(r_, 0, 1.2))
+        ax.plot([-dx * r_, dx * r_], [-dy * r_, dy * r_], color="#1f4e79" if p_ < ALPHA else "#c0392b",
+                lw=3 if p_ < ALPHA else 1.2, ls="-" if p_ < ALPHA else "--", solid_capstyle="round")
+        ax.text(dx * 1.22, dy * 1.22, f"{a_:g}°\n{r_:.2f}", ha="center", va="center", fontsize=6.5)
+    ax.set_xlim(-1.5, 1.5); ax.set_ylim(-1.5, 1.5)
+    ax.set_aspect("equal")
+    ax.set_xticks([]); ax.set_yticks([])
+    for s in ("top", "right", "left", "bottom"):
+        ax.spines[s].set_visible(False)
+    ax.set_xlabel(f"bars {d.get('size', 0):.0f}' turned; amplitude / best meridian", fontsize=7)
+
+
+def matplotlib_circle(*args, **kw):
+    from matplotlib.patches import Circle
+    return Circle(*args, **kw)
+
+
+def _draw_photometry(ax, d):
+    """Amplitude against the first field's share of the pair's luminance, per
+    pair, with the fitted null model and the null itself; the display's
+    photometric match (0.5) dotted."""
+    pairs = d.get("pairs") or {}
+    if not pairs:
+        ax.text(0.5, 0.5, d.get("reason", "not run"), ha="center", va="center",
+                transform=ax.transAxes, fontsize=7)
+        ax.set_xticks([]); ax.set_yticks([])
+        return
+    colours = {"rg": "#c0392b", "by": "#1f4e79"}
+    for pair, pd in pairs.items():
+        c = colours.get(pair, "#555")
+        x = np.array(pd["mixes"], float); a = np.array(pd["amps"], float); p = np.array(pd["p"], float)
+        sig = p < ALPHA
+        ax.plot(x[sig], a[sig], "o", ms=4, color=c, label=f"{'red/green' if pair == 'rg' else 'blue/yellow'}")
+        ax.plot(x[~sig], a[~sig], "o", ms=4, mfc="white", color=c)
+        if pd.get("fit_ok"):
+            xx = np.linspace(0.05, 0.95, 100)
+            yy = [pd["a"] * photometry_modulation(v, pd["null"]) + pd["b"] for v in xx]
+            ax.plot(xx, yy, color=c, lw=1.0, alpha=0.8)
+            ax.axvline(pd["null"], color=c, lw=0.8, ls="--")
+            ax.text(pd["null"], ax.get_ylim()[1] * 0.02, f" null {pd['null']:.2f}", color=c, fontsize=6.5,
+                    va="bottom")
+    ax.axvline(0.5, color="#888", lw=0.6, ls=":")
+    ax.axhline(0, color="#888", lw=0.6)
+    if d.get("noise_amp") is not None:
+        ax.axhline(d["noise_amp"], color="#888", lw=0.6, ls=":")
+    ax.set_xlim(0, 1)
+    ax.set_xlabel("first field's share of the pair's luminance (red, or blue)")
+    ax.set_ylabel("response amplitude (a.u.)")
+    ax.legend(fontsize=6, frameon=False, loc="upper center")
+    ax.spines[["top", "right"]].set_visible(False)
+
+
 def plt_cmap(v):
     import matplotlib
     return matplotlib.colormaps["magma"](0.15 + 0.8 * float(np.clip(v, 0, 1)))
@@ -903,9 +1299,19 @@ def run(session):
         if "acuity" in exam["tests"]:
             r["acuity"] = read_acuity(res.get("acuity"))
             _rel_flash(r["acuity"], ref_amp, "amps")
+        if "vernier" in exam["tests"]:
+            r["vernier"] = read_vernier(res.get("vernier"))
+            _rel_flash(r["vernier"], ref_amp, "amps")
         if "contrast" in exam["tests"]:
             r["contrast"] = read_contrast(res.get("contrast"))
             _rel_flash(r["contrast"], ref_amp, "amps")
+        if "csf" in exam["tests"]:
+            r["csf"] = read_csf(res.get("csf"), r.get("contrast"))
+        if "meridian" in exam["tests"]:
+            r["meridian"] = read_meridian(res.get("meridian"))
+            _rel_flash(r["meridian"], ref_amp, "amps")
+        if "photometry" in exam["tests"]:
+            r["photometry"] = read_photometry(res.get("photometry"))
         if "field" in exam["tests"]:
             r["field"] = read_field(res.get("field"))
             _rel_flash(r["field"], ref_amp, "amp")

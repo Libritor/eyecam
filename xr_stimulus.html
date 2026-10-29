@@ -468,7 +468,47 @@ async function runSweep(m) {
 // flicker column marks the frames on which the bars swapped, so the logged
 // edges are the reversals (the events the response locks to). Bar widths are
 // rounded to whole device pixels and the width delivered is reported.
+// Added 29 Oct 2026: vernier (coarse bars in strips, every other strip jumping
+// sideways by the step's offset and back at the flicker rate; OFF = the
+// aligned bars; offsets to a quarter pixel through the canvas's anti-aliasing),
+// csf (the contrast grating at other bar widths), meridian (the grating turned
+// to the step's angle, clockwise from vertical) and photometry (the window
+// swapping between two coloured fields, red/green or blue/yellow, whose
+// luminance shares the step sets; OFF = the steady mixture of the two).
 const EXAM_GAMMA = 2.2;
+const LUM_W = { r: 0.2126, g: 0.7152, b: 0.0722 };   // the primaries' share of white (sRGB)
+function photometryColours(pair, mix, lum) {
+  // the two fields (A gets `mix` of the pair's luminance `lum`, B the rest)
+  // and the OFF screen: both at half, the time average of the exchange
+  const ya = mix * lum, yb = (1 - mix) * lum;
+  const css = (r, g, b) => `rgb(${examByte(r)},${examByte(g)},${examByte(b)})`;
+  if (pair === "by") {
+    const k = yb / (LUM_W.r + LUM_W.g);                 // yellow: red and green alike
+    return { a: css(0, 0, ya / LUM_W.b), b: css(k, k, 0), off: css(k / 2, k / 2, ya / LUM_W.b / 2) };
+  }
+  return { a: css(ya / LUM_W.r, 0, 0), b: css(0, yb / LUM_W.g, 0),
+           off: css(ya / LUM_W.r / 2, yb / LUM_W.g / 2, 0) };
+}
+function vernierCanvases(w, h, barPx, offsetPx) {
+  // aligned: vertical bars; misaligned: every other horizontal strip (three
+  // bars high) shifted right by offsetPx, drawn at a fractional position so
+  // the browser's anti-aliasing renders the sub-pixel edge
+  const pad = Math.ceil(offsetPx) + 2;
+  const bars = gratingCanvas(w + 2 * pad, h, barPx, 1, 0);
+  const make = shift => {
+    const off = document.createElement("canvas");
+    off.width = Math.max(1, Math.round(w)); off.height = Math.max(1, Math.round(h));
+    const c = off.getContext("2d");
+    const strip = 3 * barPx;
+    for (let y = 0, k = 0; y < off.height; y += strip, k++) {
+      c.save(); c.beginPath(); c.rect(0, y, off.width, strip); c.clip();
+      c.drawImage(bars, -pad + (k % 2 ? shift : 0), 0);
+      c.restore();
+    }
+    return off;
+  };
+  return { aligned: make(0), misaligned: make(offsetPx) };
+}
 const examByte = L => Math.round(255 * Math.pow(Math.max(0, Math.min(1, L)), 1 / EXAM_GAMMA));
 function gratingCanvas(w, h, stripePx, contrast, shift = 0) {
   // a vertical grating w x h; shift = 1 starts with the dark bar (the other phase)
@@ -516,22 +556,35 @@ async function runExam(m) {
   const scale = (m.ppd || 30) * devicePixelRatio;        // device px per degree
   const toPx = arcmin => Math.max(1, Math.round(arcmin / 60 * scale));
   const toArcmin = px => px / scale * 60;
-  const grating = m.test === "acuity" || m.test === "contrast";
+  const grating = ["acuity", "contrast", "csf", "meridian"].includes(m.test);
+  const vernier = m.test === "vernier", photometry = m.test === "photometry";
   const reversal = grating && (m.style || "reversal") === "reversal";
+  const diag = Math.ceil(Math.hypot(pw, ph));            // a turned grating must still cover the window
   const steps = m.steps.map((s, i) => {
     const o = Object.assign({ step: i, test: m.test, size: 0, sizePx: 0, contrast: 1,
                               sector: -1, plane: -1, rate: 0, hz: 0, skip: false,
-                              cols: 1, rows: 1, gaze: -1, gx: 0, gy: 0, name: "" }, s);
+                              cols: 1, rows: 1, gaze: -1, gx: 0, gy: 0, name: "",
+                              offset: 0, offsetPx: 0, angle: 0, mix: -1, pair: "", lum: 0 }, s);
     if (grating) {
       o.contrast = s.contrast == null ? 1 : s.contrast;
       o.sizePx = toPx(s.size); o.size = toArcmin(o.sizePx);
-      o.canvas = gratingCanvas(pw, ph, o.sizePx, o.contrast, 0);
-      if (reversal) o.canvasB = gratingCanvas(pw, ph, o.sizePx, o.contrast, 1);
+      const gw = o.angle ? diag : pw, gh = o.angle ? diag : ph;
+      o.canvas = gratingCanvas(gw, gh, o.sizePx, o.contrast, 0);
+      if (reversal) o.canvasB = gratingCanvas(gw, gh, o.sizePx, o.contrast, 1);
+    } else if (vernier) {
+      // the bars are coarse (s.size arcmin, whole pixels); the offset is the
+      // step's variable, delivered to a quarter of a device pixel
+      o.sizePx = toPx(s.size); o.size = toArcmin(o.sizePx);
+      o.offsetPx = Math.max(0.25, Math.round(4 * s.offset / 60 * scale) / 4);
+      o.offset = o.offsetPx / scale * 60;
+      Object.assign(o, vernierCanvases(pw, ph, o.sizePx, o.offsetPx));
+    } else if (photometry) {
+      o.colours = photometryColours(o.pair || "rg", o.mix, o.lum || 0.2);
     }
     return o;
   });
   const PLANE_CSS = ["#ff0000", "#00ff00", "#0000ff"];
-  const style = grating ? (reversal ? "reversal" : "onset") : "flicker";
+  const style = (grating || vernier) ? (reversal || vernier ? "reversal" : "onset") : "flicker";
   let b = 0;
   let nBlocks = m.reps * steps.length;
   for (let r = 0; r < m.reps && running === tok; r++) {
@@ -552,9 +605,16 @@ async function runExam(m) {
                      contrast: s.contrast, sector: s.sector, plane: s.plane, cols: s.cols, rows: s.rows,
                      rate: s.rate, hz: s.hz, halfFrames: sweep ? halfFrames : undefined,
                      gaze: s.gaze, gx: s.gx, gy: s.gy, name: s.name,
+                     offset: s.offset, offsetPx: s.offsetPx, angle: s.angle, mix: s.mix,
+                     pair: s.pair, lum: s.lum,
                      style, patchPx: [Math.round(pw), Math.round(ph)] };
       const what = m.test === "acuity" ? `bars ${s.size.toFixed(1)}' (${s.sizePx} px)`
-        : m.test === "contrast" ? `contrast ${s.contrast}` : m.test === "field" ? `sector ${s.sector + 1}/${s.cols * s.rows}`
+        : m.test === "vernier" ? `bars ${s.size.toFixed(1)}', offset ${s.offset.toFixed(2)}' (${s.offsetPx} px)`
+        : m.test === "contrast" ? `contrast ${s.contrast}`
+        : m.test === "csf" ? `bars ${s.size.toFixed(1)}', contrast ${s.contrast}`
+        : m.test === "meridian" ? `bars ${s.size.toFixed(1)}' at ${s.angle} deg`
+        : m.test === "photometry" ? `${s.pair === "by" ? "blue/yellow" : "red/green"}, ${s.pair === "by" ? "blue" : "red"} share ${s.mix.toFixed(2)}`
+        : m.test === "field" ? `sector ${s.sector + 1}/${s.cols * s.rows}`
         : m.test === "colour" ? ["red", "green", "blue"][s.plane]
         : m.test === "gaze" ? `whole window, looking ${s.name}`
         : sweep ? `flash at ${hz.toFixed(1)} Hz` : "full-field flash";
@@ -585,12 +645,33 @@ async function runExam(m) {
           if (grating && reversal) {
             // ON: the bars swap places once per flicker period (each phase lasts
             // one period, so the swaps come at the session frequency); OFF: the
-            // same-mean grey alone. fl marks the frame of a swap.
+            // same-mean grey alone. fl marks the frame of a swap. A turned
+            // grating (meridian) is drawn rotated about the window's centre.
             if (on) {
               const phase = Math.floor((lastTs / 1000 - flickerT0 + 0.5 / refreshHz) * hz) % 2;
-              ctx.drawImage(phase ? s.canvasB : s.canvas, px0, py0);
+              const img = phase ? s.canvasB : s.canvas;
+              if (s.angle) {
+                ctx.save(); ctx.beginPath(); ctx.rect(px0, py0, pw, ph); ctx.clip();
+                ctx.translate(px0 + pw / 2, py0 + ph / 2); ctx.rotate(s.angle * Math.PI / 180);
+                ctx.drawImage(img, -img.width / 2, -img.height / 2); ctx.restore();
+              } else ctx.drawImage(img, px0, py0);
               fl = phase !== lastPhase; lastPhase = phase;
             } else { ctx.fillStyle = greyCss; ctx.fillRect(px0, py0, pw, ph); }
+          } else if (vernier) {
+            // ON: every other strip jumps by the offset and back, once per
+            // flicker period (fl marks the jumps); OFF: the aligned bars alone,
+            // the same bars, the same mean, nothing moving
+            if (on) {
+              const phase = Math.floor((lastTs / 1000 - flickerT0 + 0.5 / refreshHz) * hz) % 2;
+              ctx.drawImage(phase ? s.misaligned : s.aligned, px0, py0);
+              fl = phase !== lastPhase; lastPhase = phase;
+            } else ctx.drawImage(s.aligned, px0, py0);
+          } else if (photometry) {
+            // ON: field A on the flicker's ON frames, field B on its OFF frames
+            // (the exchange, luminance modulated by the pair's imbalance for
+            // this eye); OFF: the steady mixture of the two
+            ctx.fillStyle = on ? (fl ? s.colours.a : s.colours.b) : s.colours.off;
+            ctx.fillRect(px0, py0, pw, ph);
           } else if (grating) {
             // ON: the grating on its own grey, alternating; OFF: the grey alone,
             // so the mean luminance never changes and only the pattern comes and goes
@@ -607,7 +688,8 @@ async function runExam(m) {
           }
           dot(dx, dy);
           send({ type: "frame", stage: "exam", pt: t, gx: on ? s.sector : -1, gy: -1,
-                 lum: on ? 1 : 0, fl: fl ? 1 : 0, size: s.size, contrast: s.contrast, plane: s.plane });
+                 lum: on ? 1 : 0, fl: fl ? 1 : 0, size: vernier ? s.offset : s.size,
+                 contrast: s.contrast, plane: s.plane, angle: s.angle, mix: s.mix });
         }
         send({ type: "block", b, on, phase: "end", hz, meta });
       }

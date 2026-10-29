@@ -1,4 +1,4 @@
-# The eye exam: acuity, contrast, field, colour and the temporal response from the EEG, per eye
+# The eye exam: acuity, vernier, contrast and its function, field, gaze, meridians, flicker photometry, colour and the temporal response from the EEG, per eye
 
 `xr_session.py --mode exam` turns the eye-as-a-camera rig (a Muse headband with
 the AUX electrode at Oz, the Quest browser as the display, the fixation dot)
@@ -25,9 +25,13 @@ the two eyes cancels out of their comparison.
 | flash | the whole window flickering white/black (the camera's calibration stimulus) | nothing; five ON/OFF pairs (`--exam-flash`) | black | the response on every channel; the eye's reference channel and amplitude, or "no response" |
 | temporal | the same full-field flash at several rates, one step per rate | the rate (`--exam-rates`, 6 to 30 Hz asked; the panel delivers refresh / 2k frames: 6, 7.5, 10, 15, 30 Hz at 60 fps, 6, 7.2, 9, 12, 18, 36 Hz at 72) | black | amplitude per rate with the OFF blocks' line power taken out, the best rate and the rate where the response has fallen to half; the apparent latency from the slope of the phase against rate over the rates that respond, and between the eyes its difference |
 | acuity | a vertical black/white grating whose bars swap places at the flicker rate (pattern reversal): every bar location swings black/white like the flash, the mean luminance never changes, and nothing swings once the bars are too fine to resolve | bar width, coarse to fine (`--exam-sizes`, arcmin) | a grey of the same mean | the bar width at which the response is extrapolated to vanish (sweep-VEP rule), and the finest bar still giving a significant response |
+| vernier | coarse vertical bars (`--exam-vernier-bar`, 20') cut into horizontal strips three bars high; every other strip jumps sideways by the step's offset and back at the flicker rate (the vernier VEP of Norcia, Wesemann and Manny, 1999) | the offset, coarse to fine (`--exam-vernier`, arcmin; delivered to a quarter of a device pixel through the canvas's anti-aliasing) | the aligned bars alone, nothing moving | the offset at which the response is extrapolated to vanish (the same limb rule), and the finest offset still giving a response; a hyperacuity, which amblyopia degrades more than acuity |
 | contrast | the same reversing grating at one bar width (`--exam-contrast-size`) | Michelson contrast (`--exam-contrasts`) | the grey alone | the contrast at which the response is extrapolated to vanish, as log sensitivity |
+| csf | the contrast test again at other bar widths (`--exam-csf-sizes`, 60' and 10') | the contrast at each (`--exam-csf-contrasts`) | the grey alone | a contrast threshold per bar width; with the contrast test's own point, log sensitivity against cycles per degree (a bar of w arcmin is 30 / w cpd) and the bar width where it peaks |
 | field | one quadrant of the window flickering white/black, the eyes on the centre dot | the quadrant (`--exam-field`, 2x2; finer grids allowed) | black | amplitude and phase per sector; sectors without a significant response; with two eyes, the sector-by-sector ratio and phase difference, also with each eye over its own flash |
 | gaze | the whole window flickering white/black while the fixation dot sits at the centre or out toward an edge (up, down, left, right; `--exam-gaze`, 0.42 of the window from the centre), so the stimulus falls to one side of the fovea | the dot's position; the dot moves 1.2 s before each step's blocks | black | amplitude and phase per position, each over the centre position and over the best; positions without a significant response; with two eyes, the position-by-position ratio |
+| meridian | the reversing grating at one bar width (`--exam-meridian-size`, 14') turned to several orientations | the bars' tilt, degrees clockwise from vertical (`--exam-meridians`, 0, 45, 90, 135) | the grey alone | amplitude per orientation over the best; the weakest meridian and its share of the best; orientations without a response |
+| photometry | the window swapping between a red field and a green field at the flicker rate (heterochromatic flicker photometry); the pair's luminance is fixed and the share given to red is the step's variable; `--exam-photometry by` adds blue/yellow | the first field's share, 0.2 to 0.8 (`--exam-mixes`) | the steady mixture of the two fields: the same mean luminance and chromaticity, no exchange | amplitude against the share; the null fitted as the exchange's luminance modulation for an eye whose two fields match at share p0, so p0 is the eye's isoluminant point (0.5 for the display's standard observer; toward red for a red-weak eye); the response left at the null, which is the chromatic pathway's; between the eyes, the difference of the nulls |
 | colour | the whole window flickering red, green or blue against black | the plane | black | amplitude per plane, R:G:B |
 
 `--exam-style onset` gives the older grating stimulus (the grating appearing
@@ -39,8 +43,82 @@ scored and phased at the reversal rate, the session frequency.
 
 Defaults: 4 s ON / 4 s OFF, five pairs of flash, two ON/OFF pairs per step of
 the others, the whole window (`--exam-patch 1`); seven rates asked (five or
-six delivered), eight bar widths, six contrasts, four quadrants, five gaze
-positions, three planes: about 9.5 minutes per eye.
+six delivered), eight bar widths, five vernier offsets, six contrasts, two
+more bar widths at four contrasts, four quadrants, five gaze positions, four
+meridians, five red/green shares, three planes: about 15.5 minutes per eye.
+`--exam-tests` picks a subset in the fixed order (the seven tests of the
+28 October protocol, `flash,temporal,acuity,contrast,field,gaze,colour`,
+take 9.5 minutes per eye).
+
+## The tests added on 29 October 2026
+
+Four tests that the rig could show and had not: each is a known VEP
+measure, each is read with the same exact test per step and the same limb
+rule, and each has a dial in the phantom so the gate can check it.
+
+**Vernier.** Coarse bars (20', well above any acuity limit here) are cut
+into horizontal strips three bars high, and every other strip jumps
+sideways by the step's offset and back at the flicker rate; OFF is the same
+bars aligned and still. Nothing changes but the alignment, so the response
+is to the offset alone: the vernier VEP (Norcia, Wesemann and Manny, 1999),
+whose threshold in a normal eye lies well below the acuity limit (a
+hyperacuity) and which amblyopia degrades more than acuity does. The offset
+is delivered to a quarter of a device pixel: the shifted strip is drawn at
+a fractional position and the browser's anti-aliasing renders the edge
+between the pixels. On the headset at about 20 px/deg a quarter pixel is
+0.75', so the finest offset asked (0.5') lands there; a normal eye's vernier
+threshold is finer than that, and the read-out will say "below the finest
+offset shown" rather than give a number. The test is for the eye that does
+not get there.
+
+**CSF.** The contrast test at 20' is one point of the contrast sensitivity
+function; the csf test repeats it at 60' (0.5 cycles per degree) and 10'
+(3 cpd, near where the function peaks) with four contrasts each, and the
+read-out joins the three thresholds into log sensitivity against spatial
+frequency with the peak named. The shape, not the single number, is what
+early cataract, glaucoma and amblyopia change. A fine bar width beyond the
+eye's acuity gives no threshold there, which is the honest reading. The
+phantom's contrast cut does not depend on bar width, so the gate runs the
+fine width at 14', inside its left eye's acuity, and asks every csf
+threshold to land in the contrast band.
+
+**Meridian.** The reversing grating at 14' turned to 0, 45, 90 and 135
+degrees (clockwise from vertical; the page rotates the drawn grating about
+the window's centre and clips it to the window). With spherical blur every
+orientation suffers alike; an astigmatic blur leaves the bars along one
+meridian sharp and those at right angles smeared, so one orientation
+responds strongly and the one 90 degrees from it weakly. The read-out
+gives each orientation over the best and names the weakest and its share.
+Two cautions: the normal eye's oblique effect makes 45 and 135 a little
+weaker at fine bars, and the bar width must sit between the eye's acuity
+and the blur (14' is the default; `--exam-meridian-size` moves it). The
+phantom dials an axis and a gain (`--astigmatism right:90:0.4`: 0.4 of
+full along the horizontal bars, rising as cos² to full for vertical).
+
+**Flicker photometry.** Heterochromatic flicker photometry is the oldest
+colour-vision measure that needs no words: a red field and a green field
+exchanged at a rate the chromatic pathway cannot follow give a luminance
+flicker whose depth is the difference in brightness of the two fields to
+this eye, and the setting at which the flicker vanishes is the eye's
+isoluminant point. The test runs it as a sweep: the pair's luminance is held
+(0.2 of white, red at most 0.75 of its primary) while the share given to red
+runs from 0.2 to 0.8 (`--exam-mixes`), the display's photometric match
+being 0.5 (sRGB primaries at 0.2126 and 0.7152 of white). OFF is the steady
+mixture of the two fields, so the mean luminance and the chromaticity never
+change; only the exchange comes and goes. The read-out fits amplitude =
+a·M(share; p0) + b over p0, where M is the exchange's luminance modulation
+for an eye whose red efficiency is scaled to match at p0; p0 is the null
+(the eye's isoluminant share), b the chromatic response left there, and the
+null's shift from 0.5 is the reading: a protan eye (red-weak) needs more
+red, so its null lies above 0.5; a deutan's lies a little below. Two
+limits: the display's primaries are taken as sRGB, which is not measured,
+so the absolute null carries the display's error while the difference
+between the two eyes does not; and at 12 to 15 Hz the chromatic response is
+small but not zero (b), which is why the null is fitted rather than read
+off the dimmest step. `--exam-photometry rg,by` adds a blue/yellow exchange
+(the tritan axis, the pair's luminance 0.08 of white so blue stays within
+its primary). Not built: the Ishihara-style figure in colour noise, which
+is a reading task.
 
 The gaze test (added 28 October 2026 after the first sitting that measured a
 human response) answers "do all parts of the eye respond?" in the only way a
@@ -63,7 +141,7 @@ most; the exam then goes on and the report says that the eye had no reference.
 
 ## Running it
 
-Phantom, no hardware (the gate, about 13 minutes):
+Phantom, no hardware (the gate, about 25 minutes with the eleven tests):
 
 ```
 python exam_gate.py
@@ -76,7 +154,9 @@ On the Quest:
 ```
 
 The run writes under `runs/<session>/`: `exam_<eye>_<test>_log.csv` (one row per
-frame, the usual columns plus `size`, `contrast`, `plane`; in a reversal block
+frame, the usual columns plus `size`, `contrast`, `plane`, `angle` (the bars'
+tilt) and `mix` (photometry's first-field share); the vernier log carries its
+offset in the `size` column; in a reversal block
 `flicker_on` marks the frames on which the bars swapped), `exam.json` (every
 step's amplitude, p, phase and the page's description of what it showed, the
 flash attempts per eye),
@@ -182,7 +262,21 @@ rate shown and the left eye's half rate lies within 15 % of 24 Hz, that each
 eye's apparent latency lies within 6 ms of the phantom's (its latency less
 the 11.7 ms packet offset) and that the left is 30 +/- 6 ms later than the
 right, and of the gaze test that the whole window responds at every fixation
-position in both eyes: twenty-five checks. The band's floor: the extrapolated crossing lands where the
+position in both eyes: twenty-five checks. The 29 October tests add dials
+and checks: the phantom's vernier cut-off (`--vernier-cutoff right:1,left:2`
+arcmin, the same logistic with width 0.3), an astigmatic axis and gain for
+the right eye (`--astigmatism right:90:0.4`) and none for the left, and the
+red/green match (`--isolum right:0.5,left:0.65`: the left eye is red-weak,
+its two fields matching when red carries 0.65 of the luminance; the response
+left at the null is 0.1 of the full exchange). The gate asks that each eye's
+vernier threshold lie in its band and the left's be at least 1.3x the
+right's; that the csf test be scored at both of its bar widths and every
+threshold there lie in the contrast band (the phantom's contrast cut is the
+same at every bar width); that the right eye's weakest meridian be the 90
+degree one at no more than 0.6 of the best, and the left eye's every
+meridian respond within 0.7 of the best; and that each eye's red/green null
+lie within 0.07 of the dialled share, the left's 0.15 +/- 0.07 above the
+right's: thirty-nine checks. The band's floor: the extrapolated crossing lands where the
 phantom's visibility is 3 to 5 % in every gate so far (2.8 % once, the left
 contrast of the first run of the new protocol, which is why the floor is 2 %
 and not the 3 % first used).
@@ -319,3 +413,26 @@ left/right 0.89 to 0.92 at every position. The first run with the test
 phantom follows a fixed list of exam logs and the new log was not on it: the
 phantom was blind through the gaze blocks while every other check held. That
 is what the gate is for.
+
+Result on 29 October 2026 with the four new tests (`runs/exam_gate`, 29.7 min,
+headless Chrome at 60 fps, 15.00 Hz delivered; the gate's meridian bars at
+20' and its csf bar widths 60' and 14'): all thirty-nine checks pass. Right
+eye: vernier threshold 0.37' (finest offset with a response 1.00'; dialled
+cut 1', band 0.31 to 1.13), CSF log sensitivity 1.64 at 0.5 cpd, 1.52 at
+1.5 and 1.52 at 2.1 cpd (contrast thresholds 0.023, 0.030 and 0.030 against
+a cut of 0.08), weakest meridian 90 degrees at 0.47 of the best (dialled
+0.4 along that axis), red/green null at a red share of 0.49 (dialled 0.50)
+with 14 % of the response left at the null (dialled 0.1); the earlier
+measures as before (latency 109 ms, acuity 3.7', contrast 0.030, quadrant 3
+silent, gaze 0.92 to 0.99 of the centre). Left eye: vernier 0.88' (finest
+2.00'; cut 2', band 0.62 to 2.26), CSF 1.21, 1.27 and 1.02 (thresholds
+0.062, 0.053 and 0.095 against 0.2), every meridian within 0.90 of the best,
+null at 0.65 (dialled 0.65) with 16 % left; latency 139 ms, acuity 7.9',
+contrast 0.053, 4/4 quadrants. Between the eyes: vernier 2.36x, CSF 2.7x,
+1.8x and 3.2x at the three bar widths, null shift +0.16 (dialled +0.15),
+latency +30 ms. The vernier sweep shows the page's quarter-pixel offsets
+delivered: the right eye's response fell from full at 2' through half at 1'
+to nothing at 0.5', the phantom's logistic in the log offset. The two
+widest bar widths of the right eye's CSF cross below the faintest contrast
+shown, which the read-out marks as beyond the range: with a contrast cut of
+0.08 and steps down to 0.06, the limb's last point is near the floor.

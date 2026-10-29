@@ -49,6 +49,19 @@ takes one value for both eyes or per-eye values, 'right:8,left:16':
                         (default 0.12; per eye, 'right:0.12,left:0.15')
   --flicker-cut F       flicker rate (Hz) at which the response has fallen to
                         half, a fourth-order low-pass (0 = flat; per eye)
+  --vernier-cutoff D    vernier offset (arcmin) at which the response is half
+                        (0 = sees every offset; per eye); the vernier log's
+                        size column carries the offset
+  --astigmatism AX:G    along the meridian AX degrees (bars' tilt from
+                        vertical) the grating response is G of full, rising
+                        as cos^2 to full at right angles to it; per eye as
+                        right:90:0.4 (empty = none)
+  --isolum P            flicker photometry: the share of the pair's luminance
+                        the first field (red) needs for the two fields to be
+                        equally bright to this eye (0.5 = the display's
+                        standard observer; above it = red-weak); per eye
+  --chroma-residual R   the response left at the photometric null, as a
+                        fraction of the full exchange's (default 0.1)
   --alpha-band          the 10 Hz alpha as a band 1.5 Hz wide with the same
                         power (a resonance driven by noise, as in a person)
                         instead of a pure line; the exam's flicker sweep has a
@@ -86,8 +99,10 @@ LATENCY = 0.12             # visual pathway delay of the phase-locked response (
 # fitted thresholds should land
 ACUITY_W = 0.25
 CONTRAST_W = 0.35
-EXAM_LOGS = tuple(f"exam_{e}_{t}_log.csv" for e in ("right", "left", "both")
-                  for t in ("flash", "temporal", "acuity", "contrast", "field", "gaze", "colour"))
+VERNIER_W = 0.3
+EXAM_TESTS = ("flash", "temporal", "acuity", "vernier", "contrast", "csf", "field", "gaze",
+              "meridian", "photometry", "colour")
+EXAM_LOGS = tuple(f"exam_{e}_{t}_log.csv" for e in ("right", "left", "both") for t in EXAM_TESTS)
 
 
 def logistic(u, w):
@@ -200,9 +215,24 @@ def main():
                          "low-pass); 0 = flat; per eye")
     ap.add_argument("--alpha-band", action="store_true",
                     help="the 10 Hz alpha as a 1.5 Hz wide band instead of a pure line")
+    ap.add_argument("--vernier-cutoff", default="0",
+                    help="exam: vernier offset (arcmin) where the response is half; 0 = sees "
+                         "every offset; per eye")
+    ap.add_argument("--astigmatism", default="",
+                    help="exam: AXIS:GAIN, the grating response along the meridian AXIS degrees "
+                         "is GAIN of full (cos^2 to full at right angles); per eye as right:90:0.4")
+    ap.add_argument("--isolum", default="0.5",
+                    help="exam photometry: the first field's share of the luminance at which "
+                         "the two fields are equally bright to this eye; per eye")
+    ap.add_argument("--chroma-residual", type=float, default=0.1,
+                    help="exam photometry: response left at the null, fraction of the full exchange")
     args = ap.parse_args()
     acuity_cut = per_eye(args.acuity_cutoff, float, 0.0)
     contrast_cut = per_eye(args.contrast_cutoff, float, 0.0)
+    vernier_cut = per_eye(args.vernier_cutoff, float, 0.0)
+    astig = per_eye(args.astigmatism,
+                    lambda s: (float(s.split(":")[0]), float(s.split(":")[1])) if s else None, None)
+    isolum = per_eye(args.isolum, float, 0.5)
     latency = per_eye(args.latency, float, LATENCY)
     flicker_cut = per_eye(args.flicker_cut, float, 0.0)
     field_loss = per_eye(args.field_loss,
@@ -353,18 +383,47 @@ def main():
                         # the exam: what is shown reaches this phantom only as
                         # far as its eye allows (bar width, contrast, sector, colour)
                         eye = log_name.split("_")[1]
+                        test = log_name.split("_")[2]
                         try:
                             size, contrast = float(row[15]), float(row[16])
                             plane, sector = int(float(row[17])), int(row[1])
                         except ValueError:
                             size, contrast, plane, sector = 0.0, 1.0, -1, -1
+                        try:                 # the two columns added with the 29 Oct tests
+                            angle = float(row[18]) if len(row) > 18 else 0.0
+                            mix = float(row[19]) if len(row) > 19 else -1.0
+                        except ValueError:
+                            angle, mix = 0.0, -1.0
                         vis = 1.0
-                        cut = per_eye_value(acuity_cut, eye)
-                        if cut > 0 and size > 0:
-                            vis *= logistic(math.log(size) - math.log(cut), ACUITY_W)
+                        if test == "vernier":
+                            # the size column is the strips' offset; the bars
+                            # themselves are coarse and always resolved
+                            cut = per_eye_value(vernier_cut, eye)
+                            if cut > 0 and size > 0:
+                                vis *= logistic(math.log(size) - math.log(cut), VERNIER_W)
+                        else:
+                            cut = per_eye_value(acuity_cut, eye)
+                            if cut > 0 and size > 0:
+                                vis *= logistic(math.log(size) - math.log(cut), ACUITY_W)
                         cut = per_eye_value(contrast_cut, eye)
                         if cut > 0 and 0 < contrast <= 1:
                             vis *= logistic(math.log(contrast) - math.log(cut), CONTRAST_W)
+                        ast = per_eye_value(astig, eye)
+                        if ast is not None and size > 0 and test != "vernier":
+                            # weakest along the axis, full at right angles to it
+                            ax_, gain = ast
+                            c2 = math.cos(math.radians(angle - ax_)) ** 2
+                            vis *= 1.0 - (1.0 - gain) * c2
+                        if 0.0 <= mix <= 1.0:
+                            # the exchange's luminance modulation for THIS eye: its red
+                            # efficiency is scaled so the two fields match at --isolum,
+                            # plus the chromatic response that stays at the null
+                            p0 = per_eye_value(isolum, eye)
+                            k = (1.0 - p0) / max(p0, 1e-6)
+                            ya, yb = mix * k, 1.0 - mix
+                            mod = abs(ya - yb) / max(ya + yb, 1e-9)
+                            r = args.chroma_residual
+                            vis *= r + (1.0 - r) * min(1.0, mod)
                         if sector >= 0 and sector in per_eye_value(field_loss, eye):
                             vis = 0.0
                         if 0 <= plane < len(color_gain):

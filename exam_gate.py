@@ -6,6 +6,23 @@
                      --contrast-cutoff right:0.08,left:0.2 --field-loss right:2
                      --color-gain 0.7,1,0.4 --latency right:0.12,left:0.15
                      --flicker-cut right:40,left:24 --alpha-band
+                     --vernier-cutoff right:1,left:2 --astigmatism right:90:0.4
+                     --isolum right:0.5,left:0.65
+
+The four tests added on 29 October: the phantom's right eye stops seeing
+vernier offsets below about 1 arcmin and its left below 2; along the 90
+degree meridian (horizontal bars) the right eye's grating response is 0.4
+of full, rising as cos^2 to full for vertical bars, the left eye has no
+such axis; and the left eye's red/green match sits at a red share of 0.65
+(red-weak) against the right's 0.5. The contrast cut does not depend on the
+bar width, so the csf test's thresholds must land in the contrast band at
+each of its bar widths (the gate uses 60' and 14', the latter inside the
+left eye's acuity so its limb is fittable). Checks: both vernier thresholds
+in their bands and the left at least 1.3x the right; every csf threshold in
+the contrast band; the right eye's weakest meridian at 90 degrees and at
+most 0.6 of the best, the left eye's every meridian responding within 0.7 of
+the best; each eye's red/green null within 0.07 of the dialled share and
+the left's 0.15 +/- 0.07 above the right's.
 
 The phantom's right eye stops seeing bars finer than about 8 arcmin and
 contrasts below about 0.08 and has no response from quadrant 3 (index 2 of
@@ -32,7 +49,8 @@ scorer's clock is rebuilt from the sample index on the earliest-arriving
 sample of each packet, which puts every sample 3 / fs early (the real
 stream has an offset of its own, common to both eyes, which is why the
 difference between the eyes is the measurement). 3 s blocks, five flash
-pairs and two ON/OFF pairs per step: about 13 minutes for the two eyes.
+pairs and two ON/OFF pairs per step: about 25 minutes for the two eyes with
+the eleven tests.
 
 Run:  python exam_gate.py        (BROWSER=<path> to choose the browser;
       EXAM_GATE_HTTP / EXAM_GATE_OSC for a second gate beside the first,
@@ -55,14 +73,21 @@ OSC = int(os.environ.get("EXAM_GATE_OSC", 5004))
 sys.path.insert(0, ROOT)
 import config  # noqa: E402
 from smooth_gate import browser_cmd  # noqa: E402
-from phantom_subject import ACUITY_W, CONTRAST_W  # noqa: E402
+from phantom_subject import ACUITY_W, CONTRAST_W, VERNIER_W  # noqa: E402
 
-EYE = {"right": dict(acuity=8.0, contrast=0.08, loss={2}, latency=0.12, fcut=40.0),
-       "left": dict(acuity=16.0, contrast=0.2, loss=set(), latency=0.15, fcut=24.0)}
+EYE = {"right": dict(acuity=8.0, contrast=0.08, loss={2}, latency=0.12, fcut=40.0,
+                     vernier=1.0, astig=(90.0, 0.4), isolum=0.5),
+       "left": dict(acuity=16.0, contrast=0.2, loss=set(), latency=0.15, fcut=24.0,
+                    vernier=2.0, astig=None, isolum=0.65)}
 GAIN = "0.7,1,0.4"
 REF = "AUX"        # the phantom's strongest channel: the flash must pick it as the reference
 LAT_TOL_MS = 6.0   # apparent latency: allowed error per eye and on the difference
 RATE_TOL = 0.15    # half-response rate: allowed fraction of the phantom's cut
+NULL_TOL = 0.07    # photometry: allowed error of the fitted null, per eye and on the difference
+MERIDIAN_SIZE = "20"       # the turned grating's bar width in the gate (both phantom eyes resolve it)
+CSF_SIZES = "60,14"        # the csf test's bar widths in the gate (14' is inside the left eye's acuity)
+READ_ON_REF = ("temporal", "acuity", "vernier", "contrast", "csf", "field", "gaze", "meridian",
+               "photometry", "colour")
 CLOCK_OFFSET_S = 3.0 / config.FS   # the rebuilt clock runs this much early on the phantom's packets
 
 
@@ -93,8 +118,7 @@ def verdict(full, code, t0=None):
         checks[f"{eye} flash responds (p < 0.05) on {REF}"] = \
             bool(fl.get("ok")) and fl.get("responded") and fl.get("channel") == REF
         checks[f"{eye} every test read on the reference channel {REF}"] = all(
-            exam["results"].get(eye, {}).get(t, {}).get("channel") == REF
-            for t in ("temporal", "acuity", "contrast", "field", "gaze", "colour"))
+            exam["results"].get(eye, {}).get(t, {}).get("channel") == REF for t in READ_ON_REF)
         ga = r.get("gaze", {})
         checks[f"{eye} gaze: the whole window responds at every fixation position"] = \
             bool(ga.get("ok")) and ga.get("n_responding") == ga.get("n")
@@ -127,9 +151,40 @@ def verdict(full, code, t0=None):
             bool(fi.get("ok")) and set(fi["not_responding"]) == want["loss"]
         rel = col.get("relative") or [0, 0, 0]
         checks[f"{eye} colour: green >= red > blue"] = bool(col.get("ok")) and rel[1] >= rel[0] > rel[2]
-    for t in ("acuity", "contrast"):
+        # the 29 October tests
+        ve = r.get("vernier", {})
+        lo, hi = band(want["vernier"], VERNIER_W)
+        checks[f"{eye} vernier threshold in the phantom's band {lo:.2f}-{hi:.2f} arcmin"] = \
+            bool(ve.get("ok")) and lo <= ve["threshold"] <= hi
+        thr[eye, "vernier"] = ve.get("threshold")
+        cs = r.get("csf", {})
+        lo, hi = band(want["contrast"], CONTRAST_W)
+        per = cs.get("per_size") or []
+        checks[f"{eye} CSF: scored at {len(CSF_SIZES.split(','))} bar widths"] = \
+            len(per) == len(CSF_SIZES.split(","))
+        for d in per:        # the phantom's contrast cut is the same at every bar width
+            checks[f"{eye} CSF: contrast threshold at {d['size']:g}' in the band {lo:.3f}-{hi:.3f}"] = \
+                bool(d.get("ok")) and lo <= d["threshold"] <= hi
+        me = r.get("meridian", {})
+        if want["astig"]:
+            ax_, gain = want["astig"]
+            checks[f"{eye} meridian: weakest at {ax_:g} deg (the dialled axis), at most "
+                   f"{gain + 0.2:.1f} of the best"] = \
+                bool(me.get("ok")) and me.get("weakest_angle") == ax_ and me["ratio_min_max"] <= gain + 0.2
+        else:
+            checks[f"{eye} meridian: every orientation responds, none below 0.7 of the best"] = \
+                bool(me.get("ok")) and me["n_responding"] == me["n"] and me["ratio_min_max"] >= 0.7
+        ph = (r.get("photometry", {}).get("pairs") or {}).get("rg", {})
+        checks[f"{eye} photometry: red/green null within {NULL_TOL:.2f} of the phantom's "
+               f"{want['isolum']:.2f}"] = bool(ph.get("fit_ok")) and abs(ph["null"] - want["isolum"]) <= NULL_TOL
+        thr[eye, "null"] = ph.get("null")
+    for t in ("acuity", "contrast", "vernier"):
         l, r = thr.get(("left", t)), thr.get(("right", t))
         checks[f"left {t} threshold >= 1.3x the right's"] = bool(l and r) and l >= 1.3 * r
+    want_s = EYE["left"]["isolum"] - EYE["right"]["isolum"]
+    l, r = thr.get(("left", "null")), thr.get(("right", "null"))
+    checks[f"left minus right red/green null {want_s:+.2f} +/- {NULL_TOL:.2f}"] = \
+        l is not None and r is not None and abs((l - r) - want_s) <= NULL_TOL
     want_d = (EYE["left"]["latency"] - EYE["right"]["latency"]) * 1000.0
     l, r = thr.get(("left", "latency")), thr.get(("right", "latency"))
     checks[f"left minus right apparent latency {want_d:+.0f} +/- {LAT_TOL_MS:g} ms"] = \
@@ -159,6 +214,7 @@ def main():
     os.makedirs(os.path.join(full, "browser_profile"))
     cmd = ["--mode", "exam", "--exam-eye", "right,left", "--exam-on", "3", "--exam-off", "3",
            "--exam-reps", "2", "--freq", "15", "--exam-ppd", "30",
+           "--exam-meridian-size", MERIDIAN_SIZE, "--exam-csf-sizes", CSF_SIZES,
            "--session", session, "--http-port", str(HTTP), "--osc-port", str(OSC),
            "--spectator", "", "--signal-timeout", "120", "--linger", "2"]
     procs = []
@@ -185,9 +241,13 @@ def main():
              "--color-gain", GAIN,
              "--latency", ",".join(f"{e}:{v['latency']}" for e, v in EYE.items()),
              "--flicker-cut", ",".join(f"{e}:{v['fcut']}" for e, v in EYE.items()),
-             "--alpha-band", "--max-seconds", "2400"],
+             "--vernier-cutoff", ",".join(f"{e}:{v['vernier']}" for e, v in EYE.items()),
+             "--astigmatism", ",".join(f"{e}:{v['astig'][0]:g}:{v['astig'][1]}"
+                                       for e, v in EYE.items() if v["astig"]),
+             "--isolum", ",".join(f"{e}:{v['isolum']}" for e, v in EYE.items()),
+             "--alpha-band", "--max-seconds", "3600"],
             cwd=ROOT))
-        code = driver.wait(timeout=2400)
+        code = driver.wait(timeout=3600)
     finally:
         for p in procs:
             if p.poll() is None:

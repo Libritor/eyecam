@@ -28,13 +28,43 @@ patch gives a line under the noise):
             width shrinks step by step (arcmin, set by --exam-sizes and
             --exam-ppd). --exam-style onset gives the older pattern
             onset/offset grating on a same-mean grey instead.
+  vernier   coarse bars cut into horizontal strips; every other strip jumps
+            sideways by an offset and back at the flicker rate, aligned <->
+            misaligned (the vernier VEP of Norcia, Wesemann and Manny, 1999):
+            the offset shrinks step by step (--exam-vernier, arcmin), a
+            hyperacuity that normal eyes resolve below the bar width and that
+            amblyopia degrades more than acuity; offsets are delivered to a
+            quarter of a device pixel by the canvas's own anti-aliasing
   contrast  the same grating at one bar width, its contrast falling step by step
+  csf       the contrast test again at other bar widths (--exam-csf-sizes,
+            coarse and fine; --exam-csf-contrasts), which with the contrast
+            test's own bar width gives three points of the contrast
+            sensitivity function (log sensitivity against cycles per degree)
   field     one sector of a grid over the window flickering white/black at a
             time (2x2 quadrants by default, each a quarter of the window)
+  gaze      the flash again while the fixation dot sits at the centre and
+            then out toward each edge (looking up, down, left, right)
+  meridian  the reversing grating at one bar width turned to several
+            orientations (--exam-meridians, degrees from vertical,
+            clockwise): a response that is weak along one meridian and strong
+            along the one at right angles to it is the signature of
+            uncorrected astigmatism (and, at fine bars, of the oblique effect)
+  photometry  heterochromatic flicker photometry: the window swaps between a
+            red field and a green field at the flicker rate while the share of
+            the luminance given to red runs from 0.2 to 0.8 of the pair's
+            total (--exam-mixes; the OFF screen is the steady mixture of the
+            two, so neither the mean luminance nor the chromaticity changes).
+            Where the two fields are equally bright TO THIS EYE the luminance
+            response has its null; the red share at the null is the eye's
+            isoluminant point (0.5 for the display's photometric standard), the
+            response left at the null is the chromatic pathway's, and a shift
+            of the null toward red is what a red-weak (protan) eye gives.
+            --exam-photometry by adds the blue/yellow pair (tritan axis)
   colour    the whole window flickering red, green or blue against black
 
 The driver logs every frame (exam_<eye>_<test>_log.csv, the usual columns plus
-size, contrast, plane; in a reversal block the flicker column marks the frames
+size, contrast, plane, angle, mix; the vernier test logs its offset in the size
+column; in a reversal block the flicker column marks the frames
 on which the bars swapped, so the logged edges are the reversals) and every
 block edge with the page's description of the step, then calls score_stage()
 on each test: for every step, how much of the flicker frequency (and its
@@ -77,7 +107,12 @@ from scipy.signal import get_window, periodogram
 import reconstruct
 
 CH_NAMES = ["TP9", "AF7", "AF8", "TP10"]
-TESTS = ["flash", "temporal", "acuity", "contrast", "field", "gaze", "colour"]
+TESTS = ["flash", "temporal", "acuity", "vernier", "contrast", "csf", "field", "gaze",
+         "meridian", "photometry", "colour"]
+GRATING_TESTS = {"acuity", "contrast", "csf", "meridian"}   # reversing bars; the page draws them alike
+PHOTOMETRY_PAIRS = {"rg": 0.2, "by": 0.08}  # pair -> total luminance of the two fields (of white,
+#                                             linear): red at full is 0.2126 of white and blue 0.0722,
+#                                             so a share of 0.8 for either stays within the primary
 # gaze: the whole window flickers while the fixation dot sits at the centre or
 # out toward an edge, so the stimulus falls on the retina to one side of the
 # fovea (looking left, the window lies in the right visual field, from the
@@ -87,7 +122,8 @@ GAZE_NAMES = ["centre", "up", "down", "left", "right"]
 MULTI_RATE = {"temporal"}                   # tests whose steps differ in flicker rate
 EYES = ["right", "left", "both"]
 STYLES = ["reversal", "onset"]              # the grating tests' temporal pattern
-LOG_EXTRA = ("size", "contrast", "plane")   # columns appended to the frame log
+LOG_EXTRA = ("size", "contrast", "plane", "angle", "mix")   # columns appended to the frame log
+#                                            (angle: the bars' tilt; mix: photometry's red share)
 DISPLAY_GAMMA = 2.2                         # the page's grey and contrast scale
 DISCARD_S = 0.5                             # dropped from every block start
 MAX_RMS_UV = 60.0                           # a channel above this for a whole test is noisy: kept only if it responds
@@ -116,15 +152,37 @@ def plan(a):
                          "not be empty")
     if getattr(a, "exam_style", "reversal") not in STYLES:
         raise ValueError(f"--exam-style: one of {STYLES}")
+    offsets = _floats(getattr(a, "exam_vernier", "8,4,2,1,0.5"))
+    bar = float(getattr(a, "exam_vernier_bar", 20.0))
+    csf_sizes = _floats(getattr(a, "exam_csf_sizes", "60,10"))
+    csf_contrasts = _floats(getattr(a, "exam_csf_contrasts", "0.5,0.25,0.12,0.06"))
+    meridians = _floats(getattr(a, "exam_meridians", "0,45,90,135"))
+    m_size = float(getattr(a, "exam_meridian_size", 14.0))
+    mixes = _floats(getattr(a, "exam_mixes", "0.2,0.35,0.5,0.65,0.8"))
+    pairs = [p.strip() for p in str(getattr(a, "exam_photometry", "rg")).split(",") if p.strip()]
+    if not offsets or min(offsets) <= 0 or bar <= 0 or not csf_sizes or not csf_contrasts \
+            or not meridians or m_size <= 0 or not mixes or not all(0 < x < 1 for x in mixes) \
+            or not pairs or any(p not in PHOTOMETRY_PAIRS for p in pairs):
+        raise ValueError("--exam-vernier, --exam-vernier-bar, --exam-csf-sizes, --exam-csf-contrasts, "
+                         "--exam-meridians, --exam-meridian-size must be positive, --exam-mixes "
+                         f"between 0 and 1, --exam-photometry among {sorted(PHOTOMETRY_PAIRS)}")
     return {
         "flash": [dict(flash=1)],
         "temporal": [dict(rate=r) for r in rates],
         "acuity": [dict(size=s, contrast=1.0) for s in sizes],
+        "vernier": [dict(offset=d, size=bar, contrast=1.0) for d in offsets],
         "contrast": [dict(size=float(a.exam_contrast_size), contrast=c) for c in contrasts],
+        "csf": [dict(size=s, contrast=c) for s in csf_sizes for c in csf_contrasts],
         "field": [dict(sector=i, cols=cols, rows=rows) for i in range(cols * rows)],
         "gaze": [dict(gaze=i, name=n, gx=x, gy=y) for i, (n, x, y) in enumerate(gaze_positions(a))],
+        "meridian": [dict(size=m_size, contrast=1.0, angle=th % 180.0) for th in meridians],
+        "photometry": [dict(mix=x, pair=p, lum=PHOTOMETRY_PAIRS[p]) for p in pairs for x in mixes],
         "colour": [dict(plane=k) for k in range(3)],
     }
+
+
+def _floats(text):
+    return [float(v) for v in str(text).split(",") if v.strip()]
 
 
 def gaze_positions(a):
@@ -456,8 +514,17 @@ def step_label(meta, test=None):
         return f"{meta.get('hz') or meta.get('rate', 0):.3g} Hz"
     if test == "acuity":
         return f"{meta.get('size', 0):.3g}'"
+    if test == "vernier":
+        return f"offset {meta.get('offset', 0):.3g}'"
     if test == "contrast":
         return f"c {meta.get('contrast', 0):.3g}"
+    if test == "csf":
+        return f"{meta.get('size', 0):.3g}' c {meta.get('contrast', 0):.3g}"
+    if test == "meridian":
+        return f"{meta.get('angle', 0):g} deg"
+    if test == "photometry":
+        return f"{meta.get('pair', 'rg')} red {meta.get('mix', 0):.2f}" if meta.get("pair", "rg") == "rg" \
+            else f"{meta.get('pair')} blue {meta.get('mix', 0):.2f}"
     if test == "field":
         return f"s{int(meta.get('sector', -1))}"
     if test == "gaze":

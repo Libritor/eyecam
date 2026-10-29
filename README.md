@@ -871,7 +871,7 @@ the scoring so the response to the sound starting and stopping does not count.
   steady-state "ear as a level meter") is a different measurement and is described
   with the modes above.
 
-## Eye exam (acuity, contrast, field, colour and the temporal response, per eye)
+## Eye exam (acuity, vernier, contrast and its function, field, gaze, meridians, flicker photometry, colour and the temporal response, per eye)
 
 `xr_session.py --mode exam` uses the same rig as an objective eye test: with one
 eye covered and the other on the dot, the whole window flickers white/black
@@ -885,7 +885,16 @@ flash, the mean never changes) while the bars get finer (acuity) or fainter
 (contrast), one quadrant of the window flickers at a time (field), the whole
 window flickers while the dot sits at the centre and then up, down, left and
 right, so the stimulus falls to one side of the fovea (gaze), and the
-window flickers red, green and blue (colour). Every stimulus fills the window
+window flickers red, green and blue (colour). Four tests were added on
+29 October 2026: coarse bars cut into strips, every other strip jumping
+sideways by a shrinking offset (vernier, a hyperacuity); the contrast test
+again at a coarse and a fine bar width, which with its own gives three points
+of the contrast sensitivity function (csf); the grating turned to four
+orientations at one bar width, where a weak meridian beside a strong one at
+right angles is the mark of astigmatism (meridian); and the window swapping
+between a red and a green field whose luminance shares run from 0.2 to 0.8,
+the share at which the response has its null being the eye's isoluminant
+point (photometry: red-weak eyes have it shifted toward red). Every stimulus fills the window
 because the camera runs showed the response grows with the flickering area and
 a small square gives nothing. Every step is scored against the test's OFF
 blocks by the exact-line detector and an exact permutation test, on the

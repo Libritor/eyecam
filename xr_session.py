@@ -2135,7 +2135,10 @@ class Driver:
         flash at several rates (temporal: the eye's tuning over rate and its
         apparent latency from the phase slope), pattern reversal gratings shrinking in bar width (acuity) and falling in
         contrast (contrast), one flickering quadrant at a time around the
-        fixation dot (field) and the three colour planes (colour), each as
+        fixation dot (field) and the three colour planes (colour), and since
+        29 October the vernier offset sweep, the contrast test at other bar
+        widths (csf), the grating turned through four meridians and the
+        red/green flicker photometry (exam.py lists them), each as
         ON/OFF blocks at the session frequency over the whole window. Every
         step is scored against the test's OFF blocks by the exact-line
         detector and an exact permutation test, with its amplitude on the
@@ -2154,7 +2157,10 @@ class Driver:
         plan = exam.plan(a)
         out = dict(eyes=eyes, tests=tests, freq=a.freq, ppd=a.exam_ppd, on_s=a.exam_on,
                    off_s=a.exam_off, reps=a.exam_reps, flash_pairs=a.exam_flash,
-                   rates=a.exam_rates,
+                   rates=a.exam_rates, vernier=a.exam_vernier, vernier_bar=a.exam_vernier_bar,
+                   csf_sizes=a.exam_csf_sizes, csf_contrasts=a.exam_csf_contrasts,
+                   meridians=a.exam_meridians, meridian_size=a.exam_meridian_size,
+                   mixes=a.exam_mixes, photometry=a.exam_photometry,
                    style=a.exam_style, patch_side=a.exam_patch,
                    gamma=exam.DISPLAY_GAMMA, results={e: {} for e in eyes}, delivery={},
                    contact={}, flash_attempts={})
@@ -2483,9 +2489,12 @@ async def main():
                     help="gaze: how far the fixation dot moves from the centre for the up / "
                          "down / left / right steps, as a fraction of the window (0.42 = 84 %% "
                          "of the way to the edge); the whole window flickers at every position")
-    ap.add_argument("--exam-tests", default="flash,temporal,acuity,contrast,field,gaze,colour",
+    ap.add_argument("--exam-tests", default=",".join(
+                        ["flash", "temporal", "acuity", "vernier", "contrast", "csf", "field", "gaze",
+                         "meridian", "photometry", "colour"]),
                     help="exam: the tests, run in this fixed order (the flash first: "
-                         "it is the eye's reference; then its sweep over rates)")
+                         "it is the eye's reference; then its sweep over rates); a subset "
+                         "shortens the sitting")
     ap.add_argument("--exam-style", default="reversal", choices=["reversal", "onset"],
                     help="exam: the grating tests' pattern: reversal = the bars swap "
                          "places at the flicker rate (every bar swings black/white like "
@@ -2504,6 +2513,27 @@ async def main():
                     help="contrast: Michelson contrasts of the grating")
     ap.add_argument("--exam-contrast-size", type=float, default=20.0,
                     help="contrast: bar width of the grating, arcmin")
+    ap.add_argument("--exam-vernier", default="8,4,2,1,0.5",
+                    help="vernier: the sideways offsets of every other strip of bars, arcmin, "
+                         "coarse to fine (delivered to a quarter of a device pixel)")
+    ap.add_argument("--exam-vernier-bar", type=float, default=20.0,
+                    help="vernier: bar width of the coarse bars the strips are cut from, arcmin")
+    ap.add_argument("--exam-csf-sizes", default="60,10",
+                    help="csf: bar widths (arcmin) at which the contrast test is repeated; with "
+                         "--exam-contrast-size they give the contrast sensitivity function")
+    ap.add_argument("--exam-csf-contrasts", default="0.5,0.25,0.12,0.06",
+                    help="csf: Michelson contrasts at each of its bar widths")
+    ap.add_argument("--exam-meridians", default="0,45,90,135",
+                    help="meridian: the bars' orientations, degrees clockwise from vertical")
+    ap.add_argument("--exam-meridian-size", type=float, default=14.0,
+                    help="meridian: bar width of the turned grating, arcmin (fine enough for an "
+                         "astigmatic blur to tell, coarse enough for the eye to respond)")
+    ap.add_argument("--exam-mixes", default="0.2,0.35,0.5,0.65,0.8",
+                    help="photometry: the share of the pair's luminance given to the first "
+                         "field (red, or blue), 0 to 1; 0.5 is the display's photometric match")
+    ap.add_argument("--exam-photometry", default="rg",
+                    help="photometry: the colour pairs exchanged, 'rg' (red/green), 'by' "
+                         "(blue/yellow) or 'rg,by'")
     ap.add_argument("--exam-field", default="2x2",
                     help="field: sectors across x down over the window (2x2 = quadrants, "
                          "each a quarter of the window around the fixation dot)")
