@@ -47,7 +47,7 @@ def main():
     a.set_xlabel("time in the clip (s)")
     a.set_ylabel("envelope (z)")
     a.set_xlim(t[0], t[-1])
-    a.set_title(f"a. clip loudness (grey), from the EEG (red), r = {A['r_avg']:.2f}", fontsize=6, loc="left")
+    a.set_title(f"a. loudness: clip (grey), EEG (red), r = {A['r_avg']:.2f}", fontsize=6, loc="left")
     a = ax[1]
     reps = A["reps_used"]
     a.axhspan(-A["null_single_95"], A["null_single_95"], color="0.9")

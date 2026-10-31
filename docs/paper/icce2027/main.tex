@@ -16,8 +16,10 @@
 \usepackage[hidelinks]{hyperref}
 \graphicspath{{figures/}}
 
-\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
-\newcommand{\rf}[1]{\textcolor{blue}{[RF: #1]}}
+% \notestrue prints the red [TODO] and blue [RF] notes for co-authors; \notesfalse hides them (submission)
+\newif\ifnotes \notesfalse
+\newcommand{\todo}[1]{\ifnotes\textcolor{red}{[TODO: #1]}\fi}
+\newcommand{\rf}[1]{\ifnotes\textcolor{blue}{[RF: #1]}\fi}
 \newcommand{\dprime}{d^{\prime}}
 
 \begin{document}
@@ -60,7 +62,7 @@ Fletcher's group has built a decade of diagnostics around sensors a phone alread
 
 \section{System}
 
-\textbf{Hardware.} Muse 2 at 256\,Hz over Bluetooth to a phone, forwarded to the laptop over UDP; a gold cup with paste at Oz on the Muse auxiliary input, held by the headset strap; a Quest 3S; a laptop (Fig.~\ref{fig:setup}). Under \$600, nothing modified. The phone runs MuseLog \cite{vicol2026muselog}, the lab's own acquisition app for Android and iOS: it pairs with one or several Muse headbands, records the raw EEG with the auxiliary channel at 256\,Hz, the band powers and, on the Muse S Athena, the fNIRS channels, takes markers, and streams all of it live over OSC on UDP to any computer on the same network. A full-rate raw stream was added for this work: the app's decimated stream folded 34 to 49\,Hz onto the SSVEP band. \todo{MuseLog paper citation}
+\textbf{Hardware.} Muse 2 at 256\,Hz over Bluetooth to a phone, forwarded to the laptop over UDP; a gold cup with paste at Oz on the Muse auxiliary input, held by the headset strap; a Quest 3S; a laptop (Fig.~\ref{fig:setup}). Under \$600, nothing modified. The phone runs MuseLog \cite{vicol2026muselog}, the lab's acquisition app for Android and iOS: it pairs with one or several Muse headbands, records the raw EEG with the auxiliary channel at 256\,Hz, band powers, markers and, on the Muse S Athena, fNIRS, and streams it all live over OSC on UDP. A full-rate raw stream was added for this work: the app's decimated stream folded 34 to 49\,Hz onto the SSVEP band. \todo{MuseLog paper citation}
 
 \begin{figure}[t]
 \centering
@@ -100,7 +102,7 @@ All results are from one subject, the first author, September to October 2026.
 \label{fig:no}
 \end{figure*}
 
-\textbf{Eight colours over three sittings.} Table~\ref{tab:colour} and Fig.~\ref{fig:colour9} and~\ref{fig:planes}. The first sitting read red 32, green 28 and blue 28 of 32, giving 24 of 32 cells in the right colour and the hue right on 19 of 24 coloured cells, $r = 0.79$ against nulls of 0.32. Two hours later, 20 of 32: green's second pass helped, blue's second pass was lost to the right ear electrode coming loose at minute 11. Two days later, 23 of 32, red perfect again, blue lost on the right half of the field with every electrode holding. One wrong cell in four on the chart is almost entirely blue's.
+\textbf{Eight colours over three sittings.} Table~\ref{tab:colour} and Fig.~\ref{fig:colour9}. The first sitting read red 32, green 28 and blue 28 of 32, giving 24 of 32 cells in the right colour and the hue right on 19 of 24 coloured cells, $r = 0.79$ against nulls of 0.32. Two hours later, 20 of 32: green's second pass helped, blue's second pass was lost to the right ear electrode coming loose at minute 11. Two days later, 23 of 32, red perfect again, blue lost on the right half of the field with every electrode holding. One wrong cell in four on the chart is almost entirely blue's.
 
 \begin{table}[t]
 \caption{The eight-colour chart (8 by 4) over three sittings: cells right per plane, cells in the right colour, coloured cells with the right hue, and colour $r$ with the largest time-shifted null.}
@@ -124,13 +126,6 @@ sitting & R & G & B & right & hue & $r$ (null) \\
 \label{fig:colour9}
 \end{figure*}
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{planes9_per_plane}
-\caption{The same sitting plane by plane: shown, from the EEG, thresholded. Red 32, green 28, blue 28 of 32; blue at 9\,Hz with the patch doubled.}
-\label{fig:planes}
-\end{figure}
-
 \textbf{A sealed acuity read-out.} A tumbling E and a ring that is closed (O) or missing its bottom (U) sit on a 12 by 7 grid; one of the eight combinations is drawn at random and sealed before the scan. A template correlation on the EEG picture names the orientation and the ring, then the seal is opened. On the first human run (Fig.~\ref{fig:acuity}) the picture reached $r = 0.89$, 80 of 84 cells, and the read-out said E up, ring U, with margins of 0.24 and 0.22 over the runners-up; the seal agreed. One trial at a one-in-eight chance is a demonstration, not an acuity measurement; a series over optotype sizes is the next step \cite{norcia1985sweep}.
 
 \begin{figure*}[t]
@@ -140,7 +135,7 @@ sitting & R & G & B & right & hue & $r$ (null) \\
 \label{fig:acuity}
 \end{figure*}
 
-\textbf{Toward a real photograph.} The 2019 portrait went in as two tones and came back a silhouette. We prepare the same at our grid with a forced choice: four portraits (Fig.~\ref{fig:gallery}) cut to 16 by 16 cells at four grey levels, the block-portrait size at which a face is recognisable \cite{harmon1973masking, harmon1973faces}; one is drawn and sealed, and the read-out names the person by correlation against all four. On the clean targets the choice is right 100\% of the time with a quarter of the cells flipped, chance one in four. A colour photograph does not survive the three planes (its colours sit mid-cube and flip), but a flat illustration in the eight corner colours does (Fig.~\ref{fig:gallery}, right). \todo{wedge result, first sealed photograph, officer scan}
+\textbf{Toward a real photograph.} The 2019 portrait came back a silhouette. We prepare a sealed forced choice among four portraits cut to 16 by 16 cells at four grey levels, the block-portrait size at which a face is recognisable \cite{harmon1973masking, harmon1973faces}; on the clean targets the read-out names the right person every time with a quarter of the cells flipped, chance one in four. A flat illustration in the eight corner colours survives the three planes; a colour photograph, its colours mid-cube, does not. \todo{wedge result, first sealed photograph, officer scan}
 
 \textbf{A three-dimensional object.} The planes scan reads any colour image at grid size, so an object's texture atlas can go through it and come back painted on the object. A die's six faces were unfolded into a 54-cell atlas of black, white and one red pip, and scanned at 5, 5 and 8\,s per cell in one pass with the ten least certain blue cells shown again, 18 minutes in a rested morning sitting. Snapped to the die's three colours, 51 of 54 cells came back right (black 19 of 20, white 31 of 33, the pip in place) and the cube is painted from the EEG (Fig.~\ref{fig:die}); on the stricter rule used for the chart, right in all three planes at once, 35 of 54, with per-plane $r$ of 0.66, 0.67 and 0.70 against a time-shifted null of 0.12. The misses are two white cells read as pips and one black cell read white. \todo{credit the mesh3d author among the co-authors}
 
@@ -151,14 +146,7 @@ sitting & R & G & B & right & hue & $r$ (null) \\
 \label{fig:die}
 \end{figure}
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{gallery_16}
-\caption{The photograph gallery: the crop the eye gets over its 16 by 16 four-level target, for Mann's 2019 portrait, Lincoln and Tesla; right, the officer as a flat illustration and its 12 by 14 poster for the colour planes.}
-\label{fig:gallery}
-\end{figure}
-
-\textbf{Eye strain from the same recording.} After two colour sittings in one evening the subject reported irritated eyes, a slight forehead ache and no drowsiness. On a Muse under a headset the blink is best seen through the Fpz reference on the far electrodes, as a shared deflection on TP9, TP10 and the cup. Counted so, the blink rate was 6.8 per minute in the first sitting and 12.1 in the second against 3 to 4 on a reference day, with amplitude and duration unchanged. Within a sitting (Fig.~\ref{fig:blink}) blinks nearly stop while a cell flickers and burst within a second of it going dark, 50 to 65 per minute in that second, a suppress-and-release pattern the reference day lacks \cite{stern1994blink, sheedy2003cvs}. Drowsiness markers were flat: no rise in frontal theta, no long blinks; a rise in alpha seen earlier was the loose ear electrode. The forehead ache is not in the EEG (frontalis 1.5 to 2.3\,$\mu$V rms); the headset's facial interface is the likelier cause. The SSVEP itself fell by half between the blue planes of the two sittings (Fig.~\ref{fig:fatigue}), and the cup's noise rose from minute 20 of the second, so part of what reads as fatigue is contact.
+\textbf{Eye strain from the same recording.} After two colour sittings in one evening the subject reported irritated eyes, a slight forehead ache and no drowsiness. On a Muse under a headset the blink is best seen through the Fpz reference on the far electrodes, as a shared deflection on TP9, TP10 and the cup. Counted so, the blink rate was 6.8 per minute in the first sitting and 12.1 in the second against 3 to 4 on a reference day, with amplitude and duration unchanged. Within a sitting (Fig.~\ref{fig:blink}) blinks nearly stop while a cell flickers and burst within a second of it going dark, 50 to 65 per minute in that second, a suppress-and-release pattern the reference day lacks \cite{stern1994blink, sheedy2003cvs}. Drowsiness markers were flat: no rise in frontal theta, no long blinks; a rise in alpha seen earlier was the loose ear electrode. The forehead ache is not in the EEG (frontalis 1.5 to 2.3\,$\mu$V rms); the headset's facial interface is the likelier cause. The SSVEP itself fell by half between the blue planes of the two sittings, and the cup's noise rose from minute 20 of the second, so part of what reads as fatigue is contact.
 
 \begin{figure}[t]
 \centering
@@ -167,14 +155,31 @@ sitting & R & G & B & right & hue & $r$ (null) \\
 \label{fig:blink}
 \end{figure}
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{ssvep_fatigue_left}
-\caption{The SSVEP of every lit cell through the two sittings of one evening (top the first, bottom the second), by plane; the blue response fell by half.}
-\label{fig:fatigue}
-\end{figure}
+\textbf{The ear as a microphone.} The same headband reads sound. The first two paragraphs of \emph{Alice's Adventures in Wonderland} (31.5\,s of a public-domain LibriVox reading) were played 24 times from the headset's own speakers while the subject looked at a dot. The brain follows the loudness of speech, and a linear decoder can read that envelope back from scalp EEG \cite{osullivan2015cocktail, accou2023vlaai}. Ours is a ridge decoder on the five channels at lags of $-125$ to $+500$\,ms reading the 1 to 8\,Hz envelope; each play is decoded by a model trained on the others, with its first and last 3\,s left out so onset and offset responses do not count, and the mean of the held-out reconstructions is the brain's envelope of the clip (Fig.~\ref{fig:ear}). On a morning sitting with every electrode in contact it correlated with the true envelope at $r = 0.36$ over 23 plays (circular-shift null 95\% 0.10, $p < 0.001$), one play at 0.086 (null 0.022), and with the EEG shifted off the clips at chance (0.035, $p = 0.29$); the night before, with the cup not in contact, 0.18. The signal is on the ear electrodes and the cup (TP10 0.20, AF8 0.16, Oz 0.15, TP9 0.14 alone), AF7 nothing. Research caps with 64 channels reach 0.10 to 0.19 per play \cite{accou2023vlaai}; the headband recovers by repetition what it lacks in channels. The reconstruction is played back as sound. The speakers sit beside TP9 and TP10, so part of the response could be sound induced into the electrodes; a control with the headband on the desk and nobody wearing it, and a sitting with speakers across the desk, are pending. \todo{desk control; PC-speaker sitting}
 
-\textbf{The ear as a microphone.} The same headband reads sound as well as sight. The first two paragraphs of \emph{Alice's Adventures in Wonderland} (31.5\,s of a public-domain LibriVox reading) were played 24 times from the headset's own speakers while the subject sat still with the eyes on a dot. The brain follows the loudness of speech, and a linear decoder can read that envelope back from scalp EEG \cite{osullivan2015cocktail, accou2023vlaai}. Ours is a ridge decoder on the five channels at lags from $-125$ to $+500$\,ms, reading the 1 to 8\,Hz envelope; every play is decoded by a model trained on the other plays, the first and last 3\,s of each play are left out so onset and offset responses do not count, and the mean of the held-out reconstructions is the brain's envelope of the clip (Fig.~\ref{fig:ear}). On a morning sitting with every electrode in contact it correlated with the true envelope at $r = 0.36$ over 23 plays (circular-shift null 95\% 0.10, $p < 0.001$), one play at 0.086 (null 0.022), and the same decoder with the EEG shifted off the clips at chance (0.035, $p = 0.29$); the night before, with the cup not in contact, 0.18. The signal is on the ear electrodes and the cup (TP10 0.20, AF8 0.16, Oz 0.15, TP9 0.14 alone), AF7 nothing. Research caps with 64 channels reach 0.10 to 0.19 per play \cite{accou2023vlaai}; what the headband lacks in channels it recovers by repetition. The reconstruction is written back as sound, the envelope on white noise and on the clip's own fine structure. The headset's speakers sit beside TP9 and TP10, so part of the response could be sound induced into the electrodes; the control with the headband on the desk and nobody wearing it, and a sitting with speakers across the desk, are pending. \todo{desk control; PC-speaker sitting}
+\textbf{Music through a diffusion model.} Postolache et al.~\cite{postolache2024naturalistic} reconstructed music from 128-channel laboratory EEG at a semantic level, timbre and mood rather than fine detail, by conditioning a frozen text-to-music model, AudioLDM2~\cite{liu2023audioldm2}, on the EEG through a ControlNet adapter~\cite{zhang2023controlnet}. We ran the same pipeline on the four Muse channels (TP9, AF7, AF8, TP10). One participant heard eight short stimuli in two blocks. Trials were cut to 3.84\,s from onset (stimuli resampled to 16\,kHz mono and zero-padded; silent controls excluded), median-centred, notch-filtered at 60\,Hz, high-passed at 0.5\,Hz, downsampled to 125\,Hz and denoised with the Adaptive Chirplet Transform (ACT)~\cite{mann1995chirplet, kumar2026act, mann2025sleep}, which models each channel in 2\,s windows with a 1\,s hop as a sum of Gaussian chirplets. A strided 1-D convolution maps the $4 \times 480$ EEG onto the $8 \times 96 \times 16$ audio latent, one EEG step per latent frame. Each model was trained from scratch on one block and tested on the other, then the roles swapped (1000 AdamW steps, learning rate $10^{-4}$, batch 4; DDIM sampling, 25 steps), and scored as in~\cite{postolache2024naturalistic} by CLAP similarity to the true stimulus~\cite{wu2023clap} (4000-iteration permutation test) and by eight-way identification in CLAP space, against unconditioned AudioLDM2 (\emph{no-EEG}), the same model trained on shuffled EEG--stimulus pairs (\emph{label-shuffle}), and a band-power classifier that plays back its predicted stimulus (\emph{classify-then-play}; Table~\ref{tab:results}). The EEG-conditioned model came closer to the true stimulus than the label-shuffle control on both blocks (CLAP 0.496 vs.\ 0.432 and 0.468 vs.\ 0.418), consistent in direction but not yet significant with about 40 training trials per block; the classifier named the stimulus at twice chance on block~02 (25\%, $p = 0.023$), so the four channels carry stimulus information. The pipeline runs end to end on a consumer headband; more sessions and participants and a frozen held-out evaluation are next.
+
+\begin{table}[t]
+\centering
+\caption{Music through a diffusion model, cross-block ($n = 40$ trials per block). CLAP: mean similarity to the true
+stimulus; ID: eight-way identification rate (chance 0.125).}
+\label{tab:results}
+\setlength{\tabcolsep}{3pt}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcccccccc}
+\toprule
+& \multicolumn{4}{c}{Test block 02} & \multicolumn{4}{c}{Test block 03} \\
+\cmidrule(lr){2-5} \cmidrule(lr){6-9}
+Model & CLAP & $p$ & ID & $p$ & CLAP & $p$ & ID & $p$ \\
+\midrule
+No-EEG baseline     & 0.249 & 0.026 & 0.100 & 0.754 & 0.245 & 0.167 & 0.075 & 0.892 \\
+Classify-then-play  & 0.681 & 0.637 & \textbf{0.250} & \textbf{0.023} & 0.770 & 0.133 & 0.125 & 0.571 \\
+ControlNet (EEG)    & 0.496 & 0.327 & 0.100 & 0.754 & 0.468 & 0.532 & 0.100 & 0.754 \\
+Label-shuffle null  & 0.432 & 0.502 & 0.175 & 0.228 & 0.418 & 0.891 & 0.075 & 0.892 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
 
 \begin{figure}[t]
 \centering
@@ -194,7 +199,7 @@ What a community health worker would do with this decides the design. The metave
 The eye as a camera works on a \$250 headband with one added cup and a \$300 headset: a legible word, eight colours over three sittings, and an optotype named from the EEG before its seal was opened, from a subject who only looked at a dot. The same headband is an ear as a microphone: the loudness of a spoken passage read back from the EEG at $r = 0.36$ and played as sound. The recording that gives the image also gives the eye strain. That is the start of a visual screener in the low-cost, objective, worker-operated tradition; the rest is subjects, stimuli that separate colour from brightness, and a prompt that closes the loop.
 
 \section*{Acknowledgements}
-\todo{MannLab Canada; Interaxon for the auxiliary-electrode documentation.}
+We thank MannLab Canada, and we thank Interaxon for the auxiliary-electrode documentation.
 
 \bibliographystyle{IEEEtran}
 \bibliography{refs}
