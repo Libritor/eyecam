@@ -404,8 +404,69 @@ def human6(out):
     save(fig, out, "fig_human_photometry.pdf")
 
 
+LAPTOP_CHART = "runs/lap_chart_2026-11-03"     # the bars at chart sizes, laptop panel at 1.5 m
+LIGHT_LADDER = "runs/vr_light_2026-11-03c"     # the light ladder, four repeats per level
+
+
+def _limb_panel(ax, key_x, test, ro, logf, col):
+    """Amplitude against the step variable for both eyes (open: p >= 0.05), the
+    fitted limb down to its zero crossing and the threshold (dashed)."""
+    for eye in ("right", "left"):
+        d = ro["eyes"][eye][test]
+        x, a, p = np.array(d[key_x], float), np.array(d["amps"], float), np.array(d["p"], float)
+        sig = p < ALPHA
+        ax.plot(x[sig], a[sig], "o", color=col[eye], ms=3.0, label=eye)
+        ax.plot(x[~sig], a[~sig], "o", mfc="white", color=col[eye], ms=3.0)
+        fit = d.get("fit") or {}
+        if d.get("ok") and fit.get("ok"):
+            xs = np.array(fit["x_used"])
+            xx = np.linspace(min(fit["x_thr_log"], xs.min()), xs.max(), 30)
+            ax.plot(logf(xx), fit["a"] + fit["b"] * xx, color=col[eye], lw=0.8)
+            ax.axvline(d["threshold"], color=col[eye], lw=0.6, ls=(0, (3, 2)))
+    ax.set_xscale("log"); ax.axhline(0, color="#999", lw=0.4)
+    ax.spines[["top", "right"]].set_visible(False)
+
+
+def human7(out):
+    """The afternoon of the sixth day: the chart as reversing bars on the laptop
+    (physical units) and the light ladder in the headset, both eyes each."""
+    col = {"right": RIGHT_H, "left": LEFT_H}
+    fig, ax = plot_axes(HALF, 1.45, left=0.25, bottom=0.27, right=0.97, top=0.95)
+    _limb_panel(ax, "sizes", "acuity", readout(LAPTOP_CHART), np.exp, col)
+    ax.invert_xaxis()
+    ticks = [10, 5, 2.5, 1, 0.62]
+    ax.set_xticks(ticks); ax.set_xticklabels(["200", "100", "50", "20", "12"]); ax.minorticks_off()
+    ax.set_xlabel("bars as chart line 20/X"); ax.set_ylabel("amplitude on Oz (a.u.)")
+    ax.legend(frameon=False, loc="lower left", fontsize=6, handlelength=0.8)
+    save(fig, out, "fig_human_laptop_bars.pdf")
+    fig, ax = plot_axes(HALF, 1.45, left=0.25, bottom=0.27, right=0.91, top=0.95)
+    _limb_panel(ax, "levels", "intensity", readout(LIGHT_LADDER), lambda v: 10 ** v, col)
+    ax.set_xticks([0.01, 0.1, 1]); ax.set_xticklabels(["1%", "10%", "100%"]); ax.minorticks_off()
+    ax.set_xlabel("flash level (of white)"); ax.set_ylabel("amplitude on Oz (a.u.)")
+    ax.legend(frameon=False, loc="upper left", fontsize=6, handlelength=0.8)
+    save(fig, out, "fig_human_ladder.pdf")
+
+
+def gate_pair(out):
+    """The gate's acuity and contrast curves as a half-column pair (the paper's
+    sixth-day additions needed the room)."""
+    ro = readout("runs/exam_gate")
+    fig, ax = plot_axes(HALF, 1.45, left=0.24, bottom=0.27, right=0.97, top=0.95)
+    curve(ax, ro, "acuity", "sizes", "bar width (arcmin)", math.e)
+    ax.set_xticks([40, 10, 3.5]); ax.set_xticklabels(["40", "10", "3.5"]); ax.minorticks_off()
+    if ax.get_legend():
+        ax.get_legend().remove()
+    save(fig, out, "fig_gate_acuity_half.pdf")
+    fig, ax = plot_axes(HALF, 1.45, left=0.24, bottom=0.27, right=0.97, top=0.95)
+    curve(ax, ro, "contrast", "contrasts", "contrast", 10)
+    ax.set_xticks([1, 0.1, 0.03]); ax.set_xticklabels(["1", "0.1", "0.03"]); ax.minorticks_off()
+    if ax.get_legend():
+        ax.legend(frameon=False, fontsize=5.5, loc="lower left", handlelength=0.8)
+    save(fig, out, "fig_gate_contrast_half.pdf")
+
+
 PARTS = {"rig": rig_photo, "pipeline": pipeline, "stimuli": stimuli, "gate": gate, "human": human,
-         "human6": human6}
+         "human6": human6, "human7": human7, "gate_pair": gate_pair}
 
 
 def main():
