@@ -5,10 +5,11 @@ exam_photo_figure.py, exam_paper_figure.py, exam_gate_new_figure.py and
 exam_human_figure.py, reusing their drawing functions where the panel reads
 well at the new size.
 
-    python analysis/exam_paper_panels.py docs/paper/exam2027/figures
+    python analysis/exam_paper_panels.py docs/paper/exam2027/figures [part ...]
 
-Inputs: runs/exam_gate (the 39-check gate, 29 October 2026), runs/vr_exam6 (the fourth human sitting), the rig photo of the ICCE
-paper. Writes fig_*.pdf (and fig_rig.jpg) into the folder given.
+Inputs: runs/exam_gate (the 39-check gate, 29 October 2026), runs/vr_exam6 (the fourth human sitting),
+runs/vr_exam_left_2026-11-03b and runs/vr_exam_right_2026-11-03 (the sixth sitting's photometry), the rig
+photo of the ICCE paper. Writes fig_*.pdf (and fig_rig.jpg) into the folder given.
 """
 import json
 import math
@@ -358,15 +359,63 @@ def human(out):
     save(fig, out, "fig_human_bars.pdf")
 
 
+# ── the sixth human sitting (3 November 2026) ────────────────────────────────
+SIXTH = {"left": "runs/vr_exam_left_2026-11-03b", "right": "runs/vr_exam_right_2026-11-03"}
+
+
+def _photometry_half(ax, eyes, col, ylim, ylabel, legend="lower right"):
+    """One half-column photometry panel: per eye (readout, colour) the step
+    amplitudes (open: p >= 0.05), the fitted null model and the null (dashed);
+    the display's standard match at 0.5 dotted."""
+    from exam_readout import photometry_modulation
+    for eye, ro in eyes.items():
+        d = ro["eyes"][eye]["photometry"]["pairs"]["rg"]
+        x, a, p = np.array(d["mixes"], float), np.array(d["amps"], float), np.array(d["p"], float)
+        sig = p < ALPHA
+        ax.plot(x[sig], a[sig], "o", color=col[eye], ms=3.0, label=eye)
+        ax.plot(x[~sig], a[~sig], "o", mfc="white", color=col[eye], ms=3.0)
+        if d.get("fit_ok"):
+            xx = np.linspace(0.12, 0.88, 120)
+            ax.plot(xx, [d["a"] * photometry_modulation(v, d["null"]) + d["b"] for v in xx],
+                    color=col[eye], lw=0.8)
+            ax.axvline(d["null"], color=col[eye], lw=0.6, ls=(0, (3, 2)))
+    ax.axvline(0.5, color="#888", lw=0.5, ls=":")
+    ax.set_xlim(0.1, 0.9); ax.set_ylim(*ylim)
+    ax.set_xticks([0.2, 0.35, 0.5, 0.65, 0.8]); ax.set_xticklabels(["0.2", "", "0.5", "", "0.8"])
+    ax.set_xlabel("red's share"); ax.set_ylabel(ylabel)
+    ax.legend(frameon=False, loc=legend, handlelength=0.8, fontsize=6, borderaxespad=0.1,
+              ncol=2 if legend == "upper center" else 1, columnspacing=0.8)
+    ax.spines[["top", "right"]].set_visible(False)
+
+
+def human6(out):
+    """Red/green flicker photometry as a half-column pair: the synthetic subject
+    of the gate (fig_gate_photometry_half.pdf, nulls dialled at 0.5 and 0.65)
+    and the person in the sixth sitting (fig_human_photometry.pdf, Oz)."""
+    gate_ro = readout("runs/exam_gate")
+    fig, ax = plot_axes(HALF, 1.4, left=0.25, bottom=0.25, right=0.97, top=0.95)
+    _photometry_half(ax, {"right": gate_ro, "left": gate_ro},
+                     {e: EYE_STYLE[e]["color"] for e in ("right", "left")}, (-0.05, 1.45), "amplitude (a.u.)",
+                     legend="upper center")
+    save(fig, out, "fig_gate_photometry_half.pdf")
+    fig, ax = plot_axes(HALF, 1.4, left=0.25, bottom=0.25, right=0.97, top=0.95)
+    _photometry_half(ax, {e: readout(SIXTH[e]) for e in ("right", "left")},
+                     {"right": RIGHT_H, "left": LEFT_H}, (0, 8.2), "amplitude on Oz (a.u.)")
+    save(fig, out, "fig_human_photometry.pdf")
+
+
+PARTS = {"rig": rig_photo, "pipeline": pipeline, "stimuli": stimuli, "gate": gate, "human": human,
+         "human6": human6}
+
+
 def main():
+    """python analysis/exam_paper_panels.py [out_dir] [part ...]; parts: rig,
+    pipeline, stimuli, gate, human, human6 (default: all)."""
     out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "docs", "paper", "exam2027", "figures")
     os.makedirs(out, exist_ok=True)
-    rig_photo(out)
-    pipeline(out)
-    stimuli(out)
-    gate(out)
-    # the imported modules set smaller fonts at import; restore ours for the human plots
-    human(out)
+    # the imported modules set smaller fonts at import; the human plots come last with ours
+    for name in (sys.argv[2:] or PARTS):
+        PARTS[name](out)
 
 
 if __name__ == "__main__":
