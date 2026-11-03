@@ -139,6 +139,76 @@ gives no response (p >= 0.05) the page asks for an electrode check (wet the
 top electrode, press the ear pads in) and the flash is tried again, twice at
 most; the exam then goes on and the report says that the eye had no reference.
 
+## The tests added on 3 November 2026: the letter chart and the light ladder
+
+**snellen** reads acuity at the lines of a letter chart (20/200 down to 20/10 by
+default, `--exam-snellen` takes the denominators). Each line fills the window
+with Landolt Cs at that line's size, black on white: the C is five strokes
+across, one stroke thick, with a parallel-sided gap one stroke wide (ISO 8596's
+reference optotype), so the stroke is the line's minimum angle of resolution,
+X/20 arcmin for 20/X. Every C sits at a random one of four orientations and
+turns 180 degrees once per flicker period: the gap jumps to the other side
+while the ink, and with it the mean luminance, stays exactly the same. An eye
+that resolves the gap sees every C change and its visual cortex follows the
+flicker; an eye that does not sees the same grey rings throughout, and the
+response is gone. The OFF blocks show the same Cs standing still. The frame
+log carries the stroke in its `size` column, the read-out fits the
+sweep-VEP limb on log stroke exactly as for the bars, and gives the
+threshold as MAR, logMAR, the Snellen equivalent 20/(20 MAR) and the nearest
+chart line, plus the finest line with a response.
+
+Why Cs and not letters: the first design swapped sharp letters with a blurred
+copy of themselves. A canvas blurs in its gamma-encoded values, which makes the
+blurred page darker in linear light than the sharp one, so the swap would carry
+a flicker of mean luminance that the eye sees at every size, and no threshold
+could appear. A C turning 180 degrees changes nothing but the gap's position.
+
+The display is a limit of its own. A line whose stroke falls under one device
+pixel is not shown, and when the finest line that could be drawn still
+responds the read-out says THE DISPLAY IS THE LIMIT. A Quest 3S shows about 20
+pixels per degree (a pixel is about 3 arcmin; Meta does not publish the
+figure and the browser resamples the page again), so it can draw nothing finer
+than about 20/60: it cannot tell 20/20 from 20/50. The laptop panel (2560 x
+1600 on 34.45 cm, 0.135 mm a pixel) at a measured distance can: at 1.5 m an
+arcmin is 3.2 device pixels (20/10's stroke 1.6 px), at 3 m it is 6.5. The
+window then covers less of the visual field (13 x 8 degrees at 1.5 m), so the
+response is smaller than in the headset. The SSVEP threshold tracks letter
+acuity but is not the same number: VEP acuity methods land within one to three
+lines of a letter chart once calibrated, and that calibration (a letter chart
+and trial lenses against this test, on several people) has not been done.
+
+**intensity** is the light ladder: the flash again, the window flickering
+between black and a grey at one luminance level per step (`--exam-levels`,
+fractions of white in linear light, 1 down to 0.008 by default; OFF = black).
+The read-out gives the amplitude against log level, the dimmest level with a
+response, the limb rule's threshold level (log sensitivity is minus its log10)
+and the level where the response falls to half its largest. On an LCD headset
+the black is not dark and the levels are nominal (the page assumes a 2.2
+gamma), so this is daylight sensitivity on this display, not night vision.
+
+Both tests are left out of the default sitting; ask for them, with the flash
+first so the reference is set:
+
+```
+.\quest_run.ps1 -Run exam -Ppd 20 -Extra "--exam-tests flash,intensity"        # the light ladder in the headset
+.\laptop_exam.ps1 -Distance 150 -Extra "--exam-tests flash,snellen"            # the letter chart, 1.5 m from the laptop
+```
+
+The prints (`flat_prints.py snellen --session runs/<s>` and `flat_prints.py ladder
+--session runs/<s>`) turn a sitting into objects: the classic chart's rows with
+each line's letters raised in proportion to the response at that line (barely
+raised where there was none), 20/X beside each line and a bar under the finest
+line that responded; and the light ladder as columns whose height is the
+response, with a square below each sized by its light level, plus the same
+responses as a lithophane strip.
+
+The gate checks both on the phantom (`EXAM_GATE_TESTS=flash,intensity,snellen
+python exam_gate.py`, about 10 minutes): each eye's letter threshold (MAR) in
+its acuity band, with the coarse lines 20/800 to 20/40 so both phantom cuts lie
+inside them, every line drawn, each eye's light threshold in the band of its
+light cut (right 0.03 of white, left 0.08), and both thresholds at least 1.3x
+higher in the left eye.
+
 ## Running it
 
 Phantom, no hardware (the gate, about 25 minutes with the eleven tests):
@@ -155,7 +225,8 @@ On the Quest:
 
 The run writes under `runs/<session>/`: `exam_<eye>_<test>_log.csv` (one row per
 frame, the usual columns plus `size`, `contrast`, `plane`, `angle` (the bars'
-tilt) and `mix` (photometry's first-field share); the vernier log carries its
+tilt), `mix` (photometry's first-field share) and `level` (the light ladder's
+luminance); the vernier log carries its
 offset in the `size` column; in a reversal block
 `flicker_on` marks the frames on which the bars swapped), `exam.json` (every
 step's amplitude, p, phase and the page's description of what it showed, the

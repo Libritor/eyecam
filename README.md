@@ -894,7 +894,15 @@ orientations at one bar width, where a weak meridian beside a strong one at
 right angles is the mark of astigmatism (meridian); and the window swapping
 between a red and a green field whose luminance shares run from 0.2 to 0.8,
 the share at which the response has its null being the eye's isoluminant
-point (photometry: red-weak eyes have it shifted toward red). Every stimulus fills the window
+point (photometry: red-weak eyes have it shifted toward red). Two more on
+3 November 2026, left out of the default sitting: the letter chart (snellen:
+each line of a 20/200-20/10 chart fills the window with Landolt Cs that turn
+180 degrees at the flicker rate, so only an eye that resolves the gap follows
+it; threshold as MAR, logMAR and 20/X; a Quest 3S cannot draw anything finer
+than about 20/60, the laptop panel at 1.5 m reaches 20/10) and the light ladder
+(intensity: the flash at eight luminance levels, the dimmest one the eye still
+follows). `flat_prints.py snellen` and `flat_prints.py ladder` print either as
+the brain responded (docs/EXAM.md). Every stimulus fills the window
 because the camera runs showed the response grows with the flickering area and
 a small square gives nothing. Every step is scored against the test's OFF
 blocks by the exact-line detector and an exact permutation test, on the

@@ -509,6 +509,46 @@ function vernierCanvases(w, h, barPx, offsetPx) {
   };
   return { aligned: make(0), misaligned: make(offsetPx) };
 }
+// Added 3 Nov 2026: snellen (the window filled with Landolt Cs at one line of
+// the chart, every C turning 180 degrees at the flicker rate) and intensity
+// (the light ladder: the flash between black and one luminance level).
+function landoltCanvases(w, h, strokePx, seed) {
+  // Landolt Cs (ISO 8596: a ring five strokes across, one stroke thick, with a
+  // parallel-sided gap one stroke wide), black on white, one letter space apart
+  // in x and y, each at a random one of four orientations; page b has every C
+  // turned 180 degrees, so the gap jumps to the other side while the ink, and
+  // with it the mean luminance, stays exactly the same
+  const L = 5 * strokePx, pitch = 2 * L;
+  const nx = Math.max(1, Math.floor((w + L) / pitch)), ny = Math.max(1, Math.floor((h + L) / pitch));
+  const x0 = (w - (nx * pitch - L)) / 2 + L / 2, y0 = (h - (ny * pitch - L)) / 2 + L / 2;
+  let r = (seed >>> 0) || 1;
+  const rnd = () => { r = (Math.imul(r, 1664525) + 1013904223) >>> 0; return r / 4294967296; };
+  const orient = [];
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) orient.push(Math.floor(rnd() * 4));
+  const make = turn => {
+    const off = document.createElement("canvas");
+    off.width = Math.max(1, Math.round(w)); off.height = Math.max(1, Math.round(h));
+    const c = off.getContext("2d");
+    c.fillStyle = "#fff"; c.fillRect(0, 0, off.width, off.height);
+    const ring = new Path2D(), gap = new Path2D();
+    let k = 0;
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++, k++) {
+      const cx = x0 + i * pitch, cy = y0 + j * pitch;
+      ring.moveTo(cx + 2.5 * strokePx, cy); ring.arc(cx, cy, 2.5 * strokePx, 0, 2 * Math.PI);
+      ring.moveTo(cx + 1.5 * strokePx, cy); ring.arc(cx, cy, 1.5 * strokePx, 0, 2 * Math.PI);
+      const o = (orient[k] + turn) % 4;                 // 0 right, 1 down, 2 left, 3 up
+      const hs = strokePx / 2, far = 2.6 * strokePx;
+      if (o === 0) gap.rect(cx, cy - hs, far, strokePx);
+      else if (o === 2) gap.rect(cx - far, cy - hs, far, strokePx);
+      else if (o === 1) gap.rect(cx - hs, cy, strokePx, far);
+      else gap.rect(cx - hs, cy - far, strokePx, far);
+    }
+    c.fillStyle = "#000"; c.fill(ring, "evenodd");
+    c.fillStyle = "#fff"; c.fill(gap);
+    return off;
+  };
+  return { cA: make(0), cB: make(2), nC: nx * ny };
+}
 const examByte = L => Math.round(255 * Math.pow(Math.max(0, Math.min(1, L)), 1 / EXAM_GAMMA));
 function gratingCanvas(w, h, stripePx, contrast, shift = 0) {
   // a vertical grating w x h; shift = 1 starts with the dark bar (the other phase)
@@ -558,13 +598,15 @@ async function runExam(m) {
   const toArcmin = px => px / scale * 60;
   const grating = ["acuity", "contrast", "csf", "meridian"].includes(m.test);
   const vernier = m.test === "vernier", photometry = m.test === "photometry";
+  const snellen = m.test === "snellen", intensity = m.test === "intensity";
   const reversal = grating && (m.style || "reversal") === "reversal";
   const diag = Math.ceil(Math.hypot(pw, ph));            // a turned grating must still cover the window
   const steps = m.steps.map((s, i) => {
     const o = Object.assign({ step: i, test: m.test, size: 0, sizePx: 0, contrast: 1,
                               sector: -1, plane: -1, rate: 0, hz: 0, skip: false,
                               cols: 1, rows: 1, gaze: -1, gx: 0, gy: 0, name: "",
-                              offset: 0, offsetPx: 0, angle: 0, mix: -1, pair: "", lum: 0 }, s);
+                              offset: 0, offsetPx: 0, angle: 0, mix: -1, pair: "", lum: 0,
+                              line: 0, level: -1, nC: 0 }, s);
     if (grating) {
       o.contrast = s.contrast == null ? 1 : s.contrast;
       o.sizePx = toPx(s.size); o.size = toArcmin(o.sizePx);
@@ -580,11 +622,21 @@ async function runExam(m) {
       Object.assign(o, vernierCanvases(pw, ph, o.sizePx, o.offsetPx));
     } else if (photometry) {
       o.colours = photometryColours(o.pair || "rg", o.mix, o.lum || 0.2);
+    } else if (snellen) {
+      // the stroke (= the gap = the line's MAR, s.size arcmin) at its exact
+      // size, anti-aliased; a line whose stroke is under one device pixel
+      // cannot be drawn and is left out (sizePx reports the stroke in px)
+      o.sizePx = s.size / 60 * scale;
+      o.skip = o.sizePx < 1;
+      if (!o.skip) Object.assign(o, landoltCanvases(pw, ph, o.sizePx, 7919 * (i + 1)));
+    } else if (intensity) {
+      const v = examByte(o.level);
+      o.levelCss = `rgb(${v},${v},${v})`;
     }
     return o;
   });
   const PLANE_CSS = ["#ff0000", "#00ff00", "#0000ff"];
-  const style = (grating || vernier) ? (reversal || vernier ? "reversal" : "onset") : "flicker";
+  const style = (grating || vernier || snellen) ? (reversal || vernier || snellen ? "reversal" : "onset") : "flicker";
   let b = 0;
   let nBlocks = m.reps * steps.length;
   for (let r = 0; r < m.reps && running === tok; r++) {
@@ -606,7 +658,7 @@ async function runExam(m) {
                      rate: s.rate, hz: s.hz, halfFrames: sweep ? halfFrames : undefined,
                      gaze: s.gaze, gx: s.gx, gy: s.gy, name: s.name,
                      offset: s.offset, offsetPx: s.offsetPx, angle: s.angle, mix: s.mix,
-                     pair: s.pair, lum: s.lum,
+                     pair: s.pair, lum: s.lum, line: s.line, level: s.level, nC: s.nC,
                      style, patchPx: [Math.round(pw), Math.round(ph)] };
       const what = m.test === "acuity" ? `bars ${s.size.toFixed(1)}' (${s.sizePx} px)`
         : m.test === "vernier" ? `bars ${s.size.toFixed(1)}', offset ${s.offset.toFixed(2)}' (${s.offsetPx} px)`
@@ -616,6 +668,8 @@ async function runExam(m) {
         : m.test === "photometry" ? `${s.pair === "by" ? "blue/yellow" : "red/green"}, ${s.pair === "by" ? "blue" : "red"} share ${s.mix.toFixed(2)}`
         : m.test === "field" ? `sector ${s.sector + 1}/${s.cols * s.rows}`
         : m.test === "colour" ? ["red", "green", "blue"][s.plane]
+        : snellen ? `line 20/${s.line}: Landolt Cs, stroke ${s.size.toFixed(2)}' (${s.sizePx.toFixed(2)} px)`
+        : intensity ? `flash at ${(100 * s.level).toPrecision(2)} % of white`
         : m.test === "gaze" ? `whole window, looking ${s.name}`
         : sweep ? `flash at ${hz.toFixed(1)} Hz` : "full-field flash";
       // the fixation dot: the centre for every test but gaze, whose steps move it
@@ -666,6 +720,17 @@ async function runExam(m) {
               ctx.drawImage(phase ? s.misaligned : s.aligned, px0, py0);
               fl = phase !== lastPhase; lastPhase = phase;
             } else ctx.drawImage(s.aligned, px0, py0);
+          } else if (snellen) {
+            // ON: every C turns 180 degrees once per flicker period (fl marks
+            // the turns); OFF: the same Cs standing still
+            if (on) {
+              const phase = Math.floor((lastTs / 1000 - flickerT0 + 0.5 / refreshHz) * hz) % 2;
+              ctx.drawImage(phase ? s.cB : s.cA, px0, py0);
+              fl = phase !== lastPhase; lastPhase = phase;
+            } else ctx.drawImage(s.cA, px0, py0);
+          } else if (intensity) {
+            // the flash with its white turned down to the step's level; OFF black
+            if (fl) { ctx.fillStyle = s.levelCss; ctx.fillRect(px0, py0, pw, ph); }
           } else if (photometry) {
             // ON: field A on the flicker's ON frames, field B on its OFF frames
             // (the exchange, luminance modulated by the pair's imbalance for
@@ -689,7 +754,7 @@ async function runExam(m) {
           dot(dx, dy);
           send({ type: "frame", stage: "exam", pt: t, gx: on ? s.sector : -1, gy: -1,
                  lum: on ? 1 : 0, fl: fl ? 1 : 0, size: vernier ? s.offset : s.size,
-                 contrast: s.contrast, plane: s.plane, angle: s.angle, mix: s.mix });
+                 contrast: s.contrast, plane: s.plane, angle: s.angle, mix: s.mix, level: s.level });
         }
         send({ type: "block", b, on, phase: "end", hz, meta });
       }

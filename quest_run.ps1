@@ -11,6 +11,7 @@
 #   .\quest_run.ps1 -Run cphoto -Target targets_img/<name>_12x14.png   # a colour poster from make_colour_photo.py
 #   .\quest_run.ps1 -Run exam -Ppd 20         # the eye exam, right eye then left (about 32 min; docs/EXAM.md)
 #   .\quest_run.ps1 -Run exam -Ppd 20 -Extra "--exam-tests flash,temporal,acuity,contrast,field"   # a shorter sitting
+#   .\quest_run.ps1 -Run exam -Ppd 20 -Extra "--exam-tests flash,intensity"   # the light ladder (about 3 min an eye)
 #   .\quest_run.ps1 -Run custom -Extra "--mode visual --choice bw --target pix:NO --grid-w 9 --grid-h 5 --spc 8"
 #
 # -Session names the folder under runs/ (default: <run><n>, the next free number).

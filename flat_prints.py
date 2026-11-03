@@ -11,7 +11,19 @@
                (x = red's share, y = response; left eye solid, right eye dashed) over a
                baseline with one peg under each eye's null.
 
+  snellen      the letter chart as the brain responded (an exam session with the
+               snellen test): the classic chart's rows, each line's letters raised in
+               proportion to the response at that line (barely raised where the brain
+               did not respond), 20/X beside every line, a bar under the finest line
+               that responded
+  ladder       the light ladder (an exam session with the intensity test): one column
+               per light level, its height the response, a square below sized by the
+               level; plus the same response as a lithophane strip (the brain's grey
+               scale when held to a light)
+
     python flat_prints.py lithophane [--run runs/vr_vision1] [--slice] [--preview]
+    python flat_prints.py snellen --session runs/<exam session> [--eye right] [--slice] [--preview]
+    python flat_prints.py ladder --session runs/<exam session> [--eye right] [--slice] [--preview]
     python flat_prints.py tactile [--left runs/vr_exam_left_2026-11-03b] [--right runs/vr_exam_right_2026-11-03] [--slice] [--preview]
 
 Outputs go to <run>/print/ (runs/ is never pushed: the report is the subject's own
@@ -20,6 +32,7 @@ die_print.py's CuraEngine recipe.
 """
 import argparse
 import json
+import math
 import os
 import shutil
 
@@ -179,6 +192,219 @@ def preview_tactile(Z, out):
     return out
 
 
+# ── 3 and 4: the letter chart and the light ladder, from an exam read-out ───
+# Built from boxes on a plate (a height field fine enough for 3.5 mm letters
+# would be millions of triangles); the boxes overlap the plate and each other,
+# which every slicer unions. Letters and digits on a 5 x 5 and a 3 x 5 grid.
+GLYPHS = {
+    "C": [".####", "#....", "#....", "#....", ".####"], "D": ["####.", "#...#", "#...#", "#...#", "####."],
+    "E": ["#####", "#....", "####.", "#....", "#####"], "F": ["#####", "#....", "####.", "#....", "#...."],
+    "L": ["#....", "#....", "#....", "#....", "#####"], "O": [".###.", "#...#", "#...#", "#...#", ".###."],
+    "P": ["####.", "#...#", "####.", "#....", "#...."], "T": ["#####", "..#..", "..#..", "..#..", "..#.."],
+    "Z": ["#####", "...#.", "..#..", ".#...", "#####"],
+    "0": ["###", "#.#", "#.#", "#.#", "###"], "1": [".#.", "##.", ".#.", ".#.", "###"],
+    "2": ["###", "..#", "###", "#..", "###"], "3": ["###", "..#", "###", "..#", "###"],
+    "4": ["#.#", "#.#", "###", "..#", "..#"], "5": ["###", "#..", "###", "..#", "###"],
+    "6": ["###", "#..", "###", "#.#", "###"], "7": ["###", "..#", "..#", "..#", "..#"],
+    "8": ["###", "#.#", "###", "#.#", "###"], "9": ["###", "#.#", "###", "..#", "###"],
+    "/": ["..#", "..#", ".#.", "#..", "#.."],
+}
+CHART = {200: "E", 100: "FP", 70: "TOZ", 50: "LPED", 40: "PECFD", 30: "EDFCZP", 25: "FELOPZD",
+         20: "DEFPOTEC", 15: "LEFODPCT", 13: "FDPLTCEO", 10: "PEZOLCFTD"}   # the classic chart's rows
+BASE = 2.0                                                # plate thickness, mm
+
+
+def box(x0, y0, x1, y1, z0, z1):
+    b = trimesh.creation.box(extents=(x1 - x0, y1 - y0, z1 - z0))
+    b.apply_translation(((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2))
+    return b
+
+
+def glyph_boxes(ch, x, y_top, cell, z1):
+    """Raised boxes for one character, its top-left corner at (x, y_top), y up;
+    a row's touching cells are one box."""
+    out = []
+    for r, row in enumerate(GLYPHS[ch]):
+        c = 0
+        while c < len(row):
+            if row[c] == "#":
+                c0 = c
+                while c < len(row) and row[c] == "#":
+                    c += 1
+                out.append(box(x + c0 * cell, y_top - (r + 1) * cell, x + c * cell, y_top - r * cell,
+                               BASE - 0.05, z1))
+            else:
+                c += 1
+    return out
+
+
+def text_boxes(text, x, y_top, h, z1, gap=0.6):
+    """A string of glyphs (cap height h); returns (boxes, width)."""
+    out, cx = [], x
+    for ch in text:
+        if ch == " ":
+            cx += h * 0.6
+            continue
+        cols = len(GLYPHS[ch][0])
+        out += glyph_boxes(ch, cx, y_top, h / 5.0, z1)
+        cx += cols * h / 5.0 + gap * h / 5.0 * 1.5
+    return out, cx - x
+
+
+def eye_readout(session, eye, test):
+    ro = json.load(open(os.path.join(HERE, session, "exam_readout.json")))
+    eyes = ro["eyes"]
+    if eye is None:
+        eye = next((e for e in ("right", "left", "both") if eyes.get(e, {}).get(test)), None)
+    if eye is None or not eyes.get(eye, {}).get(test):
+        raise SystemExit(f"{session}: no {test} read-out")
+    return eye, eyes[eye][test]
+
+
+def relief_of(amps, p, top=2.4, low=0.25):
+    """Height above the plate per step: up to `top` mm in proportion to the
+    response for a significant step, `low` (barely raised) for a silent one."""
+    a = np.array([v if v is not None else 0.0 for v in amps], float)
+    peak = max(float(np.nanmax(a)), 1e-9)
+    return [low + (top - low) * max(0.0, v) / peak if pv < 0.05 and v > 0 else low
+            for v, pv in zip(a, p)]
+
+
+def snellen_plaque(a):
+    eye, sn = eye_readout(a.session, a.eye, "snellen")
+    tested = {round(L, 3): (amp, pv) for L, amp, pv in zip(sn["lines"], sn["amps"], sn["p"])}
+    lines = sorted({round(L, 3) for L in sn["lines"]}, reverse=True)   # the lines tested, top to bottom
+    rel = dict(zip(sn["lines"], relief_of(sn["amps"], sn["p"])))
+    finest = sn.get("finest_line")
+    lmax, lmin = max(lines), min(lines)
+    def h_of(L):                                       # 18 mm at the top line, 3.5 mm at the bottom (log)
+        return 3.5 + (18.0 - 3.5) * (math.log(L) - math.log(lmin)) / max(math.log(lmax) - math.log(lmin), 1e-9)
+    rows = []
+    for L in lines:
+        letters = CHART.get(int(L)) if float(L).is_integer() and int(L) in CHART else None
+        if letters is None:
+            letters = ("EFPTOZLDC" * 3)[:max(1, min(9, int(round(2 + 6 * (math.log(lmax) - math.log(L)) /
+                                                                  max(math.log(lmax) - math.log(lmin), 1e-9)))))]
+        rows.append((L, letters, h_of(L)))
+    margin, label_w = 6.0, 22.0
+    widths = [len(t) * h * 1.6 - 0.6 * h for _, t, h in rows]
+    W = max(widths) + label_w + 3 * margin
+    H = sum(h * 1.55 for _, _, h in rows) + 2 * margin
+    parts = [box(0, 0, W, H, 0, BASE)]
+    y = H - margin
+    for (L, letters, h), w in zip(rows, widths):
+        key = round(L, 3)
+        z = BASE + (rel.get(L) if key in tested else 0.2)
+        x0 = margin + (max(widths) - w) / 2
+        for k, ch in enumerate(letters):
+            parts += glyph_boxes(ch, x0 + k * h * 1.6, y, h / 5.0, z)
+        lab, lw = text_boxes(f"20/{L:g}", 0, 0, 3.0, BASE + 0.6)
+        lab_h = 3.0
+        for b in lab:                                  # the label right-aligned in its column, mid-line
+            b.apply_translation((W - margin - lw, y - (h - lab_h) / 2, 0))
+        parts += lab
+        if finest is not None and abs(L - finest) < 1e-6:
+            # the bar under the finest line the brain responded to (the chart's green line)
+            t = min(1.2, 0.3 * h)                      # fits in the 0.55 h gap below the line
+            parts.append(box(margin, y - 1.15 * h - t, margin + max(widths), y - 1.15 * h,
+                             BASE - 0.05, BASE + 1.0))
+        y -= h * 1.55
+    m = trimesh.util.concatenate(parts)
+    name = f"snellen_chart_{eye}"
+    out = os.path.join(HERE, a.session, "print"); os.makedirs(out, exist_ok=True)
+    stl = os.path.join(out, name + ".stl"); m.export(stl)
+    print(f"{name}: {W:.0f} x {H:.0f} mm, {len(m.faces)} triangles, {len(parts)} boxes; lines tested "
+          f"{', '.join(f'20/{L:g}' for L in sn['lines'])}; finest with a response "
+          f"{'20/%g' % finest if finest else 'none'}")
+    files = [stl]
+    if a.preview:
+        files.append(preview_boxes(parts, W, H, os.path.join(out, name + "_preview.png"),
+                                   f"letter chart as the {eye} eye's brain responded (raised = responded)"))
+    if a.slice:
+        # 0.2 mm layers: the letters' detail is in x and y (the 20/10 line's strokes are 0.7 mm)
+        files.append(slice_flat(stl, {"layer_height": "0.2", "layer_height_0": "0.2",
+                                      "infill_sparse_density": "15", "wall_line_count": "2",
+                                      "top_layers": "4", "bottom_layers": "3",
+                                      "adhesion_type": "skirt", "support_enable": "false"}))
+    copy_out(files)
+
+
+def light_ladder(a):
+    eye, li = eye_readout(a.session, a.eye, "intensity")
+    order = np.argsort(li["levels"])                   # dim to bright, left to right
+    levels = [li["levels"][i] for i in order]
+    amps = [li["amps"][i] for i in order]
+    ps = [li["p"][i] for i in order]
+    rel = relief_of(amps, ps, top=6.0, low=0.3)
+    n, cw, gap, margin = len(levels), 11.0, 2.0, 5.0
+    W = n * cw + (n - 1) * gap + 2 * margin
+    H = 46.0
+    parts = [box(0, 0, W, H, 0, BASE)]
+    lo, hi = math.log10(min(levels)), math.log10(max(levels))
+    dimmest = li.get("dimmest_sig")
+    for k, (lev, r) in enumerate(zip(levels, rel)):
+        x0 = margin + k * (cw + gap)
+        parts.append(box(x0, 16.0, x0 + cw, 40.0, BASE - 0.05, BASE + r))            # the response column
+        s = 2.0 + 7.0 * (math.log10(lev) - lo) / max(hi - lo, 1e-9)                    # the light: a square
+        parts.append(box(x0 + (cw - s) / 2, 10.5 - s / 2, x0 + (cw + s) / 2, 10.5 + s / 2,
+                         BASE - 0.05, BASE + 0.8))
+        if dimmest is not None and abs(lev - dimmest) < 1e-9:
+            parts.append(box(x0, 41.5, x0 + cw, 43.0, BASE - 0.05, BASE + 1.0))      # mark: dimmest followed
+    m = trimesh.util.concatenate(parts)
+    name = f"light_ladder_{eye}"
+    out = os.path.join(HERE, a.session, "print"); os.makedirs(out, exist_ok=True)
+    stl = os.path.join(out, name + ".stl"); m.export(stl)
+    # and the same response as a lithophane strip: the brain's grey scale when held to a light
+    peak = max(max(v for v in amps if v is not None), 1e-9)
+    b = np.array([[max(0.0, v) / peak if pv < 0.05 and v is not None else 0.0 for v, pv in zip(amps, ps)]])
+    k = int(round(9.0 / 0.25))
+    T = np.pad(np.kron(3.0 - 2.2 * b, np.ones((k, k))), int(round(3 / 0.25)), constant_values=3.6)
+    strip = heightfield_solid(T[::-1, ::-1], 0.25)
+    check(strip, name + "_lithophane")
+    stl2 = os.path.join(out, name + "_lithophane.stl"); strip.export(stl2)
+    print(f"{name}: {W:.0f} x {H:.0f} mm plaque, {n} levels {min(levels):.3g}-{max(levels):.3g} of white; "
+          f"dimmest with a response {f'{dimmest:.3g}' if dimmest is not None else 'none'}")
+    files = [stl, stl2]
+    if a.preview:
+        files.append(preview_boxes(parts, W, H, os.path.join(out, name + "_preview.png"),
+                                   f"light ladder, {eye} eye: column height = the brain's response, "
+                                   "square = the light level (dim left, bright right)"))
+    if a.slice:
+        files.append(slice_flat(stl, {"layer_height": "0.2", "layer_height_0": "0.2",
+                                      "infill_sparse_density": "15", "wall_line_count": "3",
+                                      "adhesion_type": "skirt", "support_enable": "false"}))
+        files.append(slice_flat(stl2, {"layer_height": "0.12", "layer_height_0": "0.2",
+                                       "infill_sparse_density": "100", "infill_pattern": "lines",
+                                       "wall_line_count": "2", "top_layers": "0", "bottom_layers": "0",
+                                       "adhesion_type": "brim", "brim_width": "5", "support_enable": "false"}))
+    copy_out(files)
+
+
+def preview_boxes(parts, W, H, out, title):
+    """Top view of a box model: each box's top height drawn into a grid, hill-shaded."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import LightSource
+    res = 0.2
+    Z = np.zeros((int(H / res) + 1, int(W / res) + 1))
+    for b in parts:
+        (x0, y0, _), (x1, y1, z1) = b.bounds
+        i0, i1 = int(round(y0 / res)), int(round(y1 / res))
+        j0, j1 = int(round(x0 / res)), int(round(x1 / res))
+        Z[i0:i1, j0:j1] = np.maximum(Z[i0:i1, j0:j1], z1)
+    ls = LightSource(azdeg=315, altdeg=35)
+    # tinted by height (light = the plate, dark = the tallest) so flat tops show their height
+    rel = np.clip((Z - BASE) / max(float(Z.max()) - BASE, 1e-9), 0, 1)
+    tint = plt.get_cmap("YlOrBr")(0.08 + 0.85 * rel)[..., :3]
+    rgb = ls.shade_rgb(tint, Z, blend_mode="soft", vert_exag=4 / res)
+    fig, ax = plt.subplots(figsize=(6, 6 * H / W + 0.5), dpi=160)
+    ax.imshow(rgb[::-1], interpolation="bilinear"); ax.set_axis_off()
+    ax.set_title(title, fontsize=8)
+    fig.tight_layout(); fig.savefig(out); plt.close(fig)
+    return out
+
+
 # ── slicing and copies ──────────────────────────────────────────────────────
 def slice_flat(stl, extra):
     from die_print import slice_stl
@@ -187,7 +413,12 @@ def slice_flat(stl, extra):
     return gcode
 
 
+COPY = True                        # --no-copy turns this off (test and gate runs)
+
+
 def copy_out(files):
+    if not COPY:
+        return
     os.makedirs(DOWNLOADS, exist_ok=True)
     for f in files:
         shutil.copy2(f, DOWNLOADS)
@@ -202,11 +433,18 @@ def main():
     p = sub.add_parser("tactile")
     p.add_argument("--left", default="runs/vr_exam_left_2026-11-03b")
     p.add_argument("--right", default="runs/vr_exam_right_2026-11-03")
+    for what in ("snellen", "ladder"):
+        p = sub.add_parser(what)
+        p.add_argument("--session", required=True, help="a session folder with exam_readout.json")
+        p.add_argument("--eye", default=None, help="right / left / both (default: the first with the test)")
     for p in sub.choices.values():
         p.add_argument("--slice", action="store_true")
         p.add_argument("--preview", action="store_true")
+        p.add_argument("--no-copy", action="store_true", help="leave Downloads alone (test runs)")
     a = ap.parse_args()
-    {"lithophane": lithophane, "tactile": tactile}[a.what](a)
+    global COPY
+    COPY = not a.no_copy
+    {"lithophane": lithophane, "tactile": tactile, "snellen": snellen_plaque, "ladder": light_ladder}[a.what](a)
 
 
 if __name__ == "__main__":

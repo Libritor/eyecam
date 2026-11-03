@@ -60,6 +60,9 @@ takes one value for both eyes or per-eye values, 'right:8,left:16':
                         the first field (red) needs for the two fields to be
                         equally bright to this eye (0.5 = the display's
                         standard observer; above it = red-weak); per eye
+  --light-cut L         the light ladder (intensity test): the flash level, a
+                        fraction of white, at which the response is half
+                        (0 = responds to every level; per eye)
   --chroma-residual R   the response left at the photometric null, as a
                         fraction of the full exchange's (default 0.1)
   --alpha-band          the 10 Hz alpha as a band 1.5 Hz wide with the same
@@ -100,7 +103,11 @@ LATENCY = 0.12             # visual pathway delay of the phase-locked response (
 ACUITY_W = 0.25
 CONTRAST_W = 0.35
 VERNIER_W = 0.3
-EXAM_TESTS = ("flash", "temporal", "acuity", "vernier", "contrast", "csf", "field", "gaze",
+LIGHT_W = 0.35             # the light ladder's logistic width on log level, as the contrast cut's
+# every exam test whose frame log the phantom follows: a test missing here gets
+# no response at all (the gaze test's first gate run failed exactly so)
+EXAM_TESTS = ("flash", "temporal", "intensity", "acuity", "snellen", "vernier", "contrast", "csf",
+              "field", "gaze",
               "meridian", "photometry", "colour")
 EXAM_LOGS = tuple(f"exam_{e}_{t}_log.csv" for e in ("right", "left", "both") for t in EXAM_TESTS)
 
@@ -224,6 +231,9 @@ def main():
     ap.add_argument("--isolum", default="0.5",
                     help="exam photometry: the first field's share of the luminance at which "
                          "the two fields are equally bright to this eye; per eye")
+    ap.add_argument("--light-cut", default="0",
+                    help="exam light ladder: the flash level (fraction of white) where the response "
+                         "is half; 0 = every level; per eye")
     ap.add_argument("--chroma-residual", type=float, default=0.1,
                     help="exam photometry: response left at the null, fraction of the full exchange")
     args = ap.parse_args()
@@ -233,6 +243,7 @@ def main():
     astig = per_eye(args.astigmatism,
                     lambda s: (float(s.split(":")[0]), float(s.split(":")[1])) if s else None, None)
     isolum = per_eye(args.isolum, float, 0.5)
+    light_cut = per_eye(args.light_cut, float, 0.0)
     latency = per_eye(args.latency, float, LATENCY)
     flicker_cut = per_eye(args.flicker_cut, float, 0.0)
     field_loss = per_eye(args.field_loss,
@@ -392,8 +403,9 @@ def main():
                         try:                 # the two columns added with the 29 Oct tests
                             angle = float(row[18]) if len(row) > 18 else 0.0
                             mix = float(row[19]) if len(row) > 19 else -1.0
+                            level = float(row[20]) if len(row) > 20 else -1.0   # 3 Nov: light ladder
                         except ValueError:
-                            angle, mix = 0.0, -1.0
+                            angle, mix, level = 0.0, -1.0, -1.0
                         vis = 1.0
                         if test == "vernier":
                             # the size column is the strips' offset; the bars
@@ -424,6 +436,10 @@ def main():
                             mod = abs(ya - yb) / max(ya + yb, 1e-9)
                             r = args.chroma_residual
                             vis *= r + (1.0 - r) * min(1.0, mod)
+                        if test == "intensity" and 0.0 < level <= 1.0:
+                            cut = per_eye_value(light_cut, eye)
+                            if cut > 0:
+                                vis *= logistic(math.log(level) - math.log(cut), LIGHT_W)
                         if sector >= 0 and sector in per_eye_value(field_loss, eye):
                             vis = 0.0
                         if 0 <= plane < len(color_gain):

@@ -189,7 +189,7 @@ def _rel_flash(d, ref_amp, key):
                                  for v in d[key]]
 
 
-def fit_limb(xlog, amp, p):
+def fit_limb(xlog, amp, p, max_gap=None):
     """Line through the limb of amplitude vs log size (or log contrast) that
     falls to the noise floor: from the step just below the finest/faintest step
     with a significant response (the anchor, where the response has gone),
@@ -214,6 +214,25 @@ def fit_limb(xlog, amp, p):
     sig = np.where((pp < ALPHA) & (y > 0))[0]
     if len(sig) == 0:
         return dict(ok=False, reason="no step with a significant response")
+    isolated = []
+    if max_gap is not None:
+        # (3 Nov 2026, the letter chart and the light ladder) the anchor must
+        # belong to the response: walking from the coarsest step toward finer
+        # ones, the last significant step reached with at most max_gap silent
+        # steps in a row. A step found significant beyond a longer silence is
+        # a chance hit (p < 0.05 comes once in twenty silent steps; the gate's
+        # left eye gave 20/50 at p 0.042 with 20/160, 20/100 and 20/70 silent)
+        # and is set aside, not used as the limb's anchor.
+        reach, silent = None, 0
+        for k in range(len(x) - 1, -1, -1):
+            if pp[k] < ALPHA and y[k] > 0:
+                reach, silent = k, 0
+            else:
+                silent += 1
+                if reach is not None and silent > max_gap:
+                    break
+        isolated = [float(x[k]) for k in sig if k < reach]
+        sig = sig[sig >= reach]
     i0 = int(sig[0])
     peak = float(np.nanmax(y))
     used = [i0]
@@ -249,7 +268,7 @@ def fit_limb(xlog, amp, p):
                     finest_sig=float(x[i0]))
     return dict(ok=True, a=float(a), b=float(b), used=[int(i) for i in used],
                 x_used=xs.tolist(), y_used=ys.tolist(), x_thr_log=float(-a / b),
-                finest_sig=float(x[i0]), note=note, beyond_range=beyond)
+                finest_sig=float(x[i0]), note=note, beyond_range=beyond, isolated=isolated)
 
 
 def _steps(stage, key):
@@ -309,6 +328,96 @@ def read_contrast(stage):
     thr = float(10 ** fit["x_thr_log"])
     out.update(ok=True, threshold=thr, log_cs=float(-math.log10(thr)),
                beyond_range=bool(fit.get("beyond_range") or thr < 0.5 * float(c.min())),
+               note=fit.get("note", ""))
+    return out
+
+
+STANDARD_LINES = [200, 160, 125, 100, 80, 70, 63, 50, 40, 32, 30, 25, 20, 16, 15, 13, 12.5, 10]
+
+
+def _nearest_line(x):
+    """The chart line nearest 20/x on a log scale (the usual Snellen rounding)."""
+    return min(STANDARD_LINES, key=lambda L: abs(math.log(L) - math.log(x)))
+
+
+def read_snellen(stage, planned=None):
+    """Letter acuity at the chart's lines (Landolt Cs turning 180 degrees):
+    amplitude against log stroke (the MAR, arcmin) and the sweep-VEP limb
+    rule; the threshold as MAR, logMAR and the Snellen equivalent 20/(20 MAR);
+    the finest line with a response; the lines planned but not shown because
+    their stroke fell under one device pixel (the display, not the eye, sets
+    the limit there)."""
+    out = dict(ok=False)
+    if not stage or not stage.get("ok"):
+        out["reason"] = (stage or {}).get("reason", "not run")
+        return out
+    steps, mar, amp, p, sd = _steps(stage, "size")
+    lines = [float(s["meta"].get("line") or 20.0 * float(s["meta"]["size"])) for s in steps]
+    px = [float(s["meta"]["sizePx"]) if s["meta"].get("sizePx") is not None else None for s in steps]
+    out.update(mars=mar.tolist(), lines=lines, stroke_px=px, amps=amp.tolist(), p=p.tolist(),
+               amp_sd=sd.tolist(), noise_amp=stage.get("noise_amp"), channel=stage.get("channel"),
+               freq=stage.get("freq"))
+    shown = {round(v, 3) for v in lines}
+    out["not_shown"] = [float(v) for v in (planned or []) if round(float(v), 3) not in shown]
+    if len(mar) < 2:
+        out["reason"] = "fewer than two lines scored"
+        return out
+    fit = fit_limb(np.log(mar), amp, p, max_gap=1)
+    out["fit"] = fit
+    if fit.get("finest_sig") is not None:
+        out["finest_line"] = float(20.0 * math.exp(fit["finest_sig"]))
+        k = int(np.argmin(np.abs(np.log(mar) - fit["finest_sig"])))
+        finest_shown = float(mar.min())
+        # the finest line shown still responds and nothing finer could be drawn,
+        # or its stroke is under 1.5 device pixels: the panel is the limit
+        out["display_limited"] = bool(abs(mar[k] - finest_shown) < 1e-9 and (
+            bool(out["not_shown"]) or (px[k] is not None and px[k] < 1.5)))
+    if not fit["ok"]:
+        out["reason"] = fit["reason"]
+        return out
+    thr = float(math.exp(fit["x_thr_log"]))
+    out.update(ok=True, threshold=thr, logmar=float(math.log10(thr)), snellen=f"20/{20 * thr:.0f}",
+               line=_nearest_line(20 * thr),
+               beyond_range=bool(fit.get("beyond_range") or thr < 0.5 * float(mar.min())),
+               note=fit.get("note", ""))
+    return out
+
+
+def read_intensity(stage):
+    """The light ladder: amplitude against log flash level; the dimmest level
+    with a response, the limb rule's threshold level (log sensitivity =
+    -log10 of it) and the level where the response is half its largest."""
+    out = dict(ok=False)
+    if not stage or not stage.get("ok"):
+        out["reason"] = (stage or {}).get("reason", "not run")
+        return out
+    steps, lev, amp, p, sd = _steps(stage, "level")
+    out.update(levels=lev.tolist(), amps=amp.tolist(), p=p.tolist(), amp_sd=sd.tolist(),
+               noise_amp=stage.get("noise_amp"), channel=stage.get("channel"), freq=stage.get("freq"))
+    if len(lev) < 2:
+        out["reason"] = "fewer than two levels scored"
+        return out
+    order = np.argsort(lev)[::-1]                  # bright to dim
+    a_sorted, l_sorted = amp[order], lev[order]
+    top = float(np.nanmax(amp))
+    half = None
+    for i in range(1, len(order)):                 # the first fall below half, from the bright end
+        if a_sorted[i] < 0.5 * top <= a_sorted[i - 1]:
+            f = (0.5 * top - a_sorted[i]) / max(a_sorted[i - 1] - a_sorted[i], 1e-12)
+            lo, hi = math.log10(l_sorted[i]), math.log10(l_sorted[i - 1])
+            half = float(10 ** (lo + f * (hi - lo)))
+            break
+    out["half_level"] = half
+    fit = fit_limb(np.log10(lev), amp, p, max_gap=1)
+    out["fit"] = fit
+    if fit.get("finest_sig") is not None:
+        out["dimmest_sig"] = float(10 ** fit["finest_sig"])
+    if not fit["ok"]:
+        out["reason"] = fit["reason"]
+        return out
+    thr = float(10 ** fit["x_thr_log"])
+    out.update(ok=True, threshold=thr, log_sens=float(-math.log10(thr)),
+               beyond_range=bool(fit.get("beyond_range") or thr < 0.5 * float(lev.min())),
                note=fit.get("note", ""))
     return out
 
@@ -606,6 +715,23 @@ def eye_text(eye, r):
             bits.append(s)
         else:
             bits.append(f"flicker sweep: {te.get('reason')}")
+    li = r.get("intensity")
+    if li:
+        if li.get("ok") and li.get("beyond_range"):
+            s = (f"light ladder: still responding at the dimmest level shown ({min(li['levels']):.3g} of white; "
+                 f"the line crosses zero at {li['threshold']:.3g}, not a measurement)")
+        elif li.get("ok"):
+            s = f"light ladder threshold {li['threshold']:.3g} of white (log sensitivity {li['log_sens']:.2f}"
+            if li.get("dimmest_sig") is not None:
+                s += f"; dimmest level with a response {li['dimmest_sig']:.3g}"
+            s += ")"
+        else:
+            s = f"light ladder: {li.get('reason')}"
+            if li.get("dimmest_sig") is not None:
+                s += f" (dimmest level with a response {li['dimmest_sig']:.3g})"
+        if li.get("half_level") is not None:
+            s += f"; half response at {li['half_level']:.3g} of white"
+        bits.append(s)
     ac = r.get("acuity")
     if ac:
         if ac.get("ok") and ac.get("beyond_range"):
@@ -623,6 +749,23 @@ def eye_text(eye, r):
             if ac.get("finest_sig") is not None:
                 s += f" (finest bar with a response {ac['finest_sig']:.1f}')"
             bits.append(s)
+    sn = r.get("snellen")
+    if sn:
+        if sn.get("ok") and sn.get("beyond_range"):
+            s = (f"letter acuity (Landolt C) below the finest line shown (20/{min(sn['lines']):g}; "
+                 f"the line crosses zero at MAR {sn['threshold']:.2f}', not a measurement)")
+        elif sn.get("ok"):
+            s = (f"letter acuity (Landolt C) MAR {sn['threshold']:.2f}' (logMAR {sn['logmar']:.2f}, "
+                 f"{sn['snellen']}, nearest line 20/{sn['line']:g}, extrapolated)")
+        else:
+            s = f"letter acuity: {sn.get('reason')}"
+        if sn.get("finest_line") is not None:
+            s += f"; finest line with a response 20/{sn['finest_line']:.0f}"
+        if sn.get("display_limited"):
+            s += "; THE DISPLAY IS THE LIMIT: the finest line it could draw still responds"
+            if sn.get("not_shown"):
+                s += f" (20/{min(sn['not_shown']):g} to 20/{max(sn['not_shown']):g} not drawable)"
+        bits.append(s)
     ve = r.get("vernier")
     if ve:
         if ve.get("ok") and ve.get("beyond_range"):
@@ -735,7 +878,7 @@ def compare_eyes(eyes):
     L, R = eyes["left"], eyes["right"]
     out = {}
     for t, key in (("flash", "amp"), ("acuity", "threshold"), ("contrast", "threshold"),
-                   ("vernier", "threshold")):
+                   ("vernier", "threshold"), ("snellen", "threshold"), ("intensity", "threshold")):
         a, b = L.get(t, {}), R.get(t, {})
         if a.get("ok") and b.get("ok") and a.get(key) and b.get(key) and b[key] > 0:
             out[f"{t}_ratio_lr"] = float(a[key] / b[key])
@@ -835,6 +978,10 @@ def compare_text(c):
         bits.append(f"contrast threshold left/right {c['contrast_ratio_lr']:.2f}x")
     if "vernier_ratio_lr" in c:
         bits.append(f"vernier threshold left/right {c['vernier_ratio_lr']:.2f}x")
+    if "snellen_ratio_lr" in c:
+        bits.append(f"letter acuity MAR left/right {c['snellen_ratio_lr']:.2f}x")
+    if "intensity_ratio_lr" in c:
+        bits.append(f"light threshold left/right {c['intensity_ratio_lr']:.2f}x")
     if "csf_ratio_lr" in c:
         bits.append("CSF contrast threshold left/right " + ", ".join(
             f"{v:.2f}x at {k}'" for k, v in c["csf_ratio_lr"].items()))
@@ -919,6 +1066,22 @@ def draw(session, exam, eyes, compare, text):
                 ttl = (f"{eye}: acuity, below the finest bar shown" if d.get("ok") and d.get("beyond_range")
                        else f"{eye}: acuity, threshold {d['threshold']:.1f}' ({d['snellen']} eq.)"
                        if d.get("ok") else f"{eye}: acuity, no threshold")
+            elif t == "snellen":
+                _draw_curve(ax, d, "mars", "chart line (Landolt C stroke = MAR)", invert=True, logbase=math.e)
+                if d.get("mars"):
+                    ax.set_xticks(d["mars"])
+                    ax.set_xticklabels([f"20/{v:g}" for v in d["lines"]], rotation=60, fontsize=6)
+                    ax.minorticks_off()
+                ttl = (f"{eye}: letters, below the finest line shown" if d.get("ok") and d.get("beyond_range")
+                       else f"{eye}: letters, {d['snellen']} (line 20/{d['line']:g})" if d.get("ok")
+                       else f"{eye}: letters, no threshold")
+                if d.get("display_limited"):
+                    ttl += " - display-limited"
+            elif t == "intensity":
+                _draw_curve(ax, d, "levels", "flash level (fraction of white)", invert=True, logbase=10)
+                ttl = (f"{eye}: light ladder, below the dimmest level" if d.get("ok") and d.get("beyond_range")
+                       else f"{eye}: light ladder, threshold {d['threshold']:.3g}" if d.get("ok")
+                       else f"{eye}: light ladder, no threshold")
             elif t == "contrast":
                 _draw_curve(ax, d, "contrasts", "contrast", invert=True, logbase=10)
                 ttl = (f"{eye}: contrast, below the faintest step shown" if d.get("ok") and d.get("beyond_range")
@@ -1296,9 +1459,16 @@ def run(session):
         if "temporal" in exam["tests"]:
             r["temporal"] = read_temporal(res.get("temporal"))
             _rel_flash(r["temporal"], ref_amp, "amps")
+        if "intensity" in exam["tests"]:
+            r["intensity"] = read_intensity(res.get("intensity"))
+            _rel_flash(r["intensity"], ref_amp, "amps")
         if "acuity" in exam["tests"]:
             r["acuity"] = read_acuity(res.get("acuity"))
             _rel_flash(r["acuity"], ref_amp, "amps")
+        if "snellen" in exam["tests"]:
+            planned = [float(v) for v in str(exam.get("snellen") or "").split(",") if v.strip()]
+            r["snellen"] = read_snellen(res.get("snellen"), planned)
+            _rel_flash(r["snellen"], ref_amp, "amps")
         if "vernier" in exam["tests"]:
             r["vernier"] = read_vernier(res.get("vernier"))
             _rel_flash(r["vernier"], ref_amp, "amps")

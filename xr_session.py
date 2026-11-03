@@ -2168,6 +2168,7 @@ class Driver:
                    csf_sizes=a.exam_csf_sizes, csf_contrasts=a.exam_csf_contrasts,
                    meridians=a.exam_meridians, meridian_size=a.exam_meridian_size,
                    mixes=a.exam_mixes, photometry=a.exam_photometry,
+                   snellen=a.exam_snellen, levels=a.exam_levels,
                    style=a.exam_style, patch_side=a.exam_patch,
                    gamma=exam.DISPLAY_GAMMA, results={e: {} for e in eyes}, delivery={},
                    contact={}, flash_attempts={})
@@ -2538,6 +2539,13 @@ async def main():
     ap.add_argument("--exam-mixes", default="0.2,0.35,0.5,0.65,0.8",
                     help="photometry: the share of the pair's luminance given to the first "
                          "field (red, or blue), 0 to 1; 0.5 is the display's photometric match")
+    ap.add_argument("--exam-snellen", default="200,100,70,50,40,30,25,20,15,13,10",
+                    help="snellen: the chart's lines as 20/X denominators; each line fills the "
+                         "window with Landolt Cs whose stroke (= gap) is X/20 arcmin, turning "
+                         "180 degrees at the flicker rate; a line below one device pixel is not shown")
+    ap.add_argument("--exam-levels", default="1,0.5,0.25,0.12,0.06,0.03,0.015,0.008",
+                    help="intensity (the light ladder): the flash's luminance levels, fractions of "
+                         "white in linear light, bright to dim; OFF is black")
     ap.add_argument("--exam-photometry", default="rg",
                     help="photometry: the colour pairs exchanged, 'rg' (red/green), 'by' "
                          "(blue/yellow) or 'rg,by'")

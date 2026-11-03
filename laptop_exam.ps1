@@ -5,6 +5,7 @@
 #
 #   .\laptop_exam.ps1 -Distance 70            # eyes 70 cm from the screen (sets the arcmin scale)
 #   .\laptop_exam.ps1 -Distance 70 -Eye right  # one eye only
+#   .\laptop_exam.ps1 -Distance 150 -Extra "--exam-tests flash,snellen"   # the letter chart (20/200-20/10), 1.5 m away
 #   .\laptop_exam.ps1 -Stop                    # end a running session cleanly
 #
 # Pixels per degree: 2560 px / 34.45 cm = 74.3 px/cm; one degree at D cm is

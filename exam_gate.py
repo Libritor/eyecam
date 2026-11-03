@@ -24,6 +24,16 @@ most 0.6 of the best, the left eye's every meridian responding within 0.7 of
 the best; each eye's red/green null within 0.07 of the dialled share and
 the left's 0.15 +/- 0.07 above the right's.
 
+The two tests added on 3 November: the letter chart (snellen: Landolt Cs at
+the chart's lines, the stroke = the MAR) follows the phantom's acuity cut, so
+each eye's threshold MAR must land in its acuity band (the gate shows coarse
+lines, 20/800 to 20/40, so both eyes' cuts lie inside them); the light ladder
+(intensity) has its own cut per eye, the flash level at which the response is
+half (right 0.03 of white, left 0.08), and each eye's threshold must land in
+its band; for both, the left eye's threshold is at least 1.3x the right's.
+EXAM_GATE_TESTS=flash,intensity,snellen runs those alone (about 10 minutes)
+and judges only the tests that ran.
+
 The phantom's right eye stops seeing bars finer than about 8 arcmin and
 contrasts below about 0.08 and has no response from quadrant 3 (index 2 of
 the 2x2 field); its left eye is twice as coarse on both and whole. Both eyes
@@ -54,7 +64,8 @@ the eleven tests.
 
 Run:  python exam_gate.py        (BROWSER=<path> to choose the browser;
       EXAM_GATE_HTTP / EXAM_GATE_OSC for a second gate beside the first,
-      EXAM_GATE_EXTRA for more driver options, EXAM_GATE_SUFFIX for the session)
+      EXAM_GATE_EXTRA for more driver options, EXAM_GATE_SUFFIX for the session,
+      EXAM_GATE_TESTS for a subset of the tests, e.g. flash,intensity,snellen)
       python exam_gate.py --verdict runs/exam_gate   re-judges a finished
       session (after `python exam.py runs/exam_gate` or a read-out change)
 """
@@ -73,12 +84,13 @@ OSC = int(os.environ.get("EXAM_GATE_OSC", 5004))
 sys.path.insert(0, ROOT)
 import config  # noqa: E402
 from smooth_gate import browser_cmd  # noqa: E402
-from phantom_subject import ACUITY_W, CONTRAST_W, VERNIER_W  # noqa: E402
+from phantom_subject import ACUITY_W, CONTRAST_W, LIGHT_W, VERNIER_W  # noqa: E402
+import exam as exam_mod  # noqa: E402
 
 EYE = {"right": dict(acuity=8.0, contrast=0.08, loss={2}, latency=0.12, fcut=40.0,
-                     vernier=1.0, astig=(90.0, 0.4), isolum=0.5),
+                     vernier=1.0, astig=(90.0, 0.4), isolum=0.5, light=0.03),
        "left": dict(acuity=16.0, contrast=0.2, loss=set(), latency=0.15, fcut=24.0,
-                    vernier=2.0, astig=None, isolum=0.65)}
+                    vernier=2.0, astig=None, isolum=0.65, light=0.08)}
 GAIN = "0.7,1,0.4"
 REF = "AUX"        # the phantom's strongest channel: the flash must pick it as the reference
 LAT_TOL_MS = 6.0   # apparent latency: allowed error per eye and on the difference
@@ -86,6 +98,8 @@ RATE_TOL = 0.15    # half-response rate: allowed fraction of the phantom's cut
 NULL_TOL = 0.07    # photometry: allowed error of the fitted null, per eye and on the difference
 MERIDIAN_SIZE = "20"       # the turned grating's bar width in the gate (both phantom eyes resolve it)
 CSF_SIZES = "60,14"        # the csf test's bar widths in the gate (14' is inside the left eye's acuity)
+SNELLEN_LINES = "800,400,300,200,160,100,70,50,40"   # MAR 40' to 2': both phantom cuts (8', 16') inside
+TESTS = os.environ.get("EXAM_GATE_TESTS", ",".join(exam_mod.TESTS))
 READ_ON_REF = ("temporal", "acuity", "vernier", "contrast", "csf", "field", "gaze", "meridian",
                "photometry", "colour")
 CLOCK_OFFSET_S = 3.0 / config.FS   # the rebuilt clock runs this much early on the phantom's packets
@@ -107,6 +121,7 @@ def verdict(full, code, t0=None):
         exam = json.load(f)
     with open(os.path.join(full, "exam_readout.json")) as f:
         ro = json.load(f)
+    ran = set(exam.get("tests", []))
     checks = {"driver exit 0": code == 0,
               "every stage delivered": bool(exam.get("delivery")) and all(
                   d.get("ok") for d in exam["delivery"].values())}
@@ -118,7 +133,26 @@ def verdict(full, code, t0=None):
         checks[f"{eye} flash responds (p < 0.05) on {REF}"] = \
             bool(fl.get("ok")) and fl.get("responded") and fl.get("channel") == REF
         checks[f"{eye} every test read on the reference channel {REF}"] = all(
-            exam["results"].get(eye, {}).get(t, {}).get("channel") == REF for t in READ_ON_REF)
+            exam["results"].get(eye, {}).get(t, {}).get("channel") == REF
+            for t in READ_ON_REF + ("intensity", "snellen") if t in ran)
+        # the 3 November tests
+        if "snellen" in ran:
+            sn = r.get("snellen", {})
+            lo, hi = band(want["acuity"], ACUITY_W)
+            checks[f"{eye} letters (Landolt C): threshold MAR in the phantom's acuity band "
+                   f"{lo:.1f}-{hi:.1f} arcmin"] = bool(sn.get("ok")) and lo <= sn["threshold"] <= hi
+            checks[f"{eye} letters: every line of the chart drawn"] = \
+                bool(sn.get("lines")) and not sn.get("not_shown")
+            thr[eye, "snellen"] = sn.get("threshold")
+        if "intensity" in ran:
+            li = r.get("intensity", {})
+            lo, hi = band(want["light"], LIGHT_W)
+            checks[f"{eye} light ladder: threshold in the phantom's band {lo:.4f}-{hi:.4f} of white"] = \
+                bool(li.get("ok")) and lo <= li["threshold"] <= hi
+            thr[eye, "intensity"] = li.get("threshold")
+        if not ran & {"temporal", "acuity", "contrast", "field", "gaze", "colour", "vernier", "csf",
+                      "meridian", "photometry"}:
+            continue
         ga = r.get("gaze", {})
         checks[f"{eye} gaze: the whole window responds at every fixation position"] = \
             bool(ga.get("ok")) and ga.get("n_responding") == ga.get("n")
@@ -178,9 +212,13 @@ def verdict(full, code, t0=None):
         checks[f"{eye} photometry: red/green null within {NULL_TOL:.2f} of the phantom's "
                f"{want['isolum']:.2f}"] = bool(ph.get("fit_ok")) and abs(ph["null"] - want["isolum"]) <= NULL_TOL
         thr[eye, "null"] = ph.get("null")
-    for t in ("acuity", "contrast", "vernier"):
+    for t in ("acuity", "contrast", "vernier", "snellen", "intensity"):
+        if t not in ran:
+            continue
         l, r = thr.get(("left", t)), thr.get(("right", t))
         checks[f"left {t} threshold >= 1.3x the right's"] = bool(l and r) and l >= 1.3 * r
+    if "photometry" not in ran or "temporal" not in ran:
+        return _report(checks, ro, thr, t0)
     want_s = EYE["left"]["isolum"] - EYE["right"]["isolum"]
     l, r = thr.get(("left", "null")), thr.get(("right", "null"))
     checks[f"left minus right red/green null {want_s:+.2f} +/- {NULL_TOL:.2f}"] = \
@@ -189,6 +227,10 @@ def verdict(full, code, t0=None):
     l, r = thr.get(("left", "latency")), thr.get(("right", "latency"))
     checks[f"left minus right apparent latency {want_d:+.0f} +/- {LAT_TOL_MS:g} ms"] = \
         l is not None and r is not None and abs((l - r) - want_d) <= LAT_TOL_MS
+    return _report(checks, ro, thr, t0)
+
+
+def _report(checks, ro, thr, t0):
     print("----")
     for name, ok in checks.items():
         print(("PASS  " if ok else "FAIL  ") + name)
@@ -215,6 +257,7 @@ def main():
     cmd = ["--mode", "exam", "--exam-eye", "right,left", "--exam-on", "3", "--exam-off", "3",
            "--exam-reps", "2", "--freq", "15", "--exam-ppd", "30",
            "--exam-meridian-size", MERIDIAN_SIZE, "--exam-csf-sizes", CSF_SIZES,
+           "--exam-snellen", SNELLEN_LINES, "--exam-tests", TESTS,
            "--session", session, "--http-port", str(HTTP), "--osc-port", str(OSC),
            "--spectator", "", "--signal-timeout", "120", "--linger", "2"]
     procs = []
@@ -245,6 +288,7 @@ def main():
              "--astigmatism", ",".join(f"{e}:{v['astig'][0]:g}:{v['astig'][1]}"
                                        for e, v in EYE.items() if v["astig"]),
              "--isolum", ",".join(f"{e}:{v['isolum']}" for e, v in EYE.items()),
+             "--light-cut", ",".join(f"{e}:{v['light']}" for e, v in EYE.items()),
              "--alpha-band", "--max-seconds", "3600"],
             cwd=ROOT))
         code = driver.wait(timeout=3600)

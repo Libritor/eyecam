@@ -21,6 +21,13 @@ patch gives a line under the noise):
             over the rates that respond the apparent latency (Regan, 1966),
             whose difference between the eyes is the pattern VEP's classic
             measure
+  intensity the light ladder (added 3 November 2026): the flash again, the
+            window flickering between black and a grey at one luminance level
+            per step (--exam-levels, fractions of white in linear light, bright
+            to dim; OFF = black): the eye's response against light level, and
+            the dimmest level it still follows (the limb rule on log level) as
+            its light threshold. On an LCD headset the black is not dark, so
+            this is daylight (photopic) sensitivity, not night vision
   acuity    a vertical black/white grating whose bars swap places at the
             flicker rate (pattern reversal): every bar location swings
             black-white like the flash, the mean luminance never changes, and
@@ -28,6 +35,19 @@ patch gives a line under the noise):
             width shrinks step by step (arcmin, set by --exam-sizes and
             --exam-ppd). --exam-style onset gives the older pattern
             onset/offset grating on a same-mean grey instead.
+  snellen   letter acuity at the Snellen lines (added 3 November 2026): the
+            window filled with Landolt Cs (ISO 8596's reference optotype: a ring
+            five strokes across with a one-stroke gap), black on white, every C
+            turning 180 degrees at the flicker rate so its gap jumps to the other
+            side; the ink and the mean luminance never change, so nothing swings
+            unless the eye resolves the gap. One step per line of the chart
+            (--exam-snellen, the 20/X denominators): the stroke (= gap = the
+            minimum angle of resolution) is X/20 arcmin and the C is five strokes
+            across. The size column logs the stroke, so the limb rule on log
+            stroke gives the threshold MAR and 20/(20 MAR) the Snellen
+            equivalent. A line whose stroke falls below one device pixel is not
+            shown (on a Quest 3S, about 20 px per degree, that is everything
+            finer than about 20/60; the laptop panel at 1.5-3 m shows 20/10)
   vernier   coarse bars cut into horizontal strips; every other strip jumps
             sideways by an offset and back at the flicker rate, aligned <->
             misaligned (the vernier VEP of Norcia, Wesemann and Manny, 1999):
@@ -107,8 +127,8 @@ from scipy.signal import get_window, periodogram
 import reconstruct
 
 CH_NAMES = ["TP9", "AF7", "AF8", "TP10"]
-TESTS = ["flash", "temporal", "acuity", "vernier", "contrast", "csf", "field", "gaze",
-         "meridian", "photometry", "colour"]
+TESTS = ["flash", "temporal", "intensity", "acuity", "snellen", "vernier", "contrast", "csf",
+         "field", "gaze", "meridian", "photometry", "colour"]
 GRATING_TESTS = {"acuity", "contrast", "csf", "meridian"}   # reversing bars; the page draws them alike
 PHOTOMETRY_PAIRS = {"rg": 0.2, "by": 0.08}  # pair -> total luminance of the two fields (of white,
 #                                             linear): red at full is 0.2126 of white and blue 0.0722,
@@ -122,8 +142,10 @@ GAZE_NAMES = ["centre", "up", "down", "left", "right"]
 MULTI_RATE = {"temporal"}                   # tests whose steps differ in flicker rate
 EYES = ["right", "left", "both"]
 STYLES = ["reversal", "onset"]              # the grating tests' temporal pattern
-LOG_EXTRA = ("size", "contrast", "plane", "angle", "mix")   # columns appended to the frame log
-#                                            (angle: the bars' tilt; mix: photometry's red share)
+LOG_EXTRA = ("size", "contrast", "plane", "angle", "mix", "level")   # columns appended to the frame log
+#             (angle: the bars' tilt; mix: photometry's red share; level: the light ladder's luminance)
+SNELLEN_LINES = "200,100,70,50,40,30,25,20,15,13,10"   # the chart's lines, 20/X
+LIGHT_LEVELS = "1,0.5,0.25,0.12,0.06,0.03,0.015,0.008"   # the light ladder, fractions of white (linear)
 DISPLAY_GAMMA = 2.2                         # the page's grey and contrast scale
 DISCARD_S = 0.5                             # dropped from every block start
 MAX_RMS_UV = 60.0                           # a channel above this for a whole test is noisy: kept only if it responds
@@ -160,6 +182,11 @@ def plan(a):
     m_size = float(getattr(a, "exam_meridian_size", 14.0))
     mixes = _floats(getattr(a, "exam_mixes", "0.2,0.35,0.5,0.65,0.8"))
     pairs = [p.strip() for p in str(getattr(a, "exam_photometry", "rg")).split(",") if p.strip()]
+    lines = _floats(getattr(a, "exam_snellen", SNELLEN_LINES))
+    levels = _floats(getattr(a, "exam_levels", LIGHT_LEVELS))
+    if not lines or min(lines) <= 0 or not levels or not all(0 < v <= 1 for v in levels):
+        raise ValueError("--exam-snellen: positive 20/X denominators; --exam-levels: luminance "
+                         "fractions of white in (0, 1]")
     if not offsets or min(offsets) <= 0 or bar <= 0 or not csf_sizes or not csf_contrasts \
             or not meridians or m_size <= 0 or not mixes or not all(0 < x < 1 for x in mixes) \
             or not pairs or any(p not in PHOTOMETRY_PAIRS for p in pairs):
@@ -169,7 +196,9 @@ def plan(a):
     return {
         "flash": [dict(flash=1)],
         "temporal": [dict(rate=r) for r in rates],
+        "intensity": [dict(level=v) for v in levels],
         "acuity": [dict(size=s, contrast=1.0) for s in sizes],
+        "snellen": [dict(line=x, size=x / 20.0, contrast=1.0) for x in lines],
         "vernier": [dict(offset=d, size=bar, contrast=1.0) for d in offsets],
         "contrast": [dict(size=float(a.exam_contrast_size), contrast=c) for c in contrasts],
         "csf": [dict(size=s, contrast=c) for s in csf_sizes for c in csf_contrasts],
@@ -514,6 +543,10 @@ def step_label(meta, test=None):
         return f"{meta.get('hz') or meta.get('rate', 0):.3g} Hz"
     if test == "acuity":
         return f"{meta.get('size', 0):.3g}'"
+    if test == "snellen":
+        return f"20/{meta.get('line', 20 * float(meta.get('size', 0))):g}"
+    if test == "intensity":
+        return f"L {meta.get('level', 0):.3g}"
     if test == "vernier":
         return f"offset {meta.get('offset', 0):.3g}'"
     if test == "contrast":
