@@ -477,9 +477,16 @@ class Driver:
                 pc.block(m["on"])      # music on this PC's headphones
             if m["phase"] == "start":
                 self._block_t0 = t
+            elif getattr(self, "_block_t0", None) is None:
+                # an end whose start this driver never saw (the page came back
+                # after a PC freeze or reconnect mid-block): no onset to pair it
+                # with, so it is dropped rather than crashing the connection or
+                # pairing with an older block's start
+                print(f"block end without a start (hz {m.get('hz')}): dropped")
             else:
                 self.blocks.append(("on" if m["on"] else "off",
                                     self._block_t0, t))
+                self._block_t0 = None
                 self.block_hz.append(m.get("hz"))
                 self.block_cls.append(m.get("cls"))
                 self.block_meta.append(m.get("meta"))
