@@ -202,6 +202,24 @@ line that responded; and the light ladder as columns whose height is the
 response, with a square below each sized by its light level, plus the same
 responses as a lithophane strip.
 
+**What the first sittings showed (3 November 2026).** The Landolt-C chart gave
+no response on a person at any line, not even with Cs at 20/400, while the
+flash in the same minute gave 4.4-5.8 on Oz: a C turning 180 degrees changes
+only its two gap areas, about 2 % of the screen (a reversing grating changes
+all of it), which is too little modulation to drive a measurable SSVEP. The
+phantom cannot catch this, because its response follows the stimulus's
+visibility, not how much of the screen changes. The chart that works is the
+acuity test's reversing bars at the chart's sizes (a bar of w arcmin is the
+MAR of 20/(20 w)): at 1.5 m from the laptop, `--exam-tests flash,acuity
+--exam-sizes 10,5,3.5,2.5,2,1.5,1.25,1,0.75 --exam-reps 4` (the finest lands on
+2 device pixels, 0.62', about 20/12). Its first sitting (runs/lap_chart_2026-11-03)
+gave a limb in both eyes: thresholds 0.9' (20/18, from a steep two-step limb)
+and 1.3' (20/25), the finest bar with a significant response 1.85' (20/40) in
+both. `flat_prints.py snellen` prints the chart from either test (the bars go
+to their nearest chart lines). The light ladder needed four repeats per level
+on a person (two were too noisy): runs/vr_light_2026-11-03c, thresholds 0.50 %
+and 0.49 % of white, a monotonic fall in the left eye.
+
 The gate checks both on the phantom (`EXAM_GATE_TESTS=flash,intensity,snellen
 python exam_gate.py`, about 10 minutes): each eye's letter threshold (MAR) in
 its acuity band, with the coarse lines 20/800 to 20/40 so both phantom cuts lie

@@ -270,8 +270,32 @@ def relief_of(amps, p, top=2.4, low=0.25):
             for v, pv in zip(a, p)]
 
 
+STANDARD_LINES = [200, 100, 70, 50, 40, 30, 25, 20, 15, 13, 10]
+
+
+def chart_from_acuity(ac):
+    """The reversing-bars acuity test as chart lines: a bar of w arcmin is the
+    MAR of the line 20/(20 w); each delivered width goes to its nearest
+    standard line (widths the panel delivered alike merge: the larger
+    amplitude, the smaller p)."""
+    rows = {}
+    for w, amp, pv in zip(ac["sizes"], ac["amps"], ac["p"]):
+        L = min(STANDARD_LINES, key=lambda s: abs(math.log(s) - math.log(20.0 * w)))
+        a0, p0 = rows.get(L, (-1e9, 1.0))
+        rows[L] = (max(a0, amp), min(p0, pv))
+    lines = sorted(rows, reverse=True)
+    out = dict(lines=[float(L) for L in lines], amps=[rows[L][0] for L in lines], p=[rows[L][1] for L in lines])
+    if ac.get("finest_sig") is not None:
+        out["finest_line"] = float(min(STANDARD_LINES, key=lambda s: abs(math.log(s) - math.log(20.0 * ac["finest_sig"]))))
+    return out
+
+
 def snellen_plaque(a):
-    eye, sn = eye_readout(a.session, a.eye, "snellen")
+    try:
+        eye, sn = eye_readout(a.session, a.eye, "snellen")
+    except SystemExit:                                 # the bars version of the chart (acuity at chart sizes)
+        eye, ac = eye_readout(a.session, a.eye, "acuity")
+        sn = chart_from_acuity(ac)
     tested = {round(L, 3): (amp, pv) for L, amp, pv in zip(sn["lines"], sn["amps"], sn["p"])}
     lines = sorted({round(L, 3) for L in sn["lines"]}, reverse=True)   # the lines tested, top to bottom
     rel = dict(zip(sn["lines"], relief_of(sn["amps"], sn["p"])))

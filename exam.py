@@ -47,7 +47,10 @@ patch gives a line under the noise):
             stroke gives the threshold MAR and 20/(20 MAR) the Snellen
             equivalent. A line whose stroke falls below one device pixel is not
             shown (on a Quest 3S, about 20 px per degree, that is everything
-            finer than about 20/60; the laptop panel at 1.5-3 m shows 20/10)
+            finer than about 20/60; the laptop panel at 1.5-3 m shows 20/10).
+            ON A PERSON IT GAVE NO RESPONSE (3 Nov 2026, even at 20/400): the
+            turn changes only the gap areas, about 2 % of the screen. Use the
+            acuity test's bars at the chart's sizes for the chart (docs/EXAM.md)
   vernier   coarse bars cut into horizontal strips; every other strip jumps
             sideways by an offset and back at the flicker rate, aligned <->
             misaligned (the vernier VEP of Norcia, Wesemann and Manny, 1999):
