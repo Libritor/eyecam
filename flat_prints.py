@@ -334,7 +334,7 @@ def snellen_plaque(a):
                              BASE - 0.05, BASE + 1.0))
         y -= h * 1.55
     m = trimesh.util.concatenate(parts)
-    name = f"snellen_chart_{eye}"
+    name = f"snellen_chart_{eye}" + ("" if BASE == 2.0 else f"_base{BASE:g}")
     out = os.path.join(HERE, a.session, "print"); os.makedirs(out, exist_ok=True)
     stl = os.path.join(out, name + ".stl"); m.export(stl)
     print(f"{name}: {W:.0f} x {H:.0f} mm, {len(m.faces)} triangles, {len(parts)} boxes; lines tested "
@@ -375,7 +375,7 @@ def light_ladder(a):
         if dimmest is not None and abs(lev - dimmest) < 1e-9:
             parts.append(box(x0, 41.5, x0 + cw, 43.0, BASE - 0.05, BASE + 1.0))      # mark: dimmest followed
     m = trimesh.util.concatenate(parts)
-    name = f"light_ladder_{eye}"
+    name = f"light_ladder_{eye}" + ("" if BASE == 2.0 else f"_base{BASE:g}")
     out = os.path.join(HERE, a.session, "print"); os.makedirs(out, exist_ok=True)
     stl = os.path.join(out, name + ".stl"); m.export(stl)
     # and the same response as a lithophane strip: the brain's grey scale when held to a light
@@ -449,9 +449,77 @@ def copy_out(files):
     print("copied to", DOWNLOADS)
 
 
+# ── fast settings and several prints on one bed (3 Nov 2026) ────────────────
+# Re-sliced and compared: about 55-60 % less time than the defaults above. The
+# biggest saving is the top skin, which Cura prints at half speed by default
+# and which these flat prints are mostly made of. Speeds stay inside a stock
+# Ender-3 Pro hotend's flow (0.4 x 0.28 x 80 mm/s = 9 mm3/s); pushing to
+# 100 mm/s saved only another 5 % and risks thin infill.
+FAST_SPEEDS = {"speed_print": "70", "speed_infill": "80", "speed_wall_0": "40", "speed_wall_x": "60",
+               "speed_topbottom": "60", "speed_travel": "150", "speed_layer_0": "25",
+               "material_print_temperature": "210", "material_print_temperature_layer_0": "210",
+               "support_enable": "false"}
+PLAQUE_FAST = dict(FAST_SPEEDS, layer_height="0.28", layer_height_0="0.28", infill_sparse_density="10",
+                   wall_line_count="2", top_layers="3", bottom_layers="2", adhesion_type="skirt")
+LITHO_FAST = dict(FAST_SPEEDS, layer_height="0.2", layer_height_0="0.2", infill_sparse_density="100",
+                  infill_pattern="lines", wall_line_count="2", top_layers="0", bottom_layers="0",
+                  adhesion_type="skirt")             # solid, so the light passes evenly
+BED = 205.0                                           # usable square of the Ender-3 Pro's 220 mm bed, mm
+
+
+def bed(a):
+    """Several STLs on one bed (shelf packing, tallest footprint first, a.gap
+    apart), written as one STL with a layout picture, sliced with the fast
+    plaque or lithophane settings."""
+    items = []
+    for path in a.stl:
+        m = trimesh.load(path, force="mesh")
+        m.apply_translation(-m.bounds[0])                   # min corner at the origin, standing on z = 0
+        items.append((os.path.basename(path)[:-4], m))
+    items.sort(key=lambda it: -it[1].extents[1])
+    placed, x, y, row_h = [], 0.0, 0.0, 0.0
+    for name, m in items:
+        w, h = m.extents[0], m.extents[1]
+        if x > 0 and x + w > BED:                            # next shelf
+            x, y, row_h = 0.0, y + row_h + a.gap, 0.0
+        if x + w > BED or y + h > BED:
+            raise SystemExit(f"{name} ({w:.0f} x {h:.0f} mm) does not fit on the bed with the others")
+        m = m.copy(); m.apply_translation((x, y, 0))
+        placed.append((name, m))
+        x += w + a.gap
+        row_h = max(row_h, h)
+    whole = trimesh.util.concatenate([m for _, m in placed])
+    os.makedirs(a.out, exist_ok=True)
+    stl = os.path.join(a.out, a.name + ".stl")
+    whole.export(stl)
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(5, 5), dpi=130)
+    ax.add_patch(plt.Rectangle((0, 0), 220, 220, fill=False, lw=1.0, ls="--", color="#999"))
+    ox, oy = (220 - whole.extents[0]) / 2, (220 - whole.extents[1]) / 2   # the slicer centres the set
+    for name, m in placed:
+        (x0, y0, _), (x1, y1, _) = m.bounds
+        ax.add_patch(plt.Rectangle((ox + x0, oy + y0), x1 - x0, y1 - y0, color="#f0a040", alpha=0.6))
+        ax.text(ox + (x0 + x1) / 2, oy + (y0 + y1) / 2, name.replace("_", " "), ha="center", va="center", fontsize=6)
+    ax.set_xlim(-5, 225); ax.set_ylim(-5, 225); ax.set_aspect("equal")
+    ax.set_title(f"{a.name}: {len(placed)} prints on the 220 x 220 mm bed", fontsize=8)
+    fig.tight_layout(); fig.savefig(os.path.join(a.out, a.name + "_layout.png")); plt.close(fig)
+    from die_print import slice_stl
+    gcode = os.path.join(a.out, a.name + "_ender3pro.gcode")
+    slice_stl(stl, gcode, "creality_ender3pro", LITHO_FAST if a.kind == "litho" else PLAQUE_FAST)
+    print(f"{a.name}: {', '.join(n for n, _ in placed)}; set {whole.extents[0]:.0f} x {whole.extents[1]:.0f} mm")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="what", required=True)
+    p = sub.add_parser("bed", help="several STLs on one bed, sliced with the fast settings")
+    p.add_argument("stl", nargs="+")
+    p.add_argument("--name", required=True)
+    p.add_argument("--kind", choices=["plaque", "litho"], default="plaque")
+    p.add_argument("--gap", type=float, default=8.0)
+    p.add_argument("--out", default=os.path.join(DOWNLOADS, "fast"))
     p = sub.add_parser("lithophane")
     p.add_argument("--run", default="runs/vr_vision1")
     p = sub.add_parser("tactile")
@@ -461,13 +529,20 @@ def main():
         p = sub.add_parser(what)
         p.add_argument("--session", required=True, help="a session folder with exam_readout.json")
         p.add_argument("--eye", default=None, help="right / left / both (default: the first with the test)")
-    for p in sub.choices.values():
+        p.add_argument("--base", type=float, default=2.0,
+                       help="plate thickness, mm (1.2 prints about 17 %% faster; the file name gets _base1.2)")
+    for name, p in sub.choices.items():
+        if name == "bed":
+            continue
         p.add_argument("--slice", action="store_true")
         p.add_argument("--preview", action="store_true")
         p.add_argument("--no-copy", action="store_true", help="leave Downloads alone (test runs)")
     a = ap.parse_args()
-    global COPY
+    if a.what == "bed":
+        return bed(a)
+    global COPY, BASE
     COPY = not a.no_copy
+    BASE = getattr(a, "base", 2.0)
     {"lithophane": lithophane, "tactile": tactile, "snellen": snellen_plaque, "ladder": light_ladder}[a.what](a)
 
 
