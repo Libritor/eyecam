@@ -35,53 +35,60 @@ Mersivity; wearable computing; EEG; brain-computer interface; consumer electroni
 
 \section{Introduction}
 
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{photo_harbour}
+\caption{The ABC Vehicraft in Toronto's inner harbour, October 9, 2026: the paddle-board design with its balloon cluster, the city behind. The rider wears a consumer EEG headband.}
+\label{fig:teaser}
+\end{figure}
+
+
 Mersivity is the idea that technology should connect people to each other and to the natural world rather than wall them off from it \cite{mann2026float}, and that wearable sensing \cite{mann1997wearable} lets the laboratory come out to the lake instead of bringing the lake's people into a laboratory. Our State-of-Float paper took a consumer EEG headband into a water-walking ball and found a higher theta/beta ratio while floating than on land \cite{mann2026float}. That work was done lying still under a VR headset, in two-minute blocks, with the headset pressing the headband into place.
 
 This paper goes the other way. The craft moves, the rider stands, walks or swims, nothing presses the headband down, and the water reaches the electrodes. The question is what a consumer headband records under those conditions, because the answer decides whether brain-state measurement can travel with a vehicle at all. We do it on the ABC Vehicraft, a craft built to be aerial, boat and car at once, and we record its rider on three of its modes in one afternoon.
 
 We make no claim about the rider's state from these recordings. Three to five minutes per mode, one person, no markers and no baseline is not a study of mind. It is a study of the measurement, and it yields a table of what each mode gives, which artifacts dominate, and what the next ride must add. That is the contribution, together with the craft itself.
 
+\section{Background}
+
+\emph{Mersivity and the water.} This paper belongs to a programme that takes sensing into water and play rather than bringing people into a laboratory \cite{mann2026float}. Its instruments include the hydraulophone, whose keys are water jets \cite{mann2006hydraulophone}, and the wider family of physiphones named for the matter that makes their sound \cite{mann2007physiphones}; its brain sensing runs on consumer headbands, from the eye as a camera \cite{mann2019eye} and sleep staging with the adaptive chirplet transform \cite{mann2025sleep} to the cold-plunge game Cocaine Buzzkill \cite{mann2026buzzkill} and State-of-Float, which found a higher theta/beta ratio floating in a water ball than on land \cite{mann2026float}. Our recording app MuseLog \cite{vicol2026muselog} is the common tool. Wearable computing as Mann framed it keeps the person in the loop and in control \cite{mann1997wearable, mann1998humanistic}, and the record belongs to the person who makes it \cite{mann2003sousveillance}.
+
+\emph{Sensing in the field.} Fletcher's work set the standard for taking physiology out of the clinic. iCalm logged autonomic arousal from a wrist sensor through a whole day \cite{fletcher2010icalm}; the same group built a wearable and phone application for therapy in addiction and PTSD \cite{fletcher2011cbt}, studied craving in recovery with iHeal \cite{boyer2012iheal}, measured screen exposure from a wearable \cite{fletcher2016screentime} and took mobile tools to people experiencing homelessness \cite{leonard2018homeless}. Two lessons run through it: low-cost sensors reach places health care does not, but only when designed for the conditions they meet \cite{fletcher2010wearable, fletcher2014mental}, and a measurement's failure rate across people and settings is itself a result \cite{fletcher2020fairness}. Affective wearables were proposed for exactly this kind of everyday, in-context sensing \cite{picard1997wearables}. A vehicle on open water is an extreme of ``the conditions they meet'', and that is why we measure the measurement.
+
 \section{The ABC Vehicraft}
 
 The ABC Vehicraft is one idea built three ways: a craft that belongs to the air, the water and the land at once, made from parts anyone can carry to a shore. Each design joins the three elements. \emph{Aerial}: a cluster of helium foil and latex balloons tethered to the craft. It lifts only a small fraction of the load, so it is the aerial element in form and the start of it in function: it makes the craft visible from shore and from the water, a safety flag that cannot be lowered by accident, and it is the part that a larger envelope would turn into real lift. \emph{Boat}: whatever floats the rider, a board, a ball or an inflatable. \emph{Car}: whatever rolls, a ball that rolls on land and on water alike, or a board set on wheels. The craft is for play in the open air and water, which is where Mersivity places technology \cite{mann2026float}, and for carrying wearable sensing out of the laboratory with the rider.
 
-We tested three designs (Fig.~\ref{fig:photos}).
+We tested three designs (Figs.~\ref{fig:paddle} to~\ref{fig:billy}).
 
 \emph{1. Paddle board with balloons.} A stand-up paddle board, inflatable, three metres long, ridden standing with a paddle; the balloon cluster, gold foil letters and black and gold latex spheres, is tied at the bow. It is the most boat-like of the three and the steadiest platform for the rider.
 
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{photo_paddle_board}
+\caption{Design 1, the paddle board with balloons, in Toronto's inner harbour on October 9, 2026: under way with the cluster at the bow. The rider wears the Muse S Athena headband.}
+\label{fig:paddle}
+\end{figure}
+
 \emph{2. Ball with balloons.} A water-walking ball, a transparent inflatable sphere two metres across that the rider walks inside \cite{mann2026float, astm2374}, with the balloon cluster tethered alongside on a line. It is the design that behaves like a wheel: the same ball rolls on land and on water, so it is car and boat in one hull, and its motion is the rider's walking.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{photo_water_ball}
+\caption{Design 2, the ball with balloons: the rider walks inside the water-walking ball, the balloon cluster tethered alongside on a line.}
+\label{fig:ball}
+\end{figure}
 
 \emph{3. Billy boat with balloons.} A small yellow inflatable, the Billy boat, that the rider holds at the chest and rides through the water swimming, the head low and the ears at the waterline, with the balloon cluster standing over it. It is the smallest and most amphibious design, the rider half in the water, and the hardest on a headband.
 
-The car element also stands on its own: a board set on skateboard wheels carries a rider on land with the same balloons in hand (Fig.~\ref{fig:wheels}), so the craft can roll from the street to the water's edge. Figs.~\ref{fig:photos} to~\ref{fig:ballsun} show the three water designs on October 9, 2026, in Toronto's inner harbour; the rider wears a Muse S Athena headband throughout.
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=0.9\textwidth]{photos}
-\caption{The three designs of the ABC Vehicraft, each with its balloon cluster, in Toronto's harbour, October 9, 2026, in the order they were recorded. Left: the paddle board under way with the balloon cluster in tow. Middle: the water-walking ball at sunset. Right: the Billy boat, the small inflatable held at the chest and ridden in the water with the ears at the waterline. The rider wears the Muse S Athena headband in every picture.}
-\label{fig:photos}
-\end{figure*}
-
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.78\columnwidth]{photo_second_rider}
-\caption{The first author on the same craft earlier in the afternoon, the balloon cluster at the bow, in the inner harbour.}
-\label{fig:second}
+\includegraphics[width=\columnwidth]{photo_board}
+\caption{Design 3, the Billy boat with balloons: the small yellow inflatable held at the chest, ridden swimming with the ears at the waterline under the cluster, at sunset.}
+\label{fig:billy}
 \end{figure}
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=0.72\columnwidth]{photo_board_wheels}
-\caption{The car element: a board on skateboard wheels with the balloons in hand, ridden by the first author on the harbour pier on October 17, 2026. This ride was not recorded with the headband.}
-\label{fig:wheels}
-\end{figure}
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{photo_ball_sun}
-\caption{The water-walking ball against the setting sun, with the balloon cluster tethered alongside and the tow line trailing to the camera.}
-\label{fig:ballsun}
-\end{figure}
+The car element also stands on its own: a board set on skateboard wheels carries a rider on land with the same balloons in hand (Fig.~\ref{fig:wheels}), so the craft can roll from the street to the water's edge. Figs.~\ref{fig:teaser}, \ref{fig:paddle} to~\ref{fig:billy} and~\ref{fig:ballsun} show the three water designs on October 9, 2026, in Toronto's inner harbour; the rider wears a Muse S Athena headband throughout.
 
 Each design was recorded as one continuous MuseLog file (Table~\ref{tab:modes}): standing and paddling on the paddle board at 17:51, walking inside the ball at 18:16, and riding the Billy boat at 18:51, with the ears at or under the surface.
 
@@ -99,6 +106,7 @@ Each design was recorded as one continuous MuseLog file (Table~\ref{tab:modes}):
 \centering
 \scriptsize
 \setlength{\tabcolsep}{4pt}
+\resizebox{\columnwidth}{!}{%
 \begin{tabular}{lcccccc}
 \toprule
 mode & start & min & ears / AF7 usable & TBR & arousal & rhythm \\
@@ -107,10 +115,17 @@ paddle board, standing & 17:51 & 4.9 & 88\% / 98\% & 2.7 & 0.41 & 2.3\,Hz \\
 water ball, walking & 18:16 & 3.6 & 50\% / 72\% & 6.9 & 0.49 & 2.4\,Hz \\
 Billy boat, ears in water & 18:51 & 3.6 & 16 to 33\% / 93\% & 1.6 & 0.47 & 1.05\,Hz \\
 \bottomrule
-\end{tabular}
+\end{tabular}}
 \end{table}
 
 \section{Results}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.78\columnwidth]{photo_second_rider}
+\caption{The first author on the same craft earlier in the afternoon, the balloon cluster at the bow, in the inner harbour.}
+\label{fig:second}
+\end{figure}
 
 \textbf{Contact and artifact.} Fig.~\ref{fig:quality}. Standing on the paddle board the headband gave usable EEG on 88\% of epochs behind both ears and 98\% on the left forehead, at 30\,$\mu$V rms behind the ears and 16 on AF7, numbers a quiet indoor session would not be ashamed of. The right forehead electrode (AF8) was off the skin in every mode, 11 to 22\% usable, and is dropped from what follows. Walking in the ball halved the usable share behind the ears to 50\% and on AF7 to 72\%, with rms up by a third. With the ears in the water the ear electrodes gave one usable epoch in three on the left and one in six on the right, at 46\,$\mu$V, while AF7, above the waterline, stayed 93\% usable.
 
@@ -161,9 +176,46 @@ Billy boat, ears in water & 18:51 & 3.6 & 16 to 33\% / 93\% & 1.6 & 0.47 & 1.05\
 
 \textbf{Which modes can be measured.} Standing on a paddle board is a measurable condition for a consumer headband with nothing holding it down: nine epochs in ten usable behind the ears and the forehead nearly clean. Walking in the ball is a motion condition first and a brain condition second; its band powers are not interpretable without a motion model, and the honest number from it is the step rate. Ears in the water is not a condition the ear electrodes survive, though the forehead does, so a frontal-only analysis is possible there and an ear-based one is not.
 
+\begin{table*}[t]
+\caption{The three designs side by side: which elements each joins, how the rider uses it, and what the headband gave on it. Usable epochs are 2\,s epochs under 200\,$\mu$V behind the ears and on the left forehead (AF7).}
+\label{tab:designs}
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lllllcl}
+\toprule
+design & boat & car & rider & head motion & usable, ears / AF7 & what limits the EEG \\
+\midrule
+paddle board with balloons & inflatable board & -- & standing, paddling & 2.3\,Hz chop and stroke, 0.06\,g & 88\% / 98\% & nothing pressing the band down \\
+ball with balloons & the ball & the ball rolls & walking inside & 2.4\,Hz steps, 0.16\,g & 50\% / 72\% & step rhythm in delta and theta \\
+Billy boat with balloons & small inflatable & -- & swimming, ears at waterline & 1.05\,Hz stroke, 0.07\,g & 16--33\% / 93\% & water at the ear electrodes \\
+board on wheels (Fig.~\ref{fig:wheels}) & -- & skateboard wheels & standing, rolling & not recorded & -- & -- \\
+\bottomrule
+\end{tabular}}
+\end{table*}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.72\columnwidth]{photo_board_wheels}
+\caption{The car element: a board on skateboard wheels with the balloons in hand, ridden by the first author on the harbour pier on October 17, 2026. This ride was not recorded with the headband.}
+\label{fig:wheels}
+\end{figure}
+
+\textbf{The craft as a field instrument.} Table~\ref{tab:designs} reads the three designs as three field conditions for a consumer sensor. The paddle board is the easy one and gave laboratory-quality EEG with nothing holding the headband; the ball is a motion condition, whose EEG is interpretable only with the accelerometer beside it; the Billy boat is a contact condition, where the forehead survives and the ears do not. Reporting those pass rates per design, rather than only the brain measures that survived them, is the practice the field-sensing literature asks for \cite{fletcher2020fairness}, and it tells the next rider which design to choose for which question. The whole kit, a headband (about US\$250), a phone running MuseLog and a board, ball or inflatable, is carried to the shore by one person and run without a laptop, which is what makes the measurement repeatable by people who are not engineers \cite{fletcher2010wearable}.
+
+\textbf{Safety.} Every ride was in a sheltered inner harbour beside a pier, with a personal flotation device on the board and in the Billy boat, a tow line on the ball and a second person on the pier. The water-walking ball is an air-tight enclosure and is used only for a few minutes at a time with the zip opened between rides \cite{astm2374}. The balloon clusters are tethered and recovered after every ride; none was released. Cold-water immersion raises catecholamines severalfold \cite{sramek2000immersion}, so the Billy boat, the one design with the rider in the water, is the one to time and to watch.
+
 \textbf{Rules for the next ride.} A strap or cap over the headband, which in our headset work improved contact by pressing the band in \cite{mann2026float}. Dry the ear sites and keep them above the waterline when the ear channels matter. Log the optical stream: the Athena's fNIRS is the one signal that does not care about a wet electrode, and it was not recorded. A trigger press at the start of each mode and each change of activity, so the file carries its own timeline. Two-minute eyes-open and eyes-closed blocks in each mode, still, as in the State-of-Float protocol, so that the TBR has the baseline it needs. And a reference recording on land the same day. With those, the same afternoon becomes the study this paper is not.
 
 \textbf{Limits.} One rider, one afternoon, three to five minutes per mode, no markers, no baseline, no fNIRS. The fit indicator read its poorest value throughout, so the usable-epoch rule is the only guard on contact. The arousal index is the device's own and its algorithm is not published. Nothing here says what riding the craft does to a mind; it says what the headband can see while a mind rides it.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{photo_ball_sun}
+\caption{The water-walking ball against the setting sun, with the balloon cluster tethered alongside and the tow line trailing to the camera.}
+\label{fig:ballsun}
+\end{figure}
 
 \section{Conclusion}
 
