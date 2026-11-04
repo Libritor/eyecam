@@ -1,5 +1,5 @@
 """Ear as a geophone: what a Muse headband records while the wearer makes sound in a solid,
-the table under them (MuseLog phone file, 256 Hz EEG, accelerometer ~39 Hz, gyroscope).
+a table they sit at with the head off it (MuseLog phone file, 256 Hz EEG, accelerometer ~39 Hz, gyroscope).
 
 Segments as the wearer did them: 0-120 s tapping the table with the fingernails, 120-180 s
 scratching it, 180-244 s tapping it with the fingers.
@@ -105,10 +105,10 @@ def main():
         ax[1].bar(xs, [coh[c]["at_rhythm"] for c in CH], width=0.25, color=col)
         ax[1].scatter(xs, [coh[c]["median_1_15"] for c in CH], marker="_", s=40, color="k", lw=1.0, zorder=3,
                       label="median 1-15 Hz" if name == "fingernail taps" else None)
-    ax[0].set_xlabel("frequency, Hz"); ax[0].set_ylabel("head vibration, mg$^2$/Hz"); ax[0].legend(frameon=False)
-    ax[0].set_title("(a) the head's vibration", fontsize=6)
+    ax[0].set_xlabel("frequency, Hz"); ax[0].set_ylabel("head motion, mg$^2$/Hz"); ax[0].legend(frameon=False)
+    ax[0].set_title("(a) the head's motion", fontsize=6)
     ax[1].set_xticks(range(4)); ax[1].set_xticklabels(CH); ax[1].set_ylabel("coherence at the rhythm")
-    ax[1].set_title("(b) EEG coherence with the vibration", fontsize=6); ax[1].legend(frameon=False, fontsize=5)
+    ax[1].set_title("(b) EEG coherence with the motion", fontsize=6); ax[1].legend(frameon=False, fontsize=5)
     ax[2].axvline(0, color="#888", lw=0.5); ax[2].set_xlabel("ms from tap"); ax[2].set_ylabel("ear sites, uV")
     ax[2].set_title("(c) tap-locked EEG vs shuffle band", fontsize=6); ax[2].legend(frameon=False, loc="upper right")
     for x in ax:
