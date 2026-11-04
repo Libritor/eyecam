@@ -1,0 +1,53 @@
+{
+ "examples": [
+  "ex0_fast_synco",
+  "ex1_fast_straight",
+  "ex2_M2",
+  "ex0_slow_synco",
+  "ex1_slow_synco",
+  "ex2_slow_straight"
+ ],
+ "similarity": {
+  "ControlNet_EEG": [
+   0.373,
+   0.323,
+   0.237,
+   0.359,
+   0.434,
+   0.112
+  ],
+  "No-EEG_baseline": [
+   0.058,
+   0.039,
+   0.044,
+   0.096,
+   0.08,
+   0.068
+  ],
+  "Classify-then-play": [
+   1.0,
+   1.0,
+   0.315,
+   0.192,
+   0.192,
+   0.492
+  ],
+  "Label-shuffle_null": [
+   0.094,
+   0.056,
+   0.039,
+   0.225,
+   0.142,
+   0.069
+  ]
+ },
+ "mean": {
+  "ControlNet_EEG": 0.306,
+  "No-EEG_baseline": 0.064,
+  "Classify-then-play": 0.532,
+  "Label-shuffle_null": 0.104
+ },
+ "controlnet_beats_shuffle": "6/6",
+ "sign_test_p_one_sided": 0.0156,
+ "note": "Classify-then-play outputs for both fast examples are the heard file itself (MD5), hence 1.0"
+}

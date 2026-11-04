@@ -1,0 +1,199 @@
+{
+ "file": "muse_session_20261104_053232_Muse1.csv",
+ "minutes": 4.07,
+ "accel_rate_hz": 39.2,
+ "hsi_median": {
+  "TP9": 1.0,
+  "AF7": 1.0,
+  "AF8": 1.0,
+  "TP10": 1.0
+ },
+ "segments": [
+  {
+   "name": "fingernail taps",
+   "start_s": 0,
+   "end_s": 120,
+   "vib_sd_mg": 3.81,
+   "vib_p99_mg": 12.82,
+   "rhythm_hz": 6.59,
+   "coherence": {
+    "TP9": {
+     "at_rhythm": 0.049,
+     "median_1_15": 0.077
+    },
+    "AF7": {
+     "at_rhythm": 0.039,
+     "median_1_15": 0.043
+    },
+    "AF8": {
+     "at_rhythm": 0.115,
+     "median_1_15": 0.118
+    },
+    "TP10": {
+     "at_rhythm": 0.001,
+     "median_1_15": 0.033
+    }
+   },
+   "taps": 32,
+   "tap_epochs": 22,
+   "tap_locked_outside_shuffle_frac": 0.201,
+   "tap_locked_ear_peak_uv": 4.77,
+   "band_power_uv2hz": {
+    "delta": [
+     27.0,
+     18.22,
+     14.67,
+     21.04
+    ],
+    "theta": [
+     5.48,
+     3.69,
+     4.4,
+     6.24
+    ],
+    "alpha": [
+     1.97,
+     0.66,
+     1.16,
+     2.78
+    ],
+    "beta": [
+     0.62,
+     0.11,
+     0.42,
+     1.07
+    ],
+    "hf_40_120": [
+     4.18,
+     0.02,
+     0.77,
+     3.19
+    ]
+   }
+  },
+  {
+   "name": "scratching",
+   "start_s": 120,
+   "end_s": 180,
+   "vib_sd_mg": 2.84,
+   "vib_p99_mg": 8.49,
+   "rhythm_hz": 4.6,
+   "coherence": {
+    "TP9": {
+     "at_rhythm": 0.075,
+     "median_1_15": 0.04
+    },
+    "AF7": {
+     "at_rhythm": 0.022,
+     "median_1_15": 0.023
+    },
+    "AF8": {
+     "at_rhythm": 0.056,
+     "median_1_15": 0.052
+    },
+    "TP10": {
+     "at_rhythm": 0.057,
+     "median_1_15": 0.045
+    }
+   },
+   "taps": 29,
+   "tap_epochs": 29,
+   "tap_locked_outside_shuffle_frac": 0.067,
+   "tap_locked_ear_peak_uv": 3.05,
+   "band_power_uv2hz": {
+    "delta": [
+     9.17,
+     9.12,
+     9.73,
+     11.04
+    ],
+    "theta": [
+     4.22,
+     2.36,
+     2.34,
+     4.8
+    ],
+    "alpha": [
+     2.15,
+     0.74,
+     0.77,
+     2.79
+    ],
+    "beta": [
+     0.66,
+     0.13,
+     0.35,
+     1.29
+    ],
+    "hf_40_120": [
+     4.49,
+     0.02,
+     0.6,
+     2.86
+    ]
+   }
+  },
+  {
+   "name": "finger taps",
+   "start_s": 180,
+   "end_s": 244,
+   "vib_sd_mg": 5.59,
+   "vib_p99_mg": 15.42,
+   "rhythm_hz": 4.9,
+   "coherence": {
+    "TP9": {
+     "at_rhythm": 0.009,
+     "median_1_15": 0.021
+    },
+    "AF7": {
+     "at_rhythm": 0.003,
+     "median_1_15": 0.014
+    },
+    "AF8": {
+     "at_rhythm": 0.005,
+     "median_1_15": 0.028
+    },
+    "TP10": {
+     "at_rhythm": 0.007,
+     "median_1_15": 0.019
+    }
+   },
+   "taps": 35,
+   "tap_epochs": 34,
+   "tap_locked_outside_shuffle_frac": 0.067,
+   "tap_locked_ear_peak_uv": 4.95,
+   "band_power_uv2hz": {
+    "delta": [
+     22.71,
+     11.17,
+     18.38,
+     23.74
+    ],
+    "theta": [
+     4.82,
+     1.97,
+     4.6,
+     5.68
+    ],
+    "alpha": [
+     1.28,
+     0.42,
+     0.88,
+     2.51
+    ],
+    "beta": [
+     0.44,
+     0.15,
+     0.43,
+     1.15
+    ],
+    "hf_40_120": [
+     4.37,
+     0.05,
+     0.58,
+     2.78
+    ]
+   }
+  }
+ ]
+}
