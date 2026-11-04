@@ -82,6 +82,14 @@ classify-then-play & 1.00 & 1.00 & 0.32 & 0.19 & 0.19 & 0.49 & 0.53 \\
 
 \section{Water: the Ear as a Hydrophone}
 
+\begin{figure*}[t]
+\centering
+\includegraphics[height=1.72in]{fig_spectra}\hfill
+\includegraphics[height=1.72in]{fig_optics}
+\caption{At the water. Left: Spectra of the usable epochs behind the left ear and on the left forehead at the water. The band at 37 to 43\,Hz is where a 40\,Hz steady-state response would appear; the line at 64\,Hz is the headband's optical clock. Right: The optical channels at the water. a: pulse spectrum of the 850\,nm inner channel on each temple, peaking at 64 beats per minute. b: ten seconds of the pulse waveform. c: heart rate per 20\,s. d: oxygenated (solid) and deoxygenated (dashed) haemoglobin on the inner detectors, relative units.}
+\label{fig:spectra}\label{fig:optics}
+\end{figure*}
+
 The second author lay at the edge of a dock in Toronto's harbour on October 4, 2026, the head out of the water, while a hydraulophone, the water-jet instrument the second author invented, was played alongside (Fig.~\ref{fig:photo}), wearing a Muse S Athena. Six minutes, no markers. The EEG was usable on 92 to 100\% of 2-s epochs (under 200\,$\mu$V), at 26 to 27\,$\mu$V rms behind the ears and 13 to 16 on the forehead, as clean as our indoor sessions. The spectra (Fig.~\ref{fig:spectra}) are the ordinary 1/f shape with an alpha shoulder behind the ears; a spectrogram shows broadband bursts of movement but no narrow ridge that steps with the music, and the one steady line, at 63.9\,Hz on every channel, is at the Athena's optical sampling rate and absent from recordings without the optical stream, the headband's LEDs seen by its own electrodes. A hydraulophone's fundamentals run from the low hundreds of hertz upward, all above the 128\,Hz Nyquist limit, so what folds back is spread, not a line. The optical channels carried the body (Fig.~\ref{fig:optics}): a pulse at 64 beats per minute on both temples, breathing near 7 per minute, and oxygenated haemoglobin rising equally on every detector pair with deoxygenated flat, a systemic change such as the posture of lying on the dock rather than a response to listening.
 
 \begin{figure}[t]
@@ -89,20 +97,6 @@ The second author lay at the edge of a dock in Toronto's harbour on October 4, 2
 \includegraphics[width=\columnwidth]{photo_dock}
 \caption{The ear as a hydrophone: the second author lying at the edge of the dock, the head out of the water, wearing the headband, while the hydraulophone is played alongside.}
 \label{fig:photo}
-\end{figure}
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{fig_spectra}
-\caption{Spectra of the usable epochs behind the left ear and on the left forehead at the water. The band at 37 to 43\,Hz is where a 40\,Hz steady-state response would appear; the line at 64\,Hz is the headband's optical clock.}
-\label{fig:spectra}
-\end{figure}
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{fig_optics}
-\caption{The optical channels at the water. a: pulse spectrum of the 850\,nm inner channel on each temple, peaking at 64 beats per minute. b: ten seconds of the pulse waveform. c: heart rate per 20\,s. d: oxygenated (solid) and deoxygenated (dashed) haemoglobin on the inner detectors, relative units.}
-\label{fig:optics}
 \end{figure}
 
 \textbf{What a response would need.} The floor behind the ears at 37 to 43\,Hz was 4.5\,$\mu$V$^2$/Hz. For an ASSR of rms amplitude $A$ over a floor $N$ the clean time to a signal-to-noise ratio $s$ in one bin is $T = sN/A^2$: about one minute for 0.5\,$\mu$V, three for 0.3, six for 0.2 (Fig.~\ref{fig:budget}); with the head out of the water the sound must cross the water's surface, which reflects nearly all of it, so the response will be at the small end.
@@ -113,6 +107,13 @@ The second author lay at the edge of a dock in Toronto's harbour on October 4, 2
 \caption{Clean recording time for a 40\,Hz steady-state response to reach a signal-to-noise ratio of three over the floor measured behind the ears at the water, against the response's amplitude.}
 \label{fig:budget}
 \end{figure}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{fig_group}
+\caption{The four group sessions on one clock. For each second, the share of listeners whose frontal EEG (AF7/AF8, 0.5 to 8\,Hz) exceeded $z = 2.5$; red lines mark seconds in which at least two did. Each panel gives the shared seconds against the number expected from 1{,}000 independently shifted surrogates, and the inter-subject correlation with its surrogate $p$.}
+\label{fig:group}
+\end{figure*}
 
 \textbf{Seven listeners, one hydrophone.} On October 17, 2026 the experience became a shared one (Fig.~\ref{fig:group_photos}). A hydrophone in Lake Ontario at Love Quay fed a speaker on the pier, and a group of about seven people sat beside it, each wearing a Muse headband (Muse 1 to 7), all recorded at once by a single MuseLog phone, the multi-headband mode built for hyperscanning \cite{vicol2025muselogsymp}, so that every headband is on the same clock, while swimmers jumped into the lake, someone kicked the water and someone struck it with a stick. Listening together is where a wearable that reads many people at once earns its place: group EEG has tracked shared attention in a classroom \cite{dikker2017classroom}, and the inter-subject correlation of brain activity rises when people take in the same natural stimulus \cite{hasson2004isc}. A shared sound in the water should, if the headbands can see it, make several listeners react in the same second.
 
@@ -130,9 +131,9 @@ No session showed a shared moment beyond chance (Fig.~\ref{fig:group}): 0, 6, 1 
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=\textwidth]{fig_group}
-\caption{The four group sessions on one clock. For each second, the share of listeners whose frontal EEG (AF7/AF8, 0.5 to 8\,Hz) exceeded $z = 2.5$; red lines mark seconds in which at least two did. Each panel gives the shared seconds against the number expected from 1{,}000 independently shifted surrogates, and the inter-subject correlation with its surrogate $p$.}
-\label{fig:group}
+\includegraphics[width=\textwidth]{fig_geophone}
+\caption{The ear as a geophone: tapping and scratching a table, the head not touching it. (a)~The head's motion from the headband's accelerometer (3\,Hz high-pass) in each segment. (b)~Coherence between that motion and each electrode at the segment's peak, against each electrode's median coherence from 1 to 15\,Hz (black ticks). (c)~EEG behind the ears averaged around the taps, against the 95\% band of averages at random times in the same segment.}
+\label{fig:geophone}
 \end{figure*}
 
 \section{Solid: the Ear as a Geophone}
@@ -144,13 +145,6 @@ On November 4, 2026 the first author sat at a table, the head not touching it, a
 \emph{Did the EEG follow it?} No. The coherence between the head's motion and each electrode at that peak was 0.00 to 0.12, at or below each electrode's own median coherence from 1 to 15\,Hz, in every segment; the 40 to 120\,Hz power behind the ears was the same in all three (4.2 to 4.5\,$\mu$V$^2$/Hz on TP9), so scratching left no broadband trace either.
 
 \emph{Was there a response to each tap?} Not reliably. Taps found as the head motion's largest peaks (22 usable epochs for the fingernails, 34 for the fingers) gave tap-locked averages behind the ears inside the band of averages at random times for the finger taps (7\% of samples outside, chance 5\%); the fingernail average left the band on 20\% of samples, with a positive deflection of 4.5\,$\mu$V near 120\,ms, but it left it as far before the tap as after, so it is not a response. With taps timed only to the accelerometer's 39\,Hz samples, an auditory evoked potential would also be smeared by up to 25\,ms.
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=\textwidth]{fig_geophone}
-\caption{The ear as a geophone: tapping and scratching a table, the head not touching it. (a)~The head's motion from the headband's accelerometer (3\,Hz high-pass) in each segment. (b)~Coherence between that motion and each electrode at the segment's peak, against each electrode's median coherence from 1 to 15\,Hz (black ticks). (c)~EEG behind the ears averaged around the taps, against the 95\% band of averages at random times in the same segment.}
-\label{fig:geophone}
-\end{figure*}
 
 \section{One Protocol for Three Media}
 
