@@ -1,0 +1,365 @@
+{
+ "sessions": [
+  {
+   "session": "15:44 17 Oct",
+   "stamp": "154442",
+   "headbands": [
+    "Muse1",
+    "Muse2",
+    "Muse3",
+    "Muse4",
+    "Muse5",
+    "Muse6"
+   ],
+   "seconds": 55.4,
+   "need": 2,
+   "contact": {
+    "Muse1": {
+     "TP9": 1.0,
+     "AF7": 1.0,
+     "AF8": 0.0,
+     "TP10": 1.0
+    },
+    "Muse2": {
+     "TP9": 0.0,
+     "AF7": 1.0,
+     "AF8": 1.0,
+     "TP10": 1.0
+    },
+    "Muse3": {
+     "TP9": 0.0,
+     "AF7": 1.0,
+     "AF8": 0.0,
+     "TP10": 0.0
+    },
+    "Muse4": {
+     "TP9": 0.0,
+     "AF7": 1.0,
+     "AF8": 1.0,
+     "TP10": 0.0
+    },
+    "Muse5": {
+     "TP9": 0.0,
+     "AF7": 0.0,
+     "AF8": 0.0,
+     "TP10": 0.0
+    },
+    "Muse6": {
+     "TP9": 0.0,
+     "AF7": 1.0,
+     "AF8": 1.0,
+     "TP10": 1.0
+    }
+   },
+   "gyro": {
+    "shared_moments": 0,
+    "shared_surrogate_mean": 0.47,
+    "shared_surrogate_95": 2.0,
+    "shared_p": 1.0,
+    "isc": -0.157,
+    "isc_surrogate_95": 0.401,
+    "isc_p": 0.7841,
+    "moments_s": [],
+    "headbands_used": [
+     "Muse1",
+     "Muse2"
+    ],
+    "moment_intervals_s": []
+   },
+   "frontal": {
+    "shared_moments": 0,
+    "shared_surrogate_mean": 0.4,
+    "shared_surrogate_95": 2.0,
+    "shared_p": 1.0,
+    "isc": 0.085,
+    "isc_surrogate_95": 0.106,
+    "isc_p": 0.0997,
+    "moments_s": [],
+    "headbands_used": [
+     "Muse1",
+     "Muse2",
+     "Muse3",
+     "Muse4",
+     "Muse5",
+     "Muse6"
+    ],
+    "moment_intervals_s": []
+   }
+  },
+  {
+   "session": "15:48 17 Oct",
+   "stamp": "154801",
+   "headbands": [
+    "Muse1",
+    "Muse2",
+    "Muse3",
+    "Muse4",
+    "Muse5",
+    "Muse6"
+   ],
+   "seconds": 91.9,
+   "need": 2,
+   "contact": {
+    "Muse1": {
+     "TP9": 0.0,
+     "AF7": 1.0,
+     "AF8": 0.0,
+     "TP10": 0.0
+    },
+    "Muse2": {
+     "TP9": 0.0,
+     "AF7": 1.0,
+     "AF8": 1.0,
+     "TP10": 1.0
+    },
+    "Muse3": {
+     "TP9": 0.0,
+     "AF7": 1.0,
+     "AF8": 0.0,
+     "TP10": 0.0
+    },
+    "Muse4": {
+     "TP9": 0.0,
+     "AF7": 0.0,
+     "AF8": 0.0,
+     "TP10": 0.0
+    },
+    "Muse5": {
+     "TP9": 1.0,
+     "AF7": 1.0,
+     "AF8": 0.0,
+     "TP10": 1.0
+    },
+    "Muse6": {
+     "TP9": 0.0,
+     "AF7": 0.0,
+     "AF8": 0.0,
+     "TP10": 0.0
+    }
+   },
+   "gyro": {
+    "shared_moments": 4,
+    "shared_surrogate_mean": 2.13,
+    "shared_surrogate_95": 5.0,
+    "shared_p": 0.1968,
+    "isc": 0.032,
+    "isc_surrogate_95": 0.249,
+    "isc_p": 0.3821,
+    "moments_s": [
+     37.5,
+     49.5,
+     51.5,
+     88.5
+    ],
+    "headbands_used": [
+     "Muse1",
+     "Muse2"
+    ],
+    "moment_intervals_s": [
+     12.0,
+     2.0,
+     37.0
+    ]
+   },
+   "frontal": {
+    "shared_moments": 6,
+    "shared_surrogate_mean": 4.32,
+    "shared_surrogate_95": 7.0,
+    "shared_p": 0.2547,
+    "isc": 0.085,
+    "isc_surrogate_95": 0.062,
+    "isc_p": 0.0199,
+    "moments_s": [
+     0.5,
+     4.5,
+     50.5,
+     54.5,
+     57.5,
+     60.5
+    ],
+    "headbands_used": [
+     "Muse1",
+     "Muse2",
+     "Muse3",
+     "Muse4",
+     "Muse5",
+     "Muse6"
+    ],
+    "moment_intervals_s": [
+     4.0,
+     46.0,
+     4.0,
+     3.0,
+     3.0
+    ]
+   }
+  },
+  {
+   "session": "15:53 17 Oct",
+   "stamp": "155318",
+   "headbands": [
+    "Muse1",
+    "Muse2",
+    "Muse3",
+    "Muse4",
+    "Muse5",
+    "Muse6"
+   ],
+   "seconds": 208.0,
+   "need": 2,
+   "contact": {
+    "Muse1": {
+     "TP9": 1.0,
+     "AF7": 1.0,
+     "AF8": 1.0,
+     "TP10": 1.0
+    },
+    "Muse2": {
+     "TP9": 0.0,
+     "AF7": 1.0,
+     "AF8": 1.0,
+     "TP10": 0.0
+    },
+    "Muse3": {
+     "TP9": 0.0,
+     "AF7": 0.0,
+     "AF8": 0.0,
+     "TP10": 0.0
+    },
+    "Muse4": {
+     "TP9": 0.0,
+     "AF7": 1.0,
+     "AF8": 1.0,
+     "TP10": 0.0
+    },
+    "Muse5": {
+     "TP9": 1.0,
+     "AF7": 1.0,
+     "AF8": 1.0,
+     "TP10": 1.0
+    },
+    "Muse6": {
+     "TP9": 0.0,
+     "AF7": 0.0,
+     "AF8": 0.0,
+     "TP10": 0.0
+    }
+   },
+   "gyro": {
+    "shared_moments": 2,
+    "shared_surrogate_mean": 3.09,
+    "shared_surrogate_95": 6.0,
+    "shared_p": 0.8432,
+    "isc": -0.074,
+    "isc_surrogate_95": 0.158,
+    "isc_p": 0.7309,
+    "moments_s": [
+     102.5,
+     120.5
+    ],
+    "headbands_used": [
+     "Muse1",
+     "Muse2"
+    ],
+    "moment_intervals_s": [
+     18.0
+    ]
+   },
+   "frontal": {
+    "shared_moments": 1,
+    "shared_surrogate_mean": 0.93,
+    "shared_surrogate_95": 3.0,
+    "shared_p": 0.6024,
+    "isc": 0.036,
+    "isc_surrogate_95": 0.06,
+    "isc_p": 0.1661,
+    "moments_s": [
+     120.5
+    ],
+    "headbands_used": [
+     "Muse1",
+     "Muse2",
+     "Muse3",
+     "Muse4",
+     "Muse5",
+     "Muse6"
+    ],
+    "moment_intervals_s": []
+   }
+  },
+  {
+   "session": "16:09 17 Oct",
+   "stamp": "160909",
+   "headbands": [
+    "Muse1",
+    "Muse3",
+    "Muse5",
+    "Muse7"
+   ],
+   "seconds": 216.7,
+   "need": 2,
+   "contact": {
+    "Muse1": {
+     "TP9": 1.0,
+     "AF7": 1.0,
+     "AF8": 0.0,
+     "TP10": 1.0
+    },
+    "Muse3": {
+     "TP9": 0.0,
+     "AF7": 1.0,
+     "AF8": 1.0,
+     "TP10": 0.0
+    },
+    "Muse5": {
+     "TP9": 0.0,
+     "AF7": 0.0,
+     "AF8": 0.0,
+     "TP10": 0.0
+    },
+    "Muse7": {
+     "TP9": 0.0,
+     "AF7": 0.0,
+     "AF8": 0.0,
+     "TP10": 0.0
+    }
+   },
+   "gyro": {
+    "shared_moments": 0,
+    "shared_surrogate_mean": 0.0,
+    "shared_surrogate_95": 0.0,
+    "shared_p": 1.0,
+    "isc": NaN,
+    "isc_surrogate_95": NaN,
+    "isc_p": 0.0033,
+    "moments_s": [],
+    "headbands_used": [
+     "Muse1"
+    ],
+    "moment_intervals_s": []
+   },
+   "frontal": {
+    "shared_moments": 2,
+    "shared_surrogate_mean": 2.06,
+    "shared_surrogate_95": 5.0,
+    "shared_p": 0.6224,
+    "isc": 0.017,
+    "isc_surrogate_95": 0.07,
+    "isc_p": 0.3355,
+    "moments_s": [
+     142.5,
+     204.5
+    ],
+    "headbands_used": [
+     "Muse1",
+     "Muse3",
+     "Muse5",
+     "Muse7"
+    ],
+    "moment_intervals_s": [
+     62.0
+    ]
+   }
+  }
+ ]
+}
