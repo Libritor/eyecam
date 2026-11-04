@@ -27,7 +27,7 @@
 \maketitle
 
 \begin{abstract}
-At least a billion people have a preventable or unaddressed vision impairment, and much of the problem is screening: a letter chart needs a subject who can read it and an examiner who can judge the answers. We built an eye exam in which the subject only looks at a dot with one eye covered. It runs on a Muse headband with one extra electrode over the visual cortex and a Meta Quest 3S that shows the stimulus in its web browser, for under 600 US dollars in total. Twelve tests are read from the steady-state visual evoked potential (SSVEP): acuity, vernier acuity, contrast and its sensitivity function, visual field, gaze, four meridians for astigmatism, red/green flicker photometry, colour, the light threshold, and the eye's temporal tuning and apparent latency. A synthetic subject with known deficits passes all 39 checks of an end-to-end test of the software, so the system can be checked without a patient. On one person, the first three sittings found nothing because the headset's browser was running an old cached copy of the page. Once we verified what the headset actually displayed, the next three sittings gave a flash response in both eyes, an acuity limb down to 6 arcmin that repeated in the same eye six days later, a response at every gaze position, and a red/green photometric null at the same mix in both eyes. They also showed that a loose electrode can pass a significance test without carrying the visual response. On a laptop panel at a measured distance, the reversing bars gave a grating acuity of about 20/18 and 20/25 in physical units, finer than the headset can draw, and a light ladder put both eyes' thresholds at 0.5\% of white. We also describe a hearing test on the same headband, which tags four octave bands of sound at rates near 40\,Hz and reads each band's auditory steady-state response behind the ears. The system is a research prototype, not a diagnostic device.
+At least a billion people have a preventable or unaddressed vision impairment, and much of the problem is screening: a letter chart needs a subject who can read it and an examiner who can judge the answers. We built an eye exam in which the subject only looks at a dot with one eye covered. It runs on a Muse headband with one extra electrode over the visual cortex and a Meta Quest 3S that shows the stimulus in its web browser, for under 600 US dollars in total. Twelve tests are read from the steady-state visual evoked potential (SSVEP): acuity, vernier acuity, contrast and its sensitivity function, visual field, gaze, four meridians for astigmatism, red/green flicker photometry, colour, the light threshold, and the eye's temporal tuning and apparent latency. A synthetic subject with known deficits passes all 39 checks of an end-to-end test of the software, so the system can be checked without a patient. On one person, the first three sittings found nothing because the headset's browser was running an old cached copy of the page. Once we verified what the headset actually displayed, the next three sittings gave a flash response in both eyes, an acuity limb down to 6 arcmin that repeated in the same eye six days later, a response at every gaze position, and a red/green photometric null at the same mix in both eyes. They also showed that a loose electrode can pass a significance test without carrying the visual response. On a laptop panel at a measured distance, the reversing bars gave a grating acuity of about 20/18 and 20/25 in physical units, finer than the headset can draw, and a light ladder put both eyes' thresholds at 0.5\% of white. We also describe a hearing test on the same headband, which tags four octave bands of sound at rates near 40\,Hz and reads each band's auditory steady-state response behind the ears. The results print in 3D as a raised letter chart and a tactile report, and photometry with a slow red/green swap could screen colour vision objectively. The system is a research prototype, not a diagnostic device.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -53,7 +53,7 @@ Mann et al.\ first used the SSVEP to turn the eye into a camera \cite{mann2019ey
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.78\columnwidth]{fig_rig.jpg}
+\includegraphics[width=0.6\columnwidth]{fig_rig.jpg}
 \caption{The rig: the Quest 3S worn over the Muse headband, with the cup electrode held at Oz by the headset strap.}
 \label{fig:rig}
 \end{figure}
@@ -96,48 +96,9 @@ A device meant for a worker with no eye clinic nearby has to be testable without
 \end{minipage}
 \end{figure}
 
-All 39 checks pass. The right eye's acuity threshold is 3.7\,arcmin and the left eye's 7.9, more than twice as coarse (Fig.~\ref{fig:gateacuity}). The contrast thresholds are 0.030 and 0.053 (Fig.~\ref{fig:gatecontrast}). In the right eye, exactly the dialled quadrant is silent (Fig.~\ref{fig:gatefield}). The apparent latencies are 109 and 139\,ms, within 6\,ms of what the gate expects for the dialled delays and 30\,ms apart as dialled. The right eye is still above half amplitude at the fastest rate, and the left falls to half at 22.5\,Hz. Every gaze position responds at 0.92 to 0.99 of the centre in both eyes, and green beats red, which beats blue (Fig.~\ref{fig:gatecolour}).
+All 39 checks pass. The right eye's acuity threshold is 3.7\,arcmin and the left eye's 7.9, more than twice as coarse (Fig.~\ref{fig:gateacuity}). The contrast thresholds are 0.030 and 0.053 (Fig.~\ref{fig:gatecontrast}). In the right eye, exactly the dialled quadrant is silent. The apparent latencies are 109 and 139\,ms, within 6\,ms of what the gate expects for the dialled delays and 30\,ms apart as dialled. The right eye is still above half amplitude at the fastest rate, and the left falls to half at 22.5\,Hz. Every gaze position responds at 0.92 to 0.99 of the centre in both eyes, and green beats red, which beats blue.
 
-\begin{figure}[t]
-\centering
-\begin{minipage}[t]{0.49\columnwidth}
-\centering
-\includegraphics[width=\linewidth]{fig_gate_field.pdf}
-\caption{Field map of the synthetic right eye: each quadrant over the best; the cross marks the dead one.}
-\label{fig:gatefield}
-\end{minipage}\hfill
-\begin{minipage}[t]{0.49\columnwidth}
-\centering
-\includegraphics[width=\linewidth]{fig_gate_colour.pdf}
-\caption{Colour on the synthetic subject: each plane's response over green's.}
-\label{fig:gatecolour}
-\end{minipage}
-\end{figure}
-
-The four newer tests pass their checks too. The vernier thresholds are 0.37\,arcmin for the right eye and 0.88 for the left (Fig.~\ref{fig:gatevernier}). The right eye's response falls from full at 2\,arcmin, through half at 1, to nothing at 0.5, exactly the dialled curve, which also shows that the page really delivers sub-pixel offsets. Every CSF threshold falls inside the contrast band (Fig.~\ref{fig:gatecsf}). The right eye's weakest meridian is at 90 degrees, at 0.47 of the best, while the left eye's four meridians stay within 0.90 of each other (Fig.~\ref{fig:gatemeridian}). The photometric nulls land at 0.49 and 0.65, a difference of $+0.16$ (Fig.~\ref{fig:gatephotometry}). The gate also caught our own mistake: its first run with the gaze test failed exactly the two gaze checks, because the synthetic subject did not yet follow the new test's log. What the gate cannot judge is a stimulus's strength. A letter chart of Landolt Cs passed it and then gave nothing on a person (Section~\ref{sec:human}): the synthetic subject responds to what is visible, not to how much of the screen changes.
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{fig_gate_vernier.pdf}
-\caption{Vernier acuity on the synthetic subject: amplitude against the strips' offset. Right eye 0.37\,arcmin, left eye 0.88.}
-\label{fig:gatevernier}
-\end{figure}
-
-\begin{figure}[t]
-\centering
-\begin{minipage}[t]{0.49\columnwidth}
-\centering
-\includegraphics[width=\linewidth]{fig_gate_csf.pdf}
-\caption{Contrast sensitivity function of the synthetic subject (open: beyond the tested range).}
-\label{fig:gatecsf}
-\end{minipage}\hfill
-\begin{minipage}[t]{0.49\columnwidth}
-\centering
-\includegraphics[width=\linewidth]{fig_gate_meridian.pdf}
-\caption{Meridians: each orientation's response over the best. The right eye's weak axis is horizontal.}
-\label{fig:gatemeridian}
-\end{minipage}
-\end{figure}
+The four newer tests pass their checks too. The vernier thresholds are 0.37\,arcmin for the right eye and 0.88 for the left. The right eye's response falls from full at 2\,arcmin, through half at 1, to nothing at 0.5, exactly the dialled curve, which also shows that the page really delivers sub-pixel offsets. Every CSF threshold falls inside the contrast band. The right eye's weakest meridian is at 90 degrees, at 0.47 of the best, while the left eye's four meridians stay within 0.90 of each other. The photometric nulls land at 0.49 and 0.65, a difference of $+0.16$ (Fig.~\ref{fig:gatephotometry}). What the gate cannot judge is a stimulus's strength. A letter chart of Landolt Cs passed it and then gave nothing on a person (Section~\ref{sec:human}): the synthetic subject responds to what is visible, not to how much of the screen changes.
 
 \begin{figure}[t]
 \centering
@@ -212,29 +173,44 @@ The same headband can test hearing. An auditory steady-state response (ASSR) is 
 We split a broadband sound into four octave bands centred at 500, 1000, 2000 and 4000\,Hz and modulate each band at its own rate near 40\,Hz: 37, 39, 41 and 43\,Hz. Each band leaves its own peak in the EEG, so all four can be read at once from TP9 and TP10, the Muse electrodes just behind the ears \cite{lins1996}. Clinical ASSR audiometry usually uses 80 to 90\,Hz, whose mostly subcortical generators keep working during sleep, which suits infants. In awake adults, responses near 40\,Hz are two to three times larger and come mainly from the auditory cortex \cite{picton2003assr,dejonckere2021}. That extra amplitude matters for dry electrodes, which are noisier than clinical gel systems, and the price is that the listener has to stay awake and alert. Clinical systems already test 500 to 4000\,Hz carriers at the same time \cite{john2004infants}, and octave-wide bands have been used in place of pure tones \cite{muhler2012}. As far as we know, nobody has yet obtained a frequency-specific EEG audiogram from a consumer dry-electrode headband, or used frequency-tagged music as the stimulus.
 
 \subsection{Recording}
-The Muse records at 256\,Hz from four dry electrodes near TP9, AF7, AF8 and TP10, referenced to Fpz \cite{krigolson2017}, and we analyse only TP9 and TP10, the closest to the auditory cortex. The headband streams over Bluetooth with \texttt{muselsl} into the Lab Streaming Layer, which also carries the stimulus events, so the EEG and the audio share one clock. We synchronise the clocks but deliberately do not dejitter the timestamps. \texttt{muselsl} derives them from the headband's packet counter, so a lost packet appears as a gap, and dejittering would smooth the gap away and shift every later sample. The raw data are saved after every block. Before each session, 10\,s of resting EEG check contact: a channel passes if its RMS after a 1 to 50\,Hz filter is under 60\,$\mu$V and less than 30\% of its power is at 60\,Hz. The listener sits upright with eyes open on a fixation point, jaw relaxed, and is asked to stay alert, because 40\,Hz responses weaken with drowsiness \cite{picton2003assr}.
+The Muse records at 256\,Hz from four dry electrodes near TP9, AF7, AF8 and TP10, referenced to Fpz \cite{krigolson2017}, and we analyse only TP9 and TP10, the closest to the auditory cortex. The headband streams over Bluetooth with \texttt{muselsl} into the Lab Streaming Layer, which also carries the stimulus events, so the EEG and the audio share one clock. Timestamps come from the headband's packet counter and are not dejittered, so a lost packet stays a gap. Ten seconds of resting EEG check contact first. The listener sits upright with eyes open on a fixation point, jaw relaxed, and is asked to stay alert, because 40\,Hz responses weaken with drowsiness \cite{picton2003assr}.
 
 \subsection{Stimulus}
 The source is a music track converted to mono at 44.1\,kHz or, as a control, pink noise, whose energy is spread across frequency much like music. Fourth-order zero-phase Butterworth filters cut it into octave bands from $f_c/\sqrt{2}$ to $f_c\sqrt{2}$, and each band $x_b(t)$ is modulated at its tag rate:
 \begin{equation}
   s_b(t) = x_b(t)\left[1 + m \sin\!\left(2\pi f_m t - \tfrac{\pi}{2}\right)\right],
 \end{equation}
-with full depth ($m = 1$). The phase offset starts every envelope at zero, so each block begins in silence. Each band is scaled to an RMS of $10^{(L - 100)/20}/\sqrt{2}$ of full scale for a target level $L$, where 100\,dB is the level we assign to a full-scale sine, so all four bands play at the same level. The bands are summed, 20\,ms raised-sine ramps remove clicks at the block edges, any block that would clip or exceed 85\,dB in a band is rejected, and the system volume is fixed. The levels are not acoustically calibrated, so every level here is nominal and absolute thresholds do not transfer between devices. Comparisons between EEG and behavioural thresholds, measured on the same headphones and volume, are not affected. Attenuating one band by a known amount before mixing simulates a hearing loss with a known answer: a band cut by 20\,dB should have its EEG threshold rise by 20\,dB.
+with full depth ($m = 1$). The phase offset starts every envelope at zero, so each block begins in silence. Each band is scaled to an RMS of $10^{(L - 100)/20}/\sqrt{2}$ of full scale for a target level $L$, where 100\,dB is the level we assign to a full-scale sine, so all four bands play at the same level. The bands are summed with 20\,ms ramps, capped at 85\,dB per band, at a fixed system volume. The levels are not acoustically calibrated, so every level here is nominal and absolute thresholds do not transfer between devices. Comparisons between EEG and behavioural thresholds, measured on the same headphones and volume, are not affected. Attenuating one band by a known amount before mixing simulates a hearing loss with a known answer: a band cut by 20\,dB should have its EEG threshold rise by 20\,dB.
 
 \subsection{Protocol}
-A session has three stages. First, a go/no-go check plays a 1\,kHz tone modulated at 40\,Hz in 120\,s blocks at 60, 50, 40, 30 and 20\,dB. The session continues only if the two loudest levels give significant responses; otherwise we fix the contact, for example by moistening the ear pads, and repeat. Second, a behavioural audiogram at 500 to 4000\,Hz uses a modified Hughson--Westlake procedure \cite{carhart1959} on the same headphones: 1\,s tones with 20\,ms ramps at random intervals of 0.8 to 2.0\,s, starting at 40\,dB, down 10\,dB after each tone heard and up 5 after each miss, with the threshold the first level heard on two ascending runs and about 20\% silent catch trials to count false alarms. Third, the four-band stimulus plays passively in 60\,s blocks at 60, 50, 40, 30 and 20\,dB, about five minutes in all.
+A session has three stages. First, a go/no-go check plays a 1\,kHz tone modulated at 40\,Hz in 120\,s blocks at 60, 50, 40, 30 and 20\,dB. The session continues only if the two loudest levels give significant responses; otherwise we fix the contact, for example by moistening the ear pads, and repeat. Second, a behavioural audiogram at 500 to 4000\,Hz uses a modified Hughson--Westlake procedure \cite{carhart1959} on the same headphones: 1\,s tones from 40\,dB, down 10\,dB after each tone heard and up 5 after each miss, with silent catch trials. Third, the four-band stimulus plays passively in 60\,s blocks at 60, 50, 40, 30 and 20\,dB, about five minutes in all.
 
 \subsection{Analysis}
-The recording is resampled onto an exact 256\,Hz grid from its timestamps, which fills dropouts up to 100\,ms and flags longer ones. TP9 and TP10 are band-passed at 1 to 70\,Hz, notch-filtered at 60\,Hz and averaged. Each block is cut into 4\,s epochs starting 2\,s after onset, and epochs that overlap a long dropout or exceed 150\,$\mu$V peak to peak, from blinks or jaw clenches, are dropped. The epochs are averaged coherently as complex spectra, so the phase-locked ASSR adds up while the background averages out. At each tag frequency, an F-test compares the power at the tag with the mean power of the $K$ neighbouring bins within $\pm$6\,Hz, leaving out the other bands' tags \cite{dobie1996}:
+TP9 and TP10 are band-passed at 1 to 70\,Hz, notch-filtered at 60\,Hz and averaged. Each block is cut into 4\,s epochs starting 2\,s after onset, and epochs with a long dropout or over 150\,$\mu$V peak to peak are dropped. The epochs are averaged coherently as complex spectra, so the phase-locked ASSR adds up while the background averages out. At each tag frequency, an F-test compares the power at the tag with the mean power of the $K$ neighbouring bins within $\pm$6\,Hz, leaving out the other bands' tags \cite{dobie1996}:
 \begin{equation}
   F = \frac{P(f_m)}{\frac{1}{K}\sum_{k=1}^{K} P(f_k)},
 \end{equation}
 and a response counts as present at $p < 0.05$. A band's EEG threshold is the lowest level with a significant response, provided every louder level is also significant, so one false positive at a quiet level cannot set it. ASSR thresholds usually sit 10 to 20\,dB above behavioural ones \cite{vanmaanen2005,tlumak2007}, so we compare the two mainly by correlation, alongside the per-band difference and the mean absolute error. On simulated EEG with known thresholds the pipeline recovered them to within one 10\,dB step, with a false-alarm rate of 4.7\% at a nominal 5\%. Recordings on people are the next step.
 
+\section{What the Exam Gives, Printed}\label{sec:offers}
+\textbf{Readings.} One sitting of about seventeen minutes per eye gives twelve thresholds and maps with no spoken answer. A letter chart gives one, acuity, only from a subject who reads the examiner's alphabet and will answer, and it reports the last line read; a young child, a reader of another script or a person with aphasia may give no usable answer. Here every step carries a significance test, both eyes share one scale, and a repeat sitting follows change. None of it is yet validated against clinical tests.
+
+\textbf{Colour without plates.} Plate tests ask the subject to name a number hidden in coloured dots, so they need the digits, good printing and good light, and they give pass or fail. Flicker photometry asks nothing: the red share at which a red/green swap stops driving the cortex is the eye's own brightness match, and a red-weak eye needs more red (0.65 against 0.49 in the synthetic subject). At that match, a slow red/green swap still changes hue for a normal eye, which the cortex answers with a chromatic VEP \cite{rabin1994chromatic}, while an eye that cannot tell red from green sees nothing change and gives no response \cite{crognale1993deficiency}. No response to a swap made isoluminant for that eye is thus an objective sign of red-green deficiency, graded by how far the match moved. On a person we have the match (0.34 and 0.36); the slow swap is next.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.495\columnwidth]{fig_print_charts.jpg}\hfill
+\includegraphics[width=0.495\columnwidth]{fig_print_tactile.jpg}
+\caption{The sixth day's results printed in PLA. Left: the letter chart as the cortex responded on the laptop at 1.5\,m, left eye then right; each line's letters stand as high as the response at that line, and a bar marks the finest line that responded (20/40 in both). Right: a tactile report, the left eye's four quadrants as a dome (the low quadrant did not respond) and both eyes' red/green photometry as ridges, left solid and right dashed, with a peg under the match.}
+\label{fig:prints}
+\end{figure}
+
+\textbf{Printing the result.} ``1.3 arcmin'' means little to most people, so we print the result on a consumer 3D printer (Fig.~\ref{fig:prints}). On the familiar chart each line stands as high as that eye's response to bars of its size, so a person sees which lines their brain followed and where it stopped; the tactile report raises the field as a dome, the silent quadrant low, and the colour match as a ridge with a peg at the null. A print can be held, kept and compared with the next screening's, and read by touch it reaches people who cannot read a chart, including those with low vision whom a screen exists to find. It also shows noise honestly: the right eye's 20/70 line stands low between lines that responded, a dropout a pass/fail chart would hide.
+
 \section{What Is Established and What Comes Next}
 So far we have built and checked the apparatus: an exact test for every step, the sweep-VEP threshold rule, the latency from the phase slope, the photometric null, and a 39-check software gate that catches failures without a volunteer. On one person we have a flash response in both eyes, each eye's best flicker rate, an acuity limb down to 6\,arcmin and a response at every gaze position, with the left eye's limb and best rate repeated six days apart, a photometric null at the same mix in both eyes, a light threshold of 0.5\% of white in each eye, and, on the laptop, a grating acuity of about 20/18 and 20/25 in physical units. The same recording carries more than the visual response \cite{picard1997affective}: in companion sittings the forehead electrodes gave the blink rate, which doubled between two sittings in one evening, a long-known sign of fatigue \cite{stern1994blink} and a natural cue for a just-in-time prompt to rest \cite{nahum2018jitai}.
 
-Several things are not yet established. The headset's thresholds are not in physical units and its finest bars are display-limited; on the laptop they are, but grating acuity still has to be calibrated against a letter chart. The latency still has its turn-count ambiguity. We do not yet have a vernier or contrast reading on a person, even from a sitting with the occipital electrode in contact, and the photometric null is only relative until the display's primaries are measured. The exam does not yet pause when the stream drops, nor insist on the occipital electrode for the reference. The hearing test still has to be run on people. After that come a blur study with trial lenses against a letter chart, a normative group of subjects, and a simple flow for health workers with the whole report on one page, or as a tactile print that needs no reading. Nothing here is a diagnosis yet, but every part of the exam can now be tested, by a person or by the synthetic subject, on hardware that costs under 600 US dollars.
+Several things are not yet established. The headset's thresholds are not in physical units and its finest bars are display-limited; on the laptop they are, but grating acuity still has to be calibrated against a letter chart. The latency still has its turn-count ambiguity. We do not yet have a vernier or contrast reading on a person, even from a sitting with the occipital electrode in contact, and the photometric null is only relative until the display's primaries are measured. The exam does not yet pause when the stream drops, nor insist on the occipital electrode for the reference. The hearing test still has to be run on people. After that come a blur study with trial lenses against a letter chart, a normative group, and a flow for health workers with the report on one page or in print. Nothing here is a diagnosis yet, but every part of the exam can now be tested, by a person or by the synthetic subject, on hardware that costs under 600 US dollars.
 
 \bibliographystyle{IEEEtran}
 \bibliography{refs}
