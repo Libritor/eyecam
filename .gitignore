@@ -32,3 +32,8 @@ docs/paper/**/*_preview.png
 
 # page screenshots from Tools/exam_screens.py
 Tools/preview/
+
+# Mind to Matter test media: the clip is remade by media/make_test_clip.py (8 MB, not committed)
+media/*.mp4
+media/*.webm
+media/*.npy

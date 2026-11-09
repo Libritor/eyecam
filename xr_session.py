@@ -405,7 +405,7 @@ class Driver:
                               "signal", "calib_result", "result",
                               "assr_result", "arm", "start_alpha",
                               "alpha_result", "start_sweep", "sweep_result",
-                              "start_bwb_calib"):
+                              "start_bwb_calib", "start_watch", "show_find"):
             self.last_cmd = msg  # re-issued to a page that reconnects
         if self.page is not None:
             try:
@@ -537,7 +537,7 @@ class Driver:
     def mid_run(self):
         return bool(self.last_cmd) and self.last_cmd.get("cmd") in (
             "start_calib", "start_scan", "start_assr", "start_alpha",
-            "start_sweep", "start_bwb_calib", "start_exam")
+            "start_sweep", "start_bwb_calib", "start_exam", "start_watch")
 
     async def adopt(self, ws):
         old = self.page
@@ -1026,6 +1026,8 @@ class Driver:
                 return await self.run_bwb(result, recorder)
             if a.mode == "planes":
                 return await self.run_planes(result, recorder)
+            if a.mode == "matter":
+                return await self.run_matter(result, recorder, calib)
 
             # scan (page-driven serpentine)
             self.spectate(type="stage", stage="scan", detail="")
@@ -1167,6 +1169,107 @@ class Driver:
                     ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
                 except Exception:
                     pass
+
+    async def run_matter(self, result, recorder, calib=None):
+        """Mind to Matter: watch a clip (or a picture), pull the trigger on the thing, have it
+        found in the frame, scan it square by square at the calibrated flicker while the eyes
+        follow the dot, read the brain's picture of it back, and make the prints (matter.py)."""
+        a = self.args
+        import matter
+        media = a.matter_media
+        if not media or not os.path.exists(media):
+            raise RuntimeError("--mode matter needs --matter-media <clip or picture>")
+        name = os.path.basename(media)
+        kind = "image" if name.lower().endswith((".png", ".jpg", ".jpeg", ".webp")) else "video"
+        self.spectate(type="stage", stage="watch", detail=name)
+        print(f"watch: {name} ({kind}); pull the trigger on the thing to print")
+        await self.send(cmd="start_watch", src=f"/media/{name}", kind=kind,
+                        autoPause=a.matter_auto_pause,
+                        text="watch; when the thing you want to print is on screen, "
+                             "<b>pull the trigger</b>")
+        m = await self.wait_for("frame_capture", timeout=a.signal_timeout + 1800)
+        frame_path = matter.save_capture(self.session, m["jpg"], m.get("rect"))
+        print(f"frame captured at {float(m.get('vt') or 0):.1f} s -> {frame_path}")
+        self.spectate(type="stage", stage="find", detail="")
+        await self.send(cmd="msg", text="finding the thing you were looking at...")
+        found = await asyncio.to_thread(matter.find_object, frame_path, self.session,
+                                        a.matter_grid, a.matter_cells, a.matter_depth, a.matter_name,
+                                        a.matter_ring, a.matter_ring_cells)
+        gw, gh = found["gridW"], found["gridH"]
+        target = np.asarray(found["target"], float)
+        np.save(os.path.join(self.session, "target.npy"), target)
+        result.update(gridW=gw, gridH=gh)
+        print(f"found by {found['method']}: {found['mask_area']:.0%} of the frame, grid {gw}x{gh}, "
+              f"{len(found['object_cells'])} squares on it + {len(found['background_cells'])} around"
+              + (" (two of them black and white controls)" if found.get("controls") else "")
+              + ("" if found["depth_ok"] else "; no depth model: the 3-D will be a pillow relief"))
+        await self.send(cmd="show_find", image=found["overlay_data_url"], seconds=a.matter_show,
+                        title="FOUND",
+                        text=(f"{found['label'] + ': ' if found['label'] else ''}"
+                              f"{len(found['cells'])} squares, {a.spc:g} s each, {max(1, a.passes)} pass(es). "
+                              "Look at the dot and follow it; each square flickers while you look at it."))
+        await asyncio.sleep(a.matter_show + 1.5)
+        # the scan: every square of the thing, each pass in a fresh random order
+        rng = np.random.default_rng(1)
+        cells = []
+        for _ in range(max(1, a.passes)):
+            order = rng.permutation(len(found["cells"]))
+            cells += [list(found["cells"][i]) for i in order]
+        scan_kw = dict(gridW=gw, gridH=gh, spc=a.spc, freq=a.freq, target=target.tolist(),
+                       patch=a.patch, patchSide=a.patch_side, bw=True, board=a.board,
+                       restEvery=a.rest_every)
+        self.spectate(type="stage", stage="scan", detail=f"{len(cells)} squares")
+        self.open_log("cursor_log.csv")
+        await self.send(cmd="start_scan", cells=cells,
+                        label=f"scanning {len(found['cells'])} squares", **scan_kw)
+        await self.wait_for("scan_done", timeout=len(cells) * a.spc * 2 + 180)
+        self.close_log()
+        await asyncio.sleep(0.7)
+        method = a.recon_method if a.recon_method in ("line", "paper", "welch") else "line"
+        calib_path = os.path.join(self.session, "calibration.json")
+        calib_arg = calib_path if os.path.exists(calib_path) else ""
+        grid, r_full = reconstruct.run(self.session, calibration=calib_arg, stim_freq=self.stim_freq,
+                                       method=method, vblend=False)
+        shown = np.zeros((gh, gw), bool)
+        for gx_, gy_ in found["cells"]:
+            shown[gy_, gx_] = True
+
+        def r_shown(g_):
+            g_ = np.nan_to_num(np.asarray(g_, float))
+            if shown.sum() < 3 or np.std(g_[shown]) == 0 or np.std(target[shown]) == 0:
+                return None
+            return float(np.corrcoef(target[shown], g_[shown])[0, 1])
+        r = r_shown(grid)   # over the squares the person was shown, the controls included
+        nulls = []   # the same scoring on misaligned EEG: what chance gives
+        for k in range(8):
+            try:
+                g0, _ = reconstruct.run(self.session, calibration=calib_arg, stim_freq=self.stim_freq,
+                                        method=method, vblend=False, save=False,
+                                        shift_s=23.0 * (k + 1) + 7.0)
+                r0 = r_shown(g0)
+                if r0 is not None:
+                    nulls.append(r0)
+            except Exception as exc:
+                print("null:", repr(exc)[:120])
+                break
+        null_max = max(nulls) if nulls else None
+        print(f"the brain's picture against the frame's squares: r = {r if r is not None else float('nan'):.3f}"
+              + (f" (shifted-EEG null max {null_max:.3f} over {len(nulls)})" if null_max is not None else ""))
+        files = await asyncio.to_thread(matter.make_prints, self.session, grid, found, a.matter_slice)
+        png = grid_to_data_url(reconstruct_norm(np.nan_to_num(np.asarray(grid, float))))
+        text = (f"the brain's picture: r = {(r or 0.0):.2f}"
+                + (f" (null max {null_max:.2f})" if null_max is not None else "")
+                + "   prints: " + ", ".join(os.path.basename(p) for p in files["stl"]))
+        await self.send(cmd="result", png=png, r=r or 0.0, flickerHz=self.stim_freq, text=text)
+        result.update(ok=True, matter=dict(
+            found={k: v for k, v in found.items() if k != "overlay_data_url"}, r=r, r_full_grid=r_full,
+            method=method, null_r=nulls,
+            null_max=null_max, files={k: v for k, v in files.items() if k != "reports"},
+            reports=files.get("reports")))
+        recorder.stop()
+        print(f"MIND TO MATTER DONE -> {self.session}  (prints in {files.get('copied_to')})")
+        await asyncio.sleep(a.linger)
+        return 0
 
     async def certainty_scan(self, scan_kw, log_name, grid_w, grid_h, spc, state):
         """One full pass, then the least certain squares again, --certainty-batch
@@ -2435,9 +2538,48 @@ def local_ip():
         return "127.0.0.1"
 
 
+MEDIA_FILES = {}   # name -> path of the clip or picture served at /media/<name> (--matter-media)
+_MEDIA_TYPES = {".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+                ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+
+
+def http_media(request):
+    """Serve --matter-media to the page with byte ranges (a <video> asks for them)."""
+    name = request.path[len("/media/"):].split("?", 1)[0]
+    path = MEDIA_FILES.get(name)
+    if not path or not os.path.exists(path):
+        return Response(404, "Not Found", Headers([("Content-Type", "text/plain"),
+                                                   ("Content-Length", "9")]), b"not found")
+    with open(path, "rb") as f:
+        data = f.read()
+    ctype = _MEDIA_TYPES.get(os.path.splitext(name)[1].lower(), "application/octet-stream")
+    total = len(data)
+    rng = request.headers.get("Range", "")
+    start, end = 0, total - 1
+    status, reason = 200, "OK"
+    if rng.startswith("bytes="):
+        a_, _, b_ = rng[6:].partition("-")
+        try:
+            start = int(a_) if a_ else max(0, total - int(b_))
+            end = int(b_) if (b_ and a_) else total - 1
+            end = min(end, total - 1)
+            if start <= end:
+                status, reason = 206, "Partial Content"
+        except ValueError:
+            start, end = 0, total - 1
+    body = data[start:end + 1]
+    hdrs = [("Content-Type", ctype), ("Content-Length", str(len(body))), ("Accept-Ranges", "bytes"),
+            ("Cache-Control", "no-store"), ("Connection", "close")]
+    if status == 206:
+        hdrs.append(("Content-Range", f"bytes {start}-{end}/{total}"))
+    return Response(status, reason, Headers(hdrs), body)
+
+
 def http_page(connection, request):
     if request.path.startswith("/ws"):
         return None
+    if request.path.startswith("/media/"):
+        return http_media(request)
     with open(os.path.join(ROOT, "xr_stimulus.html"), "rb") as f:
         body = f.read()
     # never let a browser keep this page: the Quest browser served a copy cached
@@ -2700,9 +2842,29 @@ async def main():
     ap.add_argument("--music-blocks", type=int, default=6)
     ap.add_argument("--music-on", type=float, default=10.0)
     ap.add_argument("--music-off", type=float, default=10.0)
+    ap.add_argument("--matter-media", default="",
+                    help="matter: the clip (mp4/webm) or picture the person watches; served to the page at /media/")
+    ap.add_argument("--matter-grid", default="7x5",
+                    help="matter: at most this many columns x rows over the thing (squares stay near square)")
+    ap.add_argument("--matter-cells", type=int, default=20,
+                    help="matter: at most this many squares are scanned (the ones most inside the thing)")
+    ap.add_argument("--matter-show", type=float, default=6.0,
+                    help="matter: seconds the found thing and its grid are shown before the scan")
+    ap.add_argument("--matter-name", default="",
+                    help="matter: what the thing is, for the overlay and the report (optional)")
+    ap.add_argument("--matter-depth", default="auto", choices=["auto", "off"],
+                    help="matter: use the depth model for the 3-D (auto) or a pillow relief (off)")
+    ap.add_argument("--matter-auto-pause", type=float, default=3.0,
+                    help="matter: with ?auto=1 the page pauses the clip after this many seconds")
+    ap.add_argument("--matter-ring", type=int, default=1,
+                    help="matter: rings of background squares around the thing (0 = the thing alone)")
+    ap.add_argument("--matter-ring-cells", type=int, default=8,
+                    help="matter: how many background squares are scanned, two of them shown black and white as controls")
+    ap.add_argument("--matter-slice", action="store_true",
+                    help="matter: slice the prints for the H2C at the end (minutes)")
     ap.add_argument("--mode", choices=["visual", "assr", "calib", "alpha",
                                        "sweep", "full", "extras", "mux",
-                                       "music", "bwb", "smooth", "planes", "exam"],
+                                       "music", "bwb", "smooth", "planes", "exam", "matter"],
                     default="visual",
                     help="calib = G1 only (calibration, no scan); "
                          "assr = 'ear as a microphone' 40 Hz tone blocks")
@@ -2850,6 +3012,8 @@ async def main():
                             await driver.adopt(other)
                             break
 
+    if getattr(args, "matter_media", ""):
+        MEDIA_FILES[os.path.basename(args.matter_media)] = os.path.abspath(args.matter_media)
     async with websockets.serve(ws_handler, "0.0.0.0", args.http_port,
                                 process_request=http_page,
                                 max_size=2 ** 22):

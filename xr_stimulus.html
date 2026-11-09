@@ -1127,6 +1127,77 @@ async function armStart(m = {}) {
 const frame = () => new Promise(requestAnimationFrame);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// ---- Mind to Matter: watch a clip (or a picture), pull the trigger on the thing, hand the
+// frame to the computer; then the thing as it was found, before the square-by-square scan
+function drawMedia(el, c = cv, x = ctx) {
+  const w = el.videoWidth || el.naturalWidth || el.width || 0, h = el.videoHeight || el.naturalHeight || el.height || 0;
+  x.fillStyle = "#000"; x.fillRect(0, 0, c.width, c.height);
+  if (!w || !h) return [0, 0, 0, 0];
+  const s = Math.min(c.width / w, c.height / h), dw = w * s, dh = h * s, dx = (c.width - dw) / 2, dy = (c.height - dh) / 2;
+  try { x.drawImage(el, dx, dy, dw, dh); } catch {}
+  return [dx, dy, dw, dh];
+}
+async function runWatch(m) {
+  hideResult(); title.textContent = m.title || "WATCH"; title.className = "ok";
+  sub.innerHTML = m.text || "watch; when the thing you want to print is on screen, <b>pull the trigger</b>";
+  const tok = running = {};
+  black();
+  let el;
+  if (m.kind === "image") {
+    el = new Image(); el.src = m.src;
+    await new Promise(r => { el.onload = r; el.onerror = r; });
+  } else {
+    el = document.createElement("video");
+    el.muted = true; el.loop = true; el.playsInline = true; el.preload = "auto";
+    el.setAttribute("playsinline", ""); el.setAttribute("muted", "");
+    el.src = m.src;
+    try { await el.play(); } catch (e) { sub.textContent = "the clip could not start (" + e + "); pull the trigger to use the first frame"; }
+  }
+  const auto = location.search.includes("auto=1");
+  let pressed = false;
+  const press = () => { pressed = true; };
+  await sleep(700);                      // the arming press may still be held
+  addEventListener("pointerdown", press, { once: true });
+  addEventListener("keydown", press, { once: true });
+  const gp = setInterval(() => {
+    try {
+      for (const g of navigator.getGamepads ? navigator.getGamepads() : [])
+        if (g && g.buttons.some(b => b && (b.pressed || b.value > 0.5))) pressed = true;
+    } catch {}
+  }, 100);
+  const t0 = now();
+  while (running === tok && !pressed) {
+    await frame();
+    drawMedia(el);
+    if (auto && now() - t0 > (m.autoPause || 3)) pressed = true;
+  }
+  clearInterval(gp);
+  removeEventListener("pointerdown", press); removeEventListener("keydown", press);
+  if (running !== tok) return;
+  if (el.pause) el.pause();
+  drawMedia(el);
+  // the frame as seen, at most 1280 px wide, as a JPEG the computer can take over the socket
+  const cap = document.createElement("canvas");
+  const s = Math.min(1, 1280 / cv.width);
+  cap.width = Math.round(cv.width * s); cap.height = Math.round(cv.height * s);
+  const rect = drawMedia(el, cap, cap.getContext("2d"));
+  const jpg = cap.toDataURL("image/jpeg", 0.85);
+  send({ type: "frame_capture", jpg, rect, vt: el.currentTime || 0, w: cap.width, h: cap.height });
+  title.textContent = "PAUSED"; sub.textContent = "finding the thing you were looking at\u2026";
+}
+async function showFind(m) {
+  hideResult(); title.textContent = m.title || "FOUND"; title.className = "ok"; sub.innerHTML = m.text || "";
+  const tok = running = {};
+  const img = new Image(); img.src = m.image;
+  await new Promise(r => { img.onload = r; img.onerror = r; });
+  const t0 = now();
+  while (running === tok && now() - t0 < (m.seconds || 5)) { await frame(); drawMedia(img); }
+  if (running !== tok) return;
+  black(); dot(cv.width / 2, cv.height / 2);
+  sub.textContent = "look at the dot and follow it; each square flickers while you look at it";
+}
+
+
 // ---- "ear as a microphone": 40 Hz AM tone in ON/OFF blocks (ASSR) ----
 let audioCtx = null;
 async function ensureAudio() {
@@ -1319,6 +1390,8 @@ function connect() {
       case "color_result": showColorResult(m); break;
       case "sweep_result": showSweepResult(m); break;
       case "start_exam": runExam(m); break;
+      case "start_watch": runWatch(m); break;
+      case "show_find": showFind(m); break;
       case "exam_result": showExamResult(m); break;
       case "start_alpha": runAlpha(m); break;
       case "alpha_result": showAlphaResult(m); break;
